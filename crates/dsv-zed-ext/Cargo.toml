@@ -1,0 +1,16 @@
+[package]
+name = "dsv-zed-ext"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Zed extension shell for DeepSeek Vision MCP server (wasm32-wasip2)"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+serde.workspace = true
+schemars = "0.8"
+zed_extension_api = "0.7.0"

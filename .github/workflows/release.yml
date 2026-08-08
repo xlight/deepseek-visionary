@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-14
+          - target: x86_64-apple-darwin
+            os: macos-13
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-22.04
+          - target: x86_64-pc-windows-msvc
+            os: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+
+      - name: Build dsv-server
+        run: cargo build -p dsv-server --release --target ${{ matrix.target }}
+
+      - name: Package asset
+        shell: bash
+        run: |
+          BIN="dsv-server-${{ matrix.target }}"
+          SRC="target/${{ matrix.target }}/release/dsv-server"
+          if [[ "${{ matrix.target }}" == *windows* ]]; then
+            SRC="$SRC.exe"
+            BIN="$BIN.exe"
+          fi
+          mkdir -p dist
+          cp "$SRC" "dist/$BIN"
+          echo "asset=dist/$BIN" >> "$GITHUB_ENV"
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.asset }}
