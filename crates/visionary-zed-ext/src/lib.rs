@@ -1,7 +1,7 @@
-//! dsv-zed-ext — Zed 扩展壳（wasm32-wasip2）。
+//! visionary-zed-ext — Zed 扩展壳（wasm32-wasip2）。
 //!
 //! 职责（对应 design.md 决策 1）：
-//! - `context_server_command`：返回启动 `dsv-server` 原生二进制的命令。
+//! - `context_server_command`：返回启动 `visionary-server` 原生二进制的命令。
 //!   二进制来源优先级：`server_path` 设置 → 本地缓存 → GitHub Releases 下载。
 //! - `context_server_configuration`：安装引导 + 可选的 `server_path` 设置。
 //! - env 透传：`DEEPSEEK_USER_TOKEN` 从扩展进程环境读取并透传（覆盖 config.json，
@@ -21,23 +21,23 @@ use zed_extension_api::{
 };
 
 /// GitHub 仓库（发布 release 的二进制 asset 从这里下载）。
-const GITHUB_REPO: &str = "your-org/deepseek-vision-rs";
+const GITHUB_REPO: &str = "xlight/deepseek-visionary";
 /// 二进制文件名。
-const SERVER_BINARY_NAME: &str = "dsv-server";
+const SERVER_BINARY_NAME: &str = "visionary-server";
 /// 扩展 ID（与 extension.toml 的 context_servers 段名一致）。
-const CONTEXT_SERVER_ID: &str = "deepseek-vision";
+const CONTEXT_SERVER_ID: &str = "deepseek-visionary";
 
 /// 可选的用户设置：`server_path` 指向本地二进制（开发/调试）。
 #[derive(Debug, Deserialize, JsonSchema)]
-struct DsvSettings {
-    /// 本地 dsv-server 二进制路径（可选；不设置时自动下载）
+struct VisionarySettings {
+    /// 本地 visionary-server 二进制路径（可选；不设置时自动下载）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     server_path: Option<String>,
 }
 
-struct DsvExtension;
+struct VisionaryExtension;
 
-impl zed::Extension for DsvExtension {
+impl zed::Extension for VisionaryExtension {
     fn new() -> Self {
         Self
     }
@@ -49,7 +49,7 @@ impl zed::Extension for DsvExtension {
     ) -> Result<Command> {
         // 1. 读取用户设置
         let settings = ContextServerSettings::for_project(CONTEXT_SERVER_ID, project)?;
-        let settings: Option<DsvSettings> = settings
+        let settings: Option<VisionarySettings> = settings
             .settings
             .map(|v| zed::serde_json::from_value(v).map_err(|e| e.to_string()))
             .transpose()?;
@@ -83,7 +83,7 @@ impl zed::Extension for DsvExtension {
         let installation_instructions =
             include_str!("../configuration/installation_instructions.md").to_string();
         let default_settings = include_str!("../configuration/default_settings.jsonc").to_string();
-        let settings_schema = zed::serde_json::to_string(&schemars::schema_for!(DsvSettings))
+        let settings_schema = zed::serde_json::to_string(&schemars::schema_for!(VisionarySettings))
             .map_err(|e| e.to_string())?;
 
         Ok(Some(ContextServerConfiguration {
@@ -96,11 +96,11 @@ impl zed::Extension for DsvExtension {
 
 /// 获取本地缓存或下载二进制，返回可执行路径。
 ///
-/// 缓存位置：扩展目录下 `.dsv-server/<version>/dsv-server`。
+/// 缓存位置：扩展目录下 `.visionary-server/<version>/visionary-server`。
 /// 版本对比：与 GitHub 最新 release 版本比较，不一致则重新下载。
 fn ensure_server_binary() -> Result<String> {
     let base_dir = env::current_dir().map_err(|e| e.to_string())?;
-    let cache_root = base_dir.join(".dsv-server");
+    let cache_root = base_dir.join(".visionary-server");
 
     // 查最新 release
     let release = zed::latest_github_release(
@@ -137,7 +137,7 @@ fn ensure_server_binary() -> Result<String> {
     Ok(binary_path.to_string_lossy().to_string())
 }
 
-/// 计算当前平台的 asset 文件名（如 `dsv-server-aarch64-apple-darwin`）。
+/// 计算当前平台的 asset 文件名（如 `visionary-server-aarch64-apple-darwin`）。
 fn asset_name_for_platform(binary: &str, os: zed::Os, arch: zed::Architecture) -> String {
     let os_str = match os {
         zed::Os::Mac => "apple-darwin",
@@ -153,4 +153,4 @@ fn asset_name_for_platform(binary: &str, os: zed::Os, arch: zed::Architecture) -
     format!("{binary}-{arch_str}-{os_str}{ext}")
 }
 
-zed::register_extension!(DsvExtension);
+zed::register_extension!(VisionaryExtension);

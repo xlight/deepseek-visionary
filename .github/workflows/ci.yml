@@ -21,6 +21,6 @@ jobs:
       - name: fmt
         run: cargo fmt --all -- --check
       - name: clippy
-        run: cargo clippy --workspace --exclude dsv-zed-ext --all-targets -- -D warnings
+        run: cargo clippy --workspace --exclude visionary-zed-ext --all-targets -- -D warnings
       - name: test
-        run: cargo test --workspace --exclude dsv-zed-ext
+        run: cargo test --workspace --exclude visionary-zed-ext

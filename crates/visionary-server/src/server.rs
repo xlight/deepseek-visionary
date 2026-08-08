@@ -42,7 +42,7 @@ fn default_prompt() -> String {
 }
 
 /// MCP 服务实例（持有全部共享状态）。
-pub struct DsvServer {
+pub struct VisionaryServer {
     #[allow(dead_code)] // rmcp #[tool_router] 宏要求保留该字段
     tool_router: ToolRouter<Self>,
     config: Config,
@@ -50,7 +50,7 @@ pub struct DsvServer {
     session_store: SessionStore,
 }
 
-impl DsvServer {
+impl VisionaryServer {
     pub fn new(config: Config) -> Self {
         Self {
             tool_router: Self::tool_router(),
@@ -79,7 +79,7 @@ impl DsvServer {
 }
 
 #[tool_router]
-impl DsvServer {
+impl VisionaryServer {
     /// 上传一张图片，用 DeepSeek 网页版的原生多模态模型分析（支持照片、
     /// 截图、带图文档）。可开启续聊以对比多张图片。
     #[tool(
@@ -252,7 +252,7 @@ impl DsvServer {
 }
 
 #[tool_handler]
-impl ServerHandler for DsvServer {
+impl ServerHandler for VisionaryServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_instructions("DeepSeek 网页版原生多模态模型的 MCP 服务：上传图片分析、自动登录")

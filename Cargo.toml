@@ -1,12 +1,12 @@
 [workspace]
 resolver = "2"
-members = ["crates/dsv-server", "crates/dsv-zed-ext"]
+members = ["crates/visionary-server", "crates/visionary-zed-ext"]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/your-org/deepseek-vision-rs"
+repository = "https://github.com/xlight/deepseek-visionary"
 
 [workspace.dependencies]
 tokio = { version = "1", features = ["full"] }

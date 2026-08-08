@@ -804,36 +804,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dsv-server"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64",
- "bytes",
- "chromiumoxide",
- "futures-util",
- "image",
- "reqwest",
- "rmcp",
- "serde",
- "serde_json",
- "thiserror 2.0.20",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "wasmtime",
-]
-
-[[package]]
-name = "dsv-zed-ext"
-version = "0.1.0"
-dependencies = [
- "schemars 0.8.22",
- "serde",
- "zed_extension_api",
-]
-
-[[package]]
 name = "dunce"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3288,6 +3258,36 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "visionary-server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "bytes",
+ "chromiumoxide",
+ "futures-util",
+ "image",
+ "reqwest",
+ "rmcp",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "wasmtime",
+]
+
+[[package]]
+name = "visionary-zed-ext"
+version = "0.1.0"
+dependencies = [
+ "schemars 0.8.22",
+ "serde",
+ "zed_extension_api",
+]
 
 [[package]]
 name = "want"

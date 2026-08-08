@@ -1,0 +1,10 @@
+id = "deepseek-visionary"
+name = "DeepSeek Visionary"
+description = "DeepSeek web vision model as an MCP context server, with browser auto-login"
+version = "0.1.0"
+schema_version = 1
+authors = ["xlight"]
+repository = "https://github.com/xlight/deepseek-visionary"
+
+[context_servers.deepseek-visionary]
+name = "DeepSeek Visionary MCP"

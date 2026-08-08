@@ -1,4 +1,4 @@
-//! 配置管理：环境变量 + `~/.deepseek-vision/config.json`。
+//! 配置管理：环境变量 + `~/.deepseek-visionary/config.json`。
 //!
 //! 对照 Python 版 `config.py`，并落实 design.md 决策 6：
 //! - 键名对齐 Python：`user_token` / `smid_v2` / `cf_clearance`
@@ -14,25 +14,25 @@ use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 use std::time::Duration;
 
-/// 数据目录：`~/.deepseek-vision/`，存放 config.json 与 session.json。
+/// 数据目录：`~/.deepseek-visionary/`，存放 config.json 与 session.json。
 fn data_dir() -> Result<PathBuf> {
     let home = env::var_os("HOME")
         .map(PathBuf::from)
         .context("HOME not set")?;
-    Ok(home.join(".deepseek-vision"))
+    Ok(home.join(".deepseek-visionary"))
 }
 
-/// 配置文件路径：`~/.deepseek-vision/config.json`。
+/// 配置文件路径：`~/.deepseek-visionary/config.json`。
 fn config_file() -> Result<PathBuf> {
     Ok(data_dir()?.join("config.json"))
 }
 
-/// 会话文件路径：`~/.deepseek-vision/session.json`（对应 Python `_get_session_file`）。
+/// 会话文件路径：`~/.deepseek-visionary/session.json`（对应 Python `_get_session_file`）。
 pub fn session_file() -> Result<PathBuf> {
     Ok(data_dir()?.join("session.json"))
 }
 
-/// 登录浏览器 profile 目录：`~/.deepseek-vision/browser/`（权限 0700）。
+/// 登录浏览器 profile 目录：`~/.deepseek-visionary/browser/`（权限 0700）。
 pub fn browser_profile_dir() -> Result<PathBuf> {
     Ok(data_dir()?.join("browser"))
 }
@@ -202,7 +202,8 @@ mod tests {
 
     #[test]
     fn credentials_roundtrip() {
-        let dir = std::env::temp_dir().join(format!("dsv-config-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("visionary-config-test-{}", std::process::id()));
         let path = dir.join("config.json");
         let creds = Credentials {
             user_token: "tok".into(),

@@ -37,14 +37,14 @@ jobs:
         with:
           workspaces: . -> target
 
-      - name: Build dsv-server
-        run: cargo build -p dsv-server --release --target ${{ matrix.target }}
+      - name: Build visionary-server
+        run: cargo build -p visionary-server --release --target ${{ matrix.target }}
 
       - name: Package asset
         shell: bash
         run: |
-          BIN="dsv-server-${{ matrix.target }}"
-          SRC="target/${{ matrix.target }}/release/dsv-server"
+          BIN="visionary-server-${{ matrix.target }}"
+          SRC="target/${{ matrix.target }}/release/visionary-server"
           if [[ "${{ matrix.target }}" == *windows* ]]; then
             SRC="$SRC.exe"
             BIN="$BIN.exe"

@@ -1,10 +1,10 @@
 [package]
-name = "dsv-zed-ext"
+name = "visionary-zed-ext"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Zed extension shell for DeepSeek Vision MCP server (wasm32-wasip2)"
+description = "Zed extension shell for DeepSeek Visionary MCP server (wasm32-wasip2)"
 publish = false
 
 [lib]

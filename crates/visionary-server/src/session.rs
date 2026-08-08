@@ -1,7 +1,7 @@
 //! 会话创建与续聊状态持久化（对照 Python 版 `server.py`）。
 //!
 //! - `create_session`：调用 `/api/v0/chat_session/create`（agent=chat）
-//! - session.json：`~/.deepseek-vision/session.json`，记录 `{ session_id, parent_message_id }`，
+//! - session.json：`~/.deepseek-visionary/session.json`，记录 `{ session_id, parent_message_id }`，
 //!   供 `continue_conversation=true` / 显式 `session_id` 时复用。
 
 use crate::client::ApiClient;

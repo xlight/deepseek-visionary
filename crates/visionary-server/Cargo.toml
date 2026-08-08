@@ -1,10 +1,10 @@
 [package]
-name = "dsv-server"
+name = "visionary-server"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "DeepSeek Vision MCP server (native binary): vision pipeline + auto-login + stdio MCP service"
+description = "DeepSeek Visionary MCP server (native binary): vision pipeline + auto-login + stdio MCP service"
 publish = false
 
 [dependencies]

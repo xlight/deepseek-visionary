@@ -1,0 +1,5 @@
+{
+  // 可选：指向本地 visionary-server 二进制（开发调试用）
+  // 未设置时扩展自动从 GitHub Releases 下载
+  // "server_path": "/path/to/visionary-server"
+}

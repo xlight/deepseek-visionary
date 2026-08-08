@@ -1,4 +1,4 @@
-# DeepSeek Vision MCP 安装说明
+# DeepSeek Visionary MCP 安装说明
 
 安装扩展后，首次使用前需要登录 DeepSeek 网页版获取 token：
 
@@ -11,15 +11,15 @@
 3. 登录成功后工具自动抓取 token 与 cookies 并保存
 4. 之后即可直接使用 `deepseek_vision` 识图
 
-> 登录凭据保存在 `~/.deepseek-vision/config.json`（权限 0600）。
-> 浏览器使用独立 profile（`~/.deepseek-vision/browser/`），不影响日常浏览器。
+> 登录凭据保存在 `~/.deepseek-visionary/config.json`（权限 0600）。
+> 浏览器使用独立 profile（`~/.deepseek-visionary/browser/`），不影响日常浏览器。
 
 ## 方式二：手动配置（兜底）
 
 1. 打开 https://chat.deepseek.com 并登录
 2. 按 F12 打开 DevTools → Application → Local Storage
 3. 找到 `userToken`，复制 `JSON.parse(value).value` 的值
-4. 编辑 `~/.deepseek-vision/config.json`：
+4. 编辑 `~/.deepseek-visionary/config.json`：
 
 ```json
 {
@@ -41,7 +41,7 @@
 {
   "agent": {
     "tool_permissions": {
-      "context_servers.deepseek-vision": {
+      "context_servers.deepseek-visionary": {
         "deepseek_vision": "allow",
         "deepseek_vision_login": "allow",
         "deepseek_vision_status": "allow",
@@ -54,6 +54,6 @@
 
 ## 二进制下载
 
-扩展会从 GitHub Releases 自动下载与当前平台匹配的 `dsv-server` 二进制
+扩展会从 GitHub Releases 自动下载与当前平台匹配的 `visionary-server` 二进制
 （macOS / Linux / Windows，arm64 / x86_64），按版本缓存。也可以设置
 `server_path` 指向本地构建的二进制（开发调试用）。
