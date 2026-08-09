@@ -108,8 +108,10 @@ impl HifAuth {
                 &leim[..leim.len().min(20)],
                 &d[..d.len().min(20)]
             ),
-            None => tracing::info!("HIF token refreshed (leim={}..., dliq=skipped)",
-                &leim[..leim.len().min(20)]),
+            None => tracing::info!(
+                "HIF token refreshed (leim={}..., dliq=skipped)",
+                &leim[..leim.len().min(20)]
+            ),
         }
         Ok((leim, dliq))
     }

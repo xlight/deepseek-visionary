@@ -23,7 +23,7 @@ fn data_dir() -> Result<PathBuf> {
 }
 
 /// 配置文件路径：`~/.deepseek-visionary/config.json`。
-fn config_file() -> Result<PathBuf> {
+pub fn config_file() -> Result<PathBuf> {
     Ok(data_dir()?.join("config.json"))
 }
 

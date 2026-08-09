@@ -1,6 +1,7 @@
 //! 鉴权头与 cookies 构造（对照 Python 版 `auth.py`）。
 
 use crate::config::Config;
+use anyhow::{Context, Result};
 
 /// 与 Python `AuthManager` 对齐：构造 DeepSeek API 请求头。
 pub struct AuthManager<'a> {
@@ -50,6 +51,15 @@ impl<'a> AuthManager<'a> {
     pub fn validate(&self) -> bool {
         self.config.is_authenticated()
     }
+}
+
+/// 真实 token 校验探针：调用流水线首个需鉴权端点 create_pow_challenge。
+/// 401 即 token 失效。`deepseek_vision_status` 工具与 `doctor` 子命令共用。
+pub async fn probe_token(config: &Config) -> Result<()> {
+    let client =
+        crate::client::ApiClient::new(config.clone()).context("init api client for probe")?;
+    crate::upload::create_pow_challenge(&client, "/api/v0/chat/completion").await?;
+    Ok(())
 }
 
 #[cfg(test)]

@@ -4,8 +4,20 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage = "https://github.com/xlight/deepseek-visionary"
 description = "DeepSeek Visionary MCP server (native binary): vision pipeline + auto-login + stdio MCP service"
 publish = false
+
+[package.metadata.dist]
+dist = true
+
+# cargo-binstall 元数据：指向 cargo-dist 的 GitHub Release archive URL。
+# 注：crate 未发布 crates.io（publish = false），`cargo binstall visionary-server`
+# 无法自动解析包名，需显式传 --pkg-url（见 docs/integrations 与 design.md 决策 4）；
+# 此处配置作为发布后可用性与文档依据。
+[package.metadata.binstall]
+pkg-url = "https://github.com/xlight/deepseek-visionary/releases/download/{ version }/visionary-server-{ target }.tar.xz"
+pkg-fmt = "txz"
 
 [dependencies]
 tokio.workspace = true
@@ -23,3 +35,5 @@ futures-util = "0.3"
 bytes = "1"
 chromiumoxide = "0.7"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp", "tiff", "ico"] }
+clap.workspace = true
+toml.workspace = true

@@ -1,19 +1,19 @@
 # DeepSeek Visionary
 
-在 Zed 中使用 **DeepSeek 网页版的原生多模态视觉模型** 的 MCP 扩展，支持**浏览器自动登录**（无需手动复制 token）。
+在任意支持 MCP 的 AI agent（Zed、OpenCode、Codex、Claude Code、Cursor、Claude Desktop）中使用 **DeepSeek 网页版的原生多模态视觉模型**，支持**浏览器自动登录**（无需手动复制 token）。
 
-这是 Python 版 `deepseek-vision-mcp` 的 Rust 全量重写：单原生二进制 + Zed 扩展壳，多平台分发。
+这是 Python 版 `deepseek-vision-mcp` 的 Rust 全量重写：单原生二进制，多平台分发。
 
 ## 架构
 
 ```mermaid
 graph TD
-    subgraph Zed 宿主
-        EXT["visionary-zed-ext 扩展壳 (wasm32-wasip2)<br/>下载/定位二进制 + 返回启动命令"]
-        EXT -->|spawn 独立进程| SRV
+    subgraph 宿主[任意 MCP 宿主]
+        AG["Zed / OpenCode / Codex / Claude Code / Cursor / Claude Desktop"]
+        AG -->|spawn 独立进程| SRV
     end
     subgraph visionary-server 原生二进制
-        SRV["MCP stdio 服务<br/>vision / status / login / logout 工具"]
+        SRV["MCP stdio 服务<br/>vision / status / login / logout 工具<br/>init / doctor CLI"]
         CFG["~/.deepseek-visionary/config.json<br/>token + smidV2 + cf_clearance + 会话"]
         SRV --> CFG
     end
@@ -21,16 +21,67 @@ graph TD
     SRV -->|CDP 启动 + 监听| BRO["Chrome 系浏览器<br/>仅登录时出现"]
 ```
 
-- **visionary-server**：MCP stdio 服务，实现完整 vision 流水线（PoW → 上传 → fork → HIF 签名 → SSE 流式 completion）与 CDP 自动登录
-- **visionary-zed-ext**：Zed 扩展壳，按平台从 GitHub Releases 下载/缓存 visionary-server 并启动
+- **visionary-server**：标准 MCP stdio 服务，实现完整 vision 流水线（PoW → 上传 → fork → HIF 签名 → SSE 流式 completion）与 CDP 自动登录；同时提供 `init` / `doctor` CLI 引导接入
+- **visionary-zed-ext**：Zed 扩展壳（仅 Zed 需要），按平台从 GitHub Releases 下载/缓存 visionary-server 并启动
 
 ## 安装
 
-1. 从 Zed 扩展市场安装 `DeepSeek Visionary`（或在开发模式下安装本地扩展）
-2. 在 Zed 中调用 MCP 工具 `deepseek_vision_login` 完成自动登录：
-   - 会打开浏览器窗口并导航到 chat.deepseek.com
-   - 在浏览器中登录后，工具自动抓取 token 并保存
-3. 直接使用 `deepseek_vision` 识图
+### 1. 安装二进制
+
+```bash
+# 一键脚本（macOS / Linux）
+curl -LsSf https://github.com/xlight/deepseek-visionary/releases/latest/download/visionary-server-installer.sh | sh
+
+# 或 Homebrew（发布后可用）
+brew install <tap>/visionary-server
+
+# 或 npm
+npm install -g <npm-package>
+```
+
+> 也可以直接从 GitHub Releases 下载对应平台的 `visionary-server-<target-triple>` 裸二进制加入 PATH。
+> Windows 用户可使用 PowerShell 安装脚本（发布后可用）。
+
+### 2. 接入你的 AI agent
+
+```bash
+# 一键检测并接入（列出已安装 agent）
+visionary-server init
+
+# 接入指定 agent
+visionary-server init opencode
+visionary-server init codex
+visionary-server init claude
+visionary-server init cursor
+visionary-server init claude-desktop
+
+# 批量接入多个 agent（免交互）
+visionary-server init --opencode --codex --yes
+
+# 先预览将写入的配置（不落盘）
+visionary-server init opencode --dry-run
+```
+
+各 agent 的详细接入文档见 [docs/integrations/](docs/integrations/)：
+
+| Agent | 文档 | 一键命令 |
+|-------|------|----------|
+| Zed | [zed.md](docs/integrations/zed.md) | 扩展市场安装（见下） |
+| OpenCode | [opencode.md](docs/integrations/opencode.md) | `visionary-server init opencode` |
+| Codex | [codex.md](docs/integrations/codex.md) | `visionary-server init codex` |
+| Claude Code | [claude-code.md](docs/integrations/claude-code.md) | `visionary-server init claude` |
+| Cursor | [cursor.md](docs/integrations/cursor.md) | `visionary-server init cursor` |
+| Claude Desktop | [claude-desktop.md](docs/integrations/claude-desktop.md) | `visionary-server init claude-desktop` |
+
+> 新兴通道：Microsoft Agent Package Manager 用户可直接
+> `apm install --mcp io.github.xlight/deepseek-visionary`（复用 MCP Registry 标识）。
+
+### 3. 登录
+
+调用 MCP 工具的 `deepseek_vision_login` 完成自动登录：
+
+- 会打开浏览器窗口并导航到 chat.deepseek.com
+- 在浏览器中登录后，工具自动抓取 token 并保存
 
 > 手动兜底：登录 chat.deepseek.com 后，DevTools → Application → Local Storage →
 > `userToken` → 复制 `JSON.parse(value).value`，写入 `~/.deepseek-visionary/config.json`：
@@ -39,7 +90,28 @@ graph TD
 > { "user_token": "你的 token" }
 > ```
 
-## 工具
+### 4. 使用
+
+调用 `deepseek_vision` 传入图片路径或 base64 即可识图。
+
+## Zed 扩展安装
+
+> 如果你只用 Zed，也可以直接从扩展市场安装：
+
+1. Zed 命令面板（`Cmd+Shift+P`）→ `zed: extensions` → 搜索 **DeepSeek Visionary** → Install
+2. 扩展壳自动下载/缓存 `visionary-server` 二进制并启动 MCP 服务
+3. 授权工具权限（见 [docs/integrations/zed.md](docs/integrations/zed.md)）
+
+## CLI 工具
+
+| 命令 | 说明 |
+|------|------|
+| `visionary-server`（无参数） | 进入 MCP stdio serve 模式（所有 agent 配置的默认入口） |
+| `visionary-server --version` | 输出版本号 |
+| `visionary-server doctor` | 诊断环境：config 路径/权限、浏览器、token 有效性、平台 |
+| `visionary-server init [agent]` | 检测并接入已安装的 AI agent（`--dry-run` / `--yes` / 多选 flags） |
+
+## MCP 工具
 
 | 工具 | 说明 |
 |------|------|
@@ -57,24 +129,14 @@ graph TD
 
 会话状态持久化在 `~/.deepseek-visionary/session.json`。
 
-## Zed 权限建议
+## 环境变量
 
-在 Zed 设置中为扩展授予工具权限：
-
-```json
-{
-  "agent": {
-    "tool_permissions": {
-      "context_servers.deepseek-visionary": {
-        "deepseek_vision": "allow",
-        "deepseek_vision_login": "allow",
-        "deepseek_vision_status": "allow",
-        "deepseek_vision_logout": "allow"
-      }
-    }
-  }
-}
-```
+| 变量 | 说明 |
+|------|------|
+| `DEEPSEEK_USER_TOKEN` | 覆盖 config.json 中的 token（可选） |
+| `DEEPSEEK_SMIDV2` / `DEEPSEEK_CF_CLEARANCE` | 覆盖对应 cookie（可选） |
+| `DEEPSEEK_BASE_URL` | API 基地址（默认 `https://chat.deepseek.com`） |
+| `DEEPSEEK_LOGIN_TIMEOUT` | 登录等待超时秒数（默认 600） |
 
 ## 开发
 
@@ -89,18 +151,6 @@ cargo build -p visionary-zed-ext --release --target wasm32-wasip2
 # 测试
 cargo test -p visionary-server
 ```
-
-本地联调：在 Zed 中通过 `Extensions → Install Dev Extension` 选择 `crates/visionary-zed-ext` 目录；
-调试时可在扩展设置中配置 `server_path` 指向本地构建的 visionary-server。
-
-## 环境变量
-
-| 变量 | 说明 |
-|------|------|
-| `DEEPSEEK_USER_TOKEN` | 覆盖 config.json 中的 token（可选） |
-| `DEEPSEEK_SMIDV2` / `DEEPSEEK_CF_CLEARANCE` | 覆盖对应 cookie（可选） |
-| `DEEPSEEK_BASE_URL` | API 基地址（默认 `https://chat.deepseek.com`） |
-| `DEEPSEEK_LOGIN_TIMEOUT` | 登录等待超时秒数（默认 600） |
 
 ## 平台支持
 

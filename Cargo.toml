@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/visionary-server", "crates/visionary-zed-ext"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/xlight/deepseek-visionary"
@@ -18,3 +18,10 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "mul
 wasmtime = "47"
 anyhow = "1"
 thiserror = "2"
+clap = { version = "4", features = ["derive"] }
+toml = "0.8"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"

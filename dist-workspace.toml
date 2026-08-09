@@ -1,0 +1,40 @@
+[workspace]
+members = ["cargo:."]
+
+# Config for 'dist'
+[dist]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.32.0"
+# CI backends to support
+ci = "github"
+# The installers to generate for each app
+installers = ["shell", "powershell", "npm", "homebrew"]
+# Target platforms to build apps for (Rust target-triple syntax)
+targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+# Where to host releases
+hosting = "github"
+# 发布通道（发布 job）：npm/homebrew 需外部资源（tap 仓库、npm scope、NPM_TOKEN secret），
+# 当前未就绪，故暂不启用——GitHub Release 资产（裸二进制 + mcpb + archive + installer）不受影响。
+# 资源就绪后改为 publish-jobs = ["homebrew", "npm"] 并重新 `dist generate --mode ci`（需重新追加手工步骤）。
+publish-jobs = []
+# Homebrew tap：发布时推送 formula 到 xlight/homebrew-tap（需先创建该 tap 仓库，见 design.md Open Questions）
+tap = "xlight/homebrew-tap"
+# GitHub Actions runners for each target. macos-13 已退役，x86_64 mac 必须用
+# macos-15-intel（官方 Intel Mac runner）；aarch64 mac 用 macos-14。
+github-runners = [
+  "aarch64-apple-darwin = macos-14",
+  "x86_64-apple-darwin = macos-15-intel",
+  "x86_64-unknown-linux-gnu = ubuntu-22.04",
+  "aarch64-unknown-linux-gnu = ubuntu-22.04",
+  "x86_64-pc-windows-msvc = windows-2022",
+]
+
+# npm：scoped 包名 @xlight/deepseek-visionary，避免与全局包名冲突（design.md 风险章节）
+[dist.installer.npm]
+scope = "@xlight"
+
+# 注：per-target 裸二进制与 mcpb 不通过 `[[dist.extra-artifacts]]` 声明——
+# cargo-dist 0.32 的 extra-artifacts 是全局构建一次的设计，`{target}`/`{exe}`
+# 占位符不会被替换（spike 4.1 实测确认），会在发布时因 MissingBinaries 报错。
+# 各平台裸二进制（Zed 扩展壳依赖）与 mcpb（MCP Registry 分发）改为在生成的
+# release.yml 中追加 per-target 构建步骤（见 build-local-artifacts job）。

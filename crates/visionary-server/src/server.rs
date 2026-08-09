@@ -208,14 +208,8 @@ impl VisionaryServer {
         }
 
         // 真实 token 校验探针：调用流水线首个需鉴权端点 create_pow_challenge。
-        // （任务 1.6 spike 确认更轻量端点后替换；401 即 token 失效）
-        match crate::upload::create_pow_challenge(
-            &crate::client::ApiClient::new(self.config.clone())
-                .map_err(|e| McpError::internal_error(e.to_string(), None))?,
-            "/api/v0/chat/completion",
-        )
-        .await
-        {
+        // （与 `doctor` 子命令共用 auth::probe_token；401 即 token 失效）
+        match crate::auth::probe_token(&self.config).await {
             Ok(_) => lines.push(format!(
                 "- Token validation: ✅ (live probe passed at {})",
                 self.config.base_url

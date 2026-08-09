@@ -4,15 +4,18 @@
 //! - config / auth / pow / upload / hif / completion / session / pipeline：核心 vision 流水线
 //! - MCP stdio 服务：`deepseek_vision` / `deepseek_vision_status` / `deepseek_vision_login` / `deepseek_vision_logout`
 //! - CDP 浏览器自动登录
+//! - CLI 子命令：`--version` / `doctor` / `init`（无参数时进入 MCP serve 模式）
 
 mod auth;
 mod browser;
+mod cli;
 mod client;
 mod completion;
 mod config;
 mod fork;
 mod hif;
 mod login;
+mod onboarding;
 mod pipeline;
 mod pow;
 mod server;
@@ -20,8 +23,6 @@ mod session;
 mod upload;
 
 use anyhow::Result;
-use rmcp::ServiceExt;
-use server::VisionaryServer;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -34,15 +35,5 @@ async fn main() -> Result<()> {
         .with_writer(std::io::stderr)
         .init();
 
-    tracing::info!(
-        "starting DeepSeek Visionary MCP server v{}",
-        env!("CARGO_PKG_VERSION")
-    );
-
-    let config = config::Config::load()?;
-    let service = VisionaryServer::new(config);
-    let running = service.serve(rmcp::transport::stdio()).await?;
-    // 阻塞等待服务运行直到连接结束（对应官方 calculator_stdio 示例的 waiting()）
-    running.waiting().await?;
-    Ok(())
+    cli::run().await
 }

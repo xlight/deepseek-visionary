@@ -18,7 +18,10 @@ use wasmtime::{Engine, Instance, Linker, Memory, Module, Store};
 /// 给 wasmtime 调用结果附加上下文并转为 anyhow 错误。
 /// wasmtime 47 起 `wasmtime::Error` 不再实现 `std::error::Error`，
 /// anyhow 的 `.context()` 不再适用，需先经 `From` 转换。
-fn wasm_context<T>(result: std::result::Result<T, wasmtime::Error>, msg: &'static str) -> Result<T> {
+fn wasm_context<T>(
+    result: std::result::Result<T, wasmtime::Error>,
+    msg: &'static str,
+) -> Result<T> {
     result.map_err(anyhow::Error::from).context(msg)
 }
 
@@ -76,8 +79,10 @@ impl WasmHasher {
     /// `__wbindgen_add_to_stack_pointer`：管理 wasm-bindgen 的栈指针。
     fn add_to_stack_pointer(&mut self, delta: i32) -> Result<i32> {
         let f = wasm_context(
-            self.instance
-                .get_typed_func::<(i32,), (i32,)>(&mut self.store, "__wbindgen_add_to_stack_pointer"),
+            self.instance.get_typed_func::<(i32,), (i32,)>(
+                &mut self.store,
+                "__wbindgen_add_to_stack_pointer",
+            ),
             "missing `__wbindgen_add_to_stack_pointer` export",
         )?;
         Ok(f.call(&mut self.store, (delta,))?.0)
@@ -114,7 +119,10 @@ impl WasmHasher {
 
         let wasm_solve = wasm_context(
             self.instance
-                .get_typed_func::<(i32, u32, u32, u32, u32, f64), ()>(&mut self.store, "wasm_solve"),
+                .get_typed_func::<(i32, u32, u32, u32, u32, f64), ()>(
+                    &mut self.store,
+                    "wasm_solve",
+                ),
             "missing `wasm_solve` export",
         )?;
         wasm_solve.call(
