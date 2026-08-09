@@ -62,7 +62,20 @@ jobs:
           cp "$SRC" "dist/$BIN"
           echo "asset=dist/$BIN" >> "$GITHUB_ENV"
 
+      # 构建 MCPB 包（registry 分发：zip = manifest.json + 二进制）
+      - name: Build MCPB package
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          PY="python3"
+          if [[ "${{ matrix.os }}" == windows-* ]]; then PY="python"; fi
+          "$PY" scripts/build_mcpb.py "${{ matrix.target }}" "$VERSION" \
+            "target/${{ matrix.target }}/release/visionary-server" dist
+          echo "mcpb=dist/visionary-server-${{ matrix.target }}.mcpb" >> "$GITHUB_ENV"
+
       - name: Upload release asset
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ env.asset }}
+          files: |
+            ${{ env.asset }}
+            ${{ env.mcpb }}
