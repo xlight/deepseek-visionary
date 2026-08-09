@@ -9,6 +9,7 @@ cargo-dist-version = "0.32.0"
 ci = "github"
 # release.yml 含手工追加的裸二进制/mcpb/smoke 步骤，与 dist 模板不一致；
 # 声明 allow-dirty 让 dist 跳过 release.yml 的 up-to-date 检查（否则 CI 的 dist host/build 会失败）
+# 注：生成 workflow 时需临时移除本行（否则 dist generate 拒绝运行），生成后恢复
 allow-dirty = ["ci"]
 # The installers to generate for each app
 installers = ["shell", "powershell", "npm", "homebrew"]
@@ -16,10 +17,9 @@ installers = ["shell", "powershell", "npm", "homebrew"]
 targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
 # Where to host releases
 hosting = "github"
-# 发布通道（发布 job）：npm/homebrew 需外部资源（tap 仓库、npm scope、NPM_TOKEN secret），
-# 当前未就绪，故暂不启用——GitHub Release 资产（裸二进制 + mcpb + archive + installer）不受影响。
-# 资源就绪后改为 publish-jobs = ["homebrew", "npm"] 并重新 `dist generate --mode ci`（需重新追加手工步骤）。
-publish-jobs = []
+# 发布通道（发布 job）：npm/homebrew 资源已就绪（xlight/homebrew-tap 已创建、
+# NPM_TOKEN secret 已配置、npm 组织 xlight-oss 已授权），正式启用。
+publish-jobs = ["homebrew", "npm"]
 # Homebrew tap：发布时推送 formula 到 xlight/homebrew-tap（需先创建该 tap 仓库，见 design.md Open Questions）
 tap = "xlight/homebrew-tap"
 # GitHub Actions runners for each target. macos-13 已退役，x86_64 mac 必须用
@@ -32,9 +32,9 @@ github-runners = [
   "x86_64-pc-windows-msvc = windows-2022",
 ]
 
-# npm：scoped 包名 @xlight/deepseek-visionary，避免与全局包名冲突（design.md 风险章节）
+# npm：scoped 包名 @xlight-oss/deepseek-visionary（npm 组织 xlight-oss，token 已授权该组织发布权限）
 [dist.installer.npm]
-scope = "@xlight"
+scope = "@xlight-oss"
 
 # 注：per-target 裸二进制与 mcpb 不通过 `[[dist.extra-artifacts]]` 声明——
 # cargo-dist 0.32 的 extra-artifacts 是全局构建一次的设计，`{target}`/`{exe}`
