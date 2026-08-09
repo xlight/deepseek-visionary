@@ -312,11 +312,14 @@ jobs:
         run: |
           # Remove the granular manifests
           rm -f artifacts/*-dist-manifest.json
-          # 把 build-local-artifacts 上传的 dist/ 子目录产物（裸二进制 + mcpb）提升到 artifacts/ 根——
-          # gh release create artifacts/* 不能上传目录（read artifacts/dist: is a directory）
-          if [ -d artifacts/dist ]; then
-            mv artifacts/dist/* artifacts/
-            rmdir artifacts/dist
+          # upload-artifact 保留相对路径：裸二进制/mcpb 在 dist/ 下，cargo-dist 的 archive
+          # 在 target/distrib/ 下。gh release create artifacts/* 不能上传目录
+          # （read artifacts/<dir>: is a directory），统一把所有子目录中的文件提升到根。
+          find artifacts -mindepth 2 -type f -exec mv -n {} artifacts/ \;
+          find artifacts -mindepth 1 -type d -empty -delete
+          # 兜底断言：若仍有残留目录（如未知的相对路径产物）立即失败，避免上传阶段再报错
+          if find artifacts -mindepth 1 -maxdepth 1 ! -type f | grep -q .; then
+            echo "::error::artifacts/ 下仍有目录，无法上传"; find artifacts -mindepth 1 -maxdepth 1 ! -type f; exit 1
           fi
       - name: Create GitHub Release
         env:
