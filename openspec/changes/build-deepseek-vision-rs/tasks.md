@@ -66,18 +66,25 @@
 
 - [x] 7.1 编写 GitHub Actions release 矩阵（macOS / Linux / Windows 各架构）
 - [x] 7.2 打 tag 发布首个 release
-      **结果（已发布）**：v0.1.0 → v0.1.3 迭代发布。修复了两个交叉编译问题：
-      reqwest 默认 native-tls 引入 openssl-sys（改 `default-features=false` + rustls）；
-      aarch64-linux 链接器架构不匹配（设 `CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER`）。
-      v0.1.3 已发布 4/5 平台资产（aarch64 mac / aarch64 linux / x86_64 linux / windows）；
-      x86_64 mac 因 GitHub 公共 intel runner 排队积压待分配，非代码问题。
+      **结果（已发布）**：v0.1.0 → v0.1.6 迭代发布，修复多个分发问题：
+      - reqwest 默认 native-tls 引入 openssl-sys（改 `default-features=false` + rustls）
+      - aarch64-linux 链接器架构不匹配（设 `CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER`）
+      - Windows MCPB 打包路径与 .exe 后缀
+      - x86_64 mac 构建卡死：根因是 `macos-13`（intel）runner 已于 2025-12 退役，
+        改用 `macos-15-intel` 后 5/5 平台全部构建成功（v0.1.6 为首个完整多平台 release）。
 - [x] 7.3 真实图片端到端验证扩展安装 → 登录 → 识图全流程
       **结果（已实测）**：扩展壳编译成功 → context server 启动（无超时无报错）→
       MCP 握手返回 4 工具 → `deepseek_vision_login` 浏览器自动登录抓 token →
       `deepseek_vision_status` 探针校验 → `deepseek_vision` 识图成功（含文字测试图正确识别）。
       踩坑：重装插件后 settings 的 `server_path` 被重置导致走 release 下载分支报
       “finding a prerelease”（无 release 时）；恢复 server_path 后即恢复。
-- [ ] 7.4 评估并注册 MCP registry（作为 Zed 扩展通道的替代分发，可选）
+- [x] 7.4 评估并注册 MCP registry（作为 Zed 扩展通道的替代分发，可选）
+      **结果（已注册）**：评估确认 MCPB（`server.type=binary`）为 Rust 二进制原生分发格式，
+      registry 仅托管元数据、artifact 托管于 GitHub Releases。release.yml 增加 .mcpb 打包步骤
+      （`scripts/build_mcpb.py`：zip = manifest.json + 二进制），v0.1.6 产出 5 平台 .mcpb。
+      `server.json`（io.github.xlight/deepseek-visionary v0.1.6，5 平台 mcpb + fileSha256）
+      经 mcp-publisher validate 通过并成功 publish，registry API 搜索确认可见。
+      Zed 官方已声明将弃用 MCP 扩展通道转向官方 registry，此通道为长期分发保障。
 
 ## 8. 测试与验收
 
