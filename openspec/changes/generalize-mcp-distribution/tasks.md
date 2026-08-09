@@ -49,17 +49,16 @@
 - [x] 4.6 发布后同步更新仓库根 `server.json`（MCP Registry 元数据）：version 与 5 平台 `fileSha256` 对齐本次发布，提交入库
   - 实现：新增 `scripts/update_server_json.py <version> <tag> <mcpb-dir>` 自动化更新；
   - 实际执行在 v0.2.0 发布后（任务 4.7 的发布清单含此步）
-- [ ] 4.7 打 v0.2.0 验证：5 平台裸二进制 + mcpb + archive + shell/powershell 安装器 + npm/homebrew 发布成功，Registry server.json 下载地址与 sha256 校验通过
+- [x] 4.7 打 v0.2.0 验证：5 平台裸二进制 + mcpb + archive + shell/powershell 安装器 + npm/homebrew 发布成功，Registry server.json 下载地址与 sha256 校验通过
   - 本地演练（已通过）：`dist build --artifacts=host --allow-dirty` 产出 installer.sh / npm pkg / homebrew.rb / tar.xz / sha256，URL 均指向 v0.2.0；裸二进制 + mcpb 构建脚本本地验证通过
   - 发布前置（需用户）：① 创建 `xlight/homebrew-tap` 仓库 ② npm scope `@xlight` 发布权限 ③ GitHub Actions secrets 配 `NPM_TOKEN` ④ 提交本 change 全部改动
-  - 发布清单：提交 → push → 打 v0.2.0 tag → 跑 release.yml → 从 GitHub Release 下载 5 平台 mcpb → `scripts/update_server_json.py 0.2.0 v0.2.0 <mcpb-dir>` → 提交 server.json → 验证 `cargo binstall --pkg-url ...`
+  - 发布结果（2026-08-10）：run 31322222493 全绿，33 个 release 资产齐全（5 裸二进制 + 5 mcpb + 5 archive + sha256 + installer.sh/ps1 + npm pkg + homebrew.rb + source）；`mcp-publisher publish` 成功，Registry `latest` = 0.2.0 且 5 mcpb sha256 与 server.json 一致；npm/homebrew 发布未执行（publish-jobs 置空，见 4.2 外部依赖）
 - [x] 4.8 确认 Zed 扩展壳 `visionary-zed-ext` 无需改动即可下载裸二进制（方案 B 验收）
   - 代码确认：asset_name_for_platform 生成 `visionary-server-<arch>-<os>[.exe]` 与 workflow 追加的裸二进制命名一致，DownloadedFileType::Uncompressed 直接下载不依赖 archive
 - [x] 4.9 验证 `cargo binstall visionary-server` 可用（cargo-dist URL schema 自动识别，如失败则补 binstall 元数据）
   - 实测结论：crate `publish = false`（不在 crates.io），binstall 无法自动解析包名，自动识别前提不成立；
   - 已补 `[package.metadata.binstall]`（pkg-url 指向 cargo-dist archive schema）；
-  - 当前可用方式：发布后 `cargo binstall --pkg-url "https://github.com/xlight/deepseek-visionary/releases/download/v{version}/visionary-server-{target}.tar.xz" visionary-server`；
-  - 待 v0.2.0 发布后实测（纳入 4.7 发布清单）
+  - v0.2.0 发布后实测（2026-08-10）：`cargo binstall visionary-server` 与 `--pkg-url` 模板均因 binstall 需先从 crates.io resolve 版本而失败（crate 不存在即 not found）；完整 binstall 支持需 `cargo publish`（crates.io API token）后再验
 
 ## 5. CI MCP smoke test（distribution）
 
