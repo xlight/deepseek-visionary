@@ -185,7 +185,9 @@ jobs:
           TARGET="${{ matrix.targets[0] }}"
           BIN="dist/visionary-server-${TARGET}"
           if [[ "${TARGET}" == *windows* ]]; then BIN="${BIN}.exe"; fi
-          python3 scripts/mcp_probe.py smoke "${BIN}"
+          PY="python3"
+          if [[ "${TARGET}" == *windows* ]]; then PY="python"; fi
+          "${PY}" scripts/mcp_probe.py smoke "${BIN}"
       - id: cargo-dist
         name: Post-build
         # We force bash here just because github makes it really hard to get values up

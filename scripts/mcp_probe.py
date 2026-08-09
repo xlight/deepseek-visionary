@@ -27,6 +27,13 @@ EXPECTED_TOOLS = {
 }
 
 
+# Windows 上 Python 默认 stdout 编码是 cp1252，无法输出中文（MCP 响应含中文 instructions），
+# 统一强制 UTF-8（对 UTF-8 环境无副作用）。
+for _stream in (sys.stdout, sys.stderr):
+    if _stream is not None and hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 class LineReader:
     """后台线程读 stdout 行，放进队列，带超时。"""
 
