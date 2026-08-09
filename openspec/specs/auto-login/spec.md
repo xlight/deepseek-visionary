@@ -1,7 +1,8 @@
 # auto-login Specification
 
 ## Purpose
-TBD - created by archiving change build-deepseek-vision-rs. Update Purpose after archive.
+定义浏览器自动登录与凭据管理能力：通过 CDP 控制 Chrome 系浏览器完成 DeepSeek 登录，自动抓取并安全持久化凭据，支持热重载与手动配置兜底，零手动复制 token。
+
 ## Requirements
 ### Requirement: 浏览器自动登录
 MCP 服务 SHALL 提供 `deepseek_vision_login` 工具：启动 Chrome 系浏览器（专用 profile + 远程调试端口）打开 chat.deepseek.com，等待用户登录完成后，通过 CDP 读取 `localStorage.userToken` 与 `smidV2`、`cf_clearance` cookie，并持久化到 `~/.deepseek-visionary/config.json`（键名 `user_token` / `smid_v2` / `cf_clearance`）。

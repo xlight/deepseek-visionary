@@ -1,7 +1,8 @@
 # zed-extension Specification
 
 ## Purpose
-TBD - created by archiving change build-deepseek-vision-rs. Update Purpose after archive.
+定义 Zed 扩展壳能力：声明 context server、按优先级（server_path → 缓存 → GitHub Releases）解析并启动 visionary-server 二进制，支持环境变量透传与多平台分发。
+
 ## Requirements
 ### Requirement: 扩展清单与启动命令
 Zed 扩展 SHALL 在 `extension.toml` 中声明 `[context_servers.deepseek-visionary]`（段内含 `name` 字段），实现 `context_server_command` 返回启动 MCP 服务的命令、参数与环境变量，并实现 `context_server_configuration` 提供安装引导与可选设置（不含必填配置项）。

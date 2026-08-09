@@ -1,7 +1,8 @@
 # vision-analysis Specification
 
 ## Purpose
-TBD - created by archiving change build-deepseek-vision-rs. Update Purpose after archive.
+定义图像分析能力：基于 DeepSeek 网页版原生多模态模型，提供上传、PoW 求解、fork、HIF 签名、SSE 流式 completion 的完整 vision 流水线，以及状态检查与会话续聊。
+
 ## Requirements
 ### Requirement: 图像分析工具
 MCP 服务 SHALL 暴露 `deepseek_vision` 工具，接受本地图片路径或 base64/data URI 图片、可选 prompt、thinking 开关与会话续聊参数，返回视觉模型的文本分析结果。图片路径支持绝对路径；相对路径按服务器进程 cwd 解析（对齐 Python 行为）。
