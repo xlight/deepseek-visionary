@@ -18,7 +18,8 @@ jobs:
           - target: aarch64-apple-darwin
             os: macos-14
           - target: x86_64-apple-darwin
-            os: macos-13
+            os: macos-15-intel
+            # 注：macos-13（intel）runner 已于 2025-12 关闭；macos-15-intel 为官方 Intel Mac runner
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-22.04
           - target: aarch64-unknown-linux-gnu
