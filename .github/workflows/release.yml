@@ -312,6 +312,12 @@ jobs:
         run: |
           # Remove the granular manifests
           rm -f artifacts/*-dist-manifest.json
+          # 把 build-local-artifacts 上传的 dist/ 子目录产物（裸二进制 + mcpb）提升到 artifacts/ 根——
+          # gh release create artifacts/* 不能上传目录（read artifacts/dist: is a directory）
+          if [ -d artifacts/dist ]; then
+            mv artifacts/dist/* artifacts/
+            rmdir artifacts/dist
+          fi
       - name: Create GitHub Release
         env:
           PRERELEASE_FLAG: "${{ fromJson(steps.host.outputs.manifest).announcement_is_prerelease && '--prerelease' || '' }}"
