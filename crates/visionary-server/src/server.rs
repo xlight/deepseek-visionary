@@ -95,7 +95,7 @@ impl VisionaryServer {
                  运行 `deepseek_vision_login` 自动登录，或手动配置：\n\
                  1. 打开 chat.deepseek.com 并登录\n\
                  2. DevTools → Application → Local Storage → userToken\n\
-                 3. 将 JSON.parse(value).value 写入 ~/.deepseek-vision/config.json 的 user_token",
+                 3. 将 JSON.parse(value).value 写入 ~/.deepseek-visionary/config.json 的 user_token",
             )]));
         }
 
@@ -234,7 +234,7 @@ impl VisionaryServer {
 
     /// 打开浏览器自动登录并抓取凭据（任务 5.4 接线）。
     #[tool(
-        description = "Open a browser window to log in to chat.deepseek.com, automatically capture the token and cookies, and save them. Returns login instructions. For manual setup, edit ~/.deepseek-vision/config.json"
+        description = "Open a browser window to log in to chat.deepseek.com, automatically capture the token and cookies, and save them. Returns login instructions. For manual setup, edit ~/.deepseek-visionary/config.json"
     )]
     async fn deepseek_vision_login(&self) -> Result<CallToolResult, McpError> {
         crate::login::run_login(&self.config)
@@ -243,7 +243,7 @@ impl VisionaryServer {
     }
 
     /// 清除保存的凭据（任务 5.5 接线）。
-    #[tool(description = "Remove saved credentials from ~/.deepseek-vision/config.json")]
+    #[tool(description = "Remove saved credentials from ~/.deepseek-visionary/config.json")]
     async fn deepseek_vision_logout(&self) -> Result<CallToolResult, McpError> {
         crate::login::run_logout(&self.config)
             .await

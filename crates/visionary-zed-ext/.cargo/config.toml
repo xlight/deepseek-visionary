@@ -1,0 +1,15 @@
+# Zed dev extension 构建配置（解决 MacPorts/Homebrew cargo 无 wasm target 的问题）
+#
+# 背景：Zed 安装 dev extension 时从 PATH 找 `cargo` 并在扩展目录运行
+# `cargo build --target wasm32-wasip2`。若 PATH 首选的是 MacPorts/Homebrew 的
+# cargo/rustc（它们没有 wasm32-wasip2 的 std），构建会报
+# `error[E0463]: can't find crate for 'core'`。
+#
+# 注意：不能用 `rustc-wrapper` 方案——Zed 构建时会设置 `RUSTC_WRAPPER=""`，
+# 该环境变量优先于 config，导致 wrapper 失效。故用 `build.rustc` 直接把
+# 编译固定到本仓库内的脚本（脚本转发到 rustup 的 rustc，自带 wasm32-wasip2
+# std），与外部 PATH / 环境变量设置无关，任何启动方式（GUI / 终端）一致。
+# 脚本见 ../scripts/rustc-wrapper.sh（相对路径基准 = 本 config 的父目录）。
+
+[build]
+rustc = "./scripts/rustc-wrapper.sh"

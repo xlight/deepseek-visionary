@@ -46,7 +46,7 @@ MCP 服务 SHALL 暴露 `deepseek_vision_status` 工具，报告认证状态，�
 - **THEN** 状态报告提示需要执行登录
 
 ### Requirement: 会话续聊
-服务 SHALL 将会话 id 与 parent_message_id 持久化到 `~/.deepseek-vision/session.json`，支持在同一会话内继续多轮对话，或通过显式 session_id 切换会话。
+服务 SHALL 将会话 id 与 parent_message_id 持久化到 `~/.deepseek-visionary/session.json`，支持在同一会话内继续多轮对话，或通过显式 session_id 切换会话。
 
 #### Scenario: 继续上次会话
 - **WHEN** 用户以 continue_conversation 调用并存在持久化会话

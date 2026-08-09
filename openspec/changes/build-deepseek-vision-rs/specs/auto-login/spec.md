@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: 浏览器自动登录
-MCP 服务 SHALL 提供 `deepseek_vision_login` 工具：启动 Chrome 系浏览器（专用 profile + 远程调试端口）打开 chat.deepseek.com，等待用户登录完成后，通过 CDP 读取 `localStorage.userToken` 与 `smidV2`、`cf_clearance` cookie，并持久化到 `~/.deepseek-vision/config.json`（键名 `user_token` / `smid_v2` / `cf_clearance`）。
+MCP 服务 SHALL 提供 `deepseek_vision_login` 工具：启动 Chrome 系浏览器（专用 profile + 远程调试端口）打开 chat.deepseek.com，等待用户登录完成后，通过 CDP 读取 `localStorage.userToken` 与 `smidV2`、`cf_clearance` cookie，并持久化到 `~/.deepseek-visionary/config.json`（键名 `user_token` / `smid_v2` / `cf_clearance`）。
 
 #### Scenario: 首次登录
 - **WHEN** 用户调用登录工具且本地无登录会话
@@ -24,7 +24,7 @@ MCP 服务 SHALL 提供 `deepseek_vision_login` 工具：启动 Chrome 系浏览
 - **THEN** 该 cookie 随凭据一并持久化到配置文件
 
 ### Requirement: 凭据安全存储
-服务 SHALL 将凭据写入 `~/.deepseek-vision/config.json` 并设置限制性权限（0600），日志中 SHALL NOT 输出 token 明文。
+服务 SHALL 将凭据写入 `~/.deepseek-visionary/config.json` 并设置限制性权限（0600），日志中 SHALL NOT 输出 token 明文。
 
 #### Scenario: 配置文件权限
 - **WHEN** 登录成功写入凭据

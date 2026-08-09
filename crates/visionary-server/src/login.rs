@@ -1,10 +1,10 @@
 //! 浏览器自动登录（对应 design.md 决策 5，任务 5.2/5.3/5.4/5.5）。
 //!
-//! 流程：定位 Chrome 系浏览器 → 以专用 profile（`~/.deepseek-vision/browser/`，
+//! 流程：定位 Chrome 系浏览器 → 以专用 profile（`~/.deepseek-visionary/browser/`，
 //! 0700）+ `--remote-debugging-port` 启动（Chrome 136+ 要求非默认 profile 才允许
 //! 远程调试，天然满足）→ 打开 chat.deepseek.com → 轮询等待用户登录 →
 //! 抓取 `localStorage.userToken` 与 `smidV2` / `cf_clearance` cookie →
-//! 写入 `~/.deepseek-vision/config.json`（0600）并热重载 → 返回。
+//! 写入 `~/.deepseek-visionary/config.json`（0600）并热重载 → 返回。
 //!
 //! `run_login` 阻塞等待登录完成（带超时）；超时后浏览器保持打开，用户可继续
 //! 登录后重跑 login（幂等）。手动粘贴 token 为兜底路径。
@@ -66,7 +66,7 @@ pub async fn run_login(config: &Config) -> Result<CallToolResult> {
             Ok(CallToolResult::error(vec![ContentBlock::text(format!(
                 "登录未完成：{e}\n\
                  浏览器窗口保持打开。请完成登录后重新运行 deepseek_vision_login，\
-                 或手动配置 ~/.deepseek-vision/config.json。"
+                 或手动配置 ~/.deepseek-visionary/config.json。"
             ))]))
         }
     }
