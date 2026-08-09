@@ -210,7 +210,42 @@ mod tests {
         assert_eq!(json["target_path"], "/api/v0/chat/completion");
         // 合成 challenge 无法通过 wasm 内部的哈希校验，预期 status==0 → answer 为 null。
         // 这证明了 wasm 加载、内存写入、wasm_solve 调用与返回值解析全链路正确；
-        // 真实 challenge 的答案验证见任务 8.4（fixture 需 token 从线上抓取）。
+        // 真实 challenge 的答案验证见下方 `solve_real_challenge_fixture`（任务 8.4）。
         assert!(json["answer"].is_null());
+    }
+
+    /// 真实 challenge fixture 回归测试（任务 8.4）：
+    /// 从线上 create_pow_challenge 抓取并固化的真实 challenge，验证 wasm 求解器
+    /// 对真实 challenge（DeepSeekHashV1，difficulty=144000）能算出有效答案
+    /// （status==1，answer 非 null）。全程离线，不依赖网络与 token。
+    #[test]
+    fn solve_real_challenge_fixture() {
+        let config = Challenge {
+            algorithm: "DeepSeekHashV1".into(),
+            challenge: "7875b8299c8a754a2d400f2874575b51e587405c2662b4c4a12c63d7174772d4".into(),
+            salt: "142efca7113322f2a9eb".into(),
+            difficulty: 144000.0,
+            expire_at: 1_786_261_326_652,
+            signature: "b4d1c2d7a40ecbc9b496ac8aafa9e49db2edcd9d5c6c211f348d14c064712c1f".into(),
+            target_path: "/api/v0/chat/completion".into(),
+        };
+
+        let result = PoWSolver::solve_challenge(&config).expect("solve should succeed");
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(&result)
+            .expect("output should be valid base64");
+        let json: serde_json::Value =
+            serde_json::from_slice(&decoded).expect("output should be valid JSON");
+        // 真实 challenge 必须算出答案（answer 非 null），且算法/挑战值回显一致
+        assert!(
+            !json["answer"].is_null(),
+            "real challenge must produce an answer"
+        );
+        assert_eq!(json["algorithm"], "DeepSeekHashV1");
+        assert_eq!(
+            json["challenge"],
+            "7875b8299c8a754a2d400f2874575b51e587405c2662b4c4a12c63d7174772d4"
+        );
+        assert_eq!(json["target_path"], "/api/v0/chat/completion");
     }
 }

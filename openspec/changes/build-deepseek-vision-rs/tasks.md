@@ -100,4 +100,8 @@
       **auto-login**：登录/热重载/0600/日志脱敏已实测（任务 5.x）；profile 复用、无浏览器兜底为代码路径。
       **zed-extension**：扩展壳场景留待 6.6 联调验收。
 - [x] 8.3 编写 README（安装 / 登录 / 使用说明，含 Zed 工具权限 `agent.tool_permissions` 建议）
-- [ ] 8.4 PoW fixture 回归测试纳入 CI
+- [x] 8.4 PoW fixture 回归测试纳入 CI
+      **结果（已完成）**：从线上 `create_pow_challenge` 抓取真实 challenge（DeepSeekHashV1，
+      difficulty=144000）固化为 fixture，新增 `pow::tests::solve_real_challenge_fixture` 测试：
+      验证 wasm 求解器对真实 challenge 能算出有效答案（answer 非 null）且算法/挑战值回显一致，
+      全程离线不依赖网络与 token，随 `cargo test` 在 CI 中运行。
