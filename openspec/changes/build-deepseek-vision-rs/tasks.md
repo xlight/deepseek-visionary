@@ -65,8 +65,18 @@
 ## 7. 分发与端到端
 
 - [x] 7.1 编写 GitHub Actions release 矩阵（macOS / Linux / Windows 各架构）
-- [ ] 7.2 打 tag 发布首个 release
-- [ ] 7.3 真实图片端到端验证扩展安装 → 登录 → 识图全流程
+- [x] 7.2 打 tag 发布首个 release
+      **结果（已发布）**：v0.1.0 → v0.1.3 迭代发布。修复了两个交叉编译问题：
+      reqwest 默认 native-tls 引入 openssl-sys（改 `default-features=false` + rustls）；
+      aarch64-linux 链接器架构不匹配（设 `CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER`）。
+      v0.1.3 已发布 4/5 平台资产（aarch64 mac / aarch64 linux / x86_64 linux / windows）；
+      x86_64 mac 因 GitHub 公共 intel runner 排队积压待分配，非代码问题。
+- [x] 7.3 真实图片端到端验证扩展安装 → 登录 → 识图全流程
+      **结果（已实测）**：扩展壳编译成功 → context server 启动（无超时无报错）→
+      MCP 握手返回 4 工具 → `deepseek_vision_login` 浏览器自动登录抓 token →
+      `deepseek_vision_status` 探针校验 → `deepseek_vision` 识图成功（含文字测试图正确识别）。
+      踩坑：重装插件后 settings 的 `server_path` 被重置导致走 release 下载分支报
+      “finding a prerelease”（无 release 时）；恢复 server_path 后即恢复。
 - [ ] 7.4 评估并注册 MCP registry（作为 Zed 扩展通道的替代分发，可选）
 
 ## 8. 测试与验收
