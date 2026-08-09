@@ -32,9 +32,9 @@ github-runners = [
   "x86_64-pc-windows-msvc = windows-2022",
 ]
 
-# npm：scoped 包名 @xlight-oss/deepseek-visionary（npm 组织 xlight-oss，token 已授权该组织发布权限）
-[dist.installer.npm]
-scope = "@xlight-oss"
+# npm：scoped 包名 @xlight-oss/visionary-server（npm 组织 xlight-oss，token 已授权该组织发布权限）
+# 注意：键必须是 `npm-scope`（不是 scope），位于 [dist] 段——cargo-dist 0.32 的 npm installer 配置
+npm-scope = "@xlight-oss"
 
 # 注：per-target 裸二进制与 mcpb 不通过 `[[dist.extra-artifacts]]` 声明——
 # cargo-dist 0.32 的 extra-artifacts 是全局构建一次的设计，`{target}`/`{exe}`
