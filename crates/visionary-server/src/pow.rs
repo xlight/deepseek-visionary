@@ -15,6 +15,13 @@ use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
 use wasmtime::{Engine, Instance, Linker, Memory, Module, Store};
 
+/// 给 wasmtime 调用结果附加上下文并转为 anyhow 错误。
+/// wasmtime 47 起 `wasmtime::Error` 不再实现 `std::error::Error`，
+/// anyhow 的 `.context()` 不再适用，需先经 `From` 转换。
+fn wasm_context<T>(result: std::result::Result<T, wasmtime::Error>, msg: &'static str) -> Result<T> {
+    result.map_err(anyhow::Error::from).context(msg)
+}
+
 /// wasm 资产，编译期内嵌，随二进制分发（见 `assets/README.md`）。
 const WASM_BYTES: &[u8] = include_bytes!("../../../assets/sha3_wasm_bg.7b9ca65ddd.wasm");
 
@@ -46,13 +53,16 @@ struct WasmHasher {
 impl WasmHasher {
     fn new() -> Result<Self> {
         let engine = Engine::default();
-        let module =
-            Module::new(&engine, WASM_BYTES).context("failed to parse sha3_wasm_bg wasm module")?;
+        let module = wasm_context(
+            Module::new(&engine, WASM_BYTES),
+            "failed to parse sha3_wasm_bg wasm module",
+        )?;
         let mut store = Store::new(&engine, ());
         let linker = Linker::new(&engine);
-        let instance = linker
-            .instantiate(&mut store, &module)
-            .context("failed to instantiate wasm module")?;
+        let instance = wasm_context(
+            linker.instantiate(&mut store, &module),
+            "failed to instantiate wasm module",
+        )?;
         let memory = instance
             .get_memory(&mut store, "memory")
             .context("wasm module has no exported `memory`")?;
@@ -65,19 +75,21 @@ impl WasmHasher {
 
     /// `__wbindgen_add_to_stack_pointer`：管理 wasm-bindgen 的栈指针。
     fn add_to_stack_pointer(&mut self, delta: i32) -> Result<i32> {
-        let f = self
-            .instance
-            .get_typed_func::<(i32,), (i32,)>(&mut self.store, "__wbindgen_add_to_stack_pointer")
-            .context("missing `__wbindgen_add_to_stack_pointer` export")?;
+        let f = wasm_context(
+            self.instance
+                .get_typed_func::<(i32,), (i32,)>(&mut self.store, "__wbindgen_add_to_stack_pointer"),
+            "missing `__wbindgen_add_to_stack_pointer` export",
+        )?;
         Ok(f.call(&mut self.store, (delta,))?.0)
     }
 
     /// `__wbindgen_export_0`：wasm-bindgen 的线性内存分配器（malloc）。
     fn malloc(&mut self, size: usize, align: usize) -> Result<u32> {
-        let f = self
-            .instance
-            .get_typed_func::<(u32, u32), (u32,)>(&mut self.store, "__wbindgen_export_0")
-            .context("missing `__wbindgen_export_0` export")?;
+        let f = wasm_context(
+            self.instance
+                .get_typed_func::<(u32, u32), (u32,)>(&mut self.store, "__wbindgen_export_0"),
+            "missing `__wbindgen_export_0` export",
+        )?;
         Ok(f.call(&mut self.store, (size as u32, align as u32))?.0)
     }
 
@@ -100,10 +112,11 @@ impl WasmHasher {
 
         let retptr = self.add_to_stack_pointer(-16)?;
 
-        let wasm_solve = self
-            .instance
-            .get_typed_func::<(i32, u32, u32, u32, u32, f64), ()>(&mut self.store, "wasm_solve")
-            .context("missing `wasm_solve` export")?;
+        let wasm_solve = wasm_context(
+            self.instance
+                .get_typed_func::<(i32, u32, u32, u32, u32, f64), ()>(&mut self.store, "wasm_solve"),
+            "missing `wasm_solve` export",
+        )?;
         wasm_solve.call(
             &mut self.store,
             (
