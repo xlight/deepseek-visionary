@@ -68,9 +68,12 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           PY="python3"
-          if [[ "${{ matrix.os }}" == windows-* ]]; then PY="python"; fi
-          "$PY" scripts/build_mcpb.py "${{ matrix.target }}" "$VERSION" \
-            "target/${{ matrix.target }}/release/visionary-server" dist
+          SRC="target/${{ matrix.target }}/release/visionary-server"
+          if [[ "${{ matrix.os }}" == windows-* ]]; then
+            PY="python"
+            SRC="$SRC.exe"
+          fi
+          "$PY" scripts/build_mcpb.py "${{ matrix.target }}" "$VERSION" "$SRC" dist
           echo "mcpb=dist/visionary-server-${{ matrix.target }}.mcpb" >> "$GITHUB_ENV"
 
       - name: Upload release asset

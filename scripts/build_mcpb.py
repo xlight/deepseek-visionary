@@ -23,6 +23,8 @@ BINARY = sys.argv[3]
 OUT_DIR = sys.argv[4]
 
 BIN_NAME = os.path.basename(BINARY)  # visionary-server 或 visionary-server.exe
+# MCPB 客户端在 Windows 上会自动补 .exe，manifest 统一写不带后缀的名字
+CMD_NAME = "visionary-server"
 
 
 def build_manifest() -> dict:
@@ -45,9 +47,9 @@ def build_manifest() -> dict:
         "privacy_policies": ["https://chat.deepseek.com/privacy"],
         "server": {
             "type": "binary",
-            "entry_point": BIN_NAME,
+            "entry_point": CMD_NAME,
             "mcp_config": {
-                "command": BIN_NAME,
+                "command": CMD_NAME,
                 "args": [],
                 "env": {},
             },
