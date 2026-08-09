@@ -7,6 +7,9 @@ members = ["cargo:."]
 cargo-dist-version = "0.32.0"
 # CI backends to support
 ci = "github"
+# release.yml 含手工追加的裸二进制/mcpb/smoke 步骤，与 dist 模板不一致；
+# 声明 allow-dirty 让 dist 跳过 release.yml 的 up-to-date 检查（否则 CI 的 dist host/build 会失败）
+allow-dirty = ["ci"]
 # The installers to generate for each app
 installers = ["shell", "powershell", "npm", "homebrew"]
 # Target platforms to build apps for (Rust target-triple syntax)
