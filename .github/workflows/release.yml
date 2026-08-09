@@ -33,12 +33,14 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      # ring（rustls 加密后端）在 aarch64 交叉编译时需要目标平台 C 编译器
+      # ring（rustls 加密后端）在 aarch64 交叉编译时需要目标平台 C 编译器与链接器
       - name: Install aarch64 cross toolchain
         if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu
+          # 用 aarch64 的 gcc 作为链接器（rust-lld 是宿主 x86-64 架构，无法链接 aarch64 目标）
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
 
       - uses: Swatinem/rust-cache@v2
         with:
