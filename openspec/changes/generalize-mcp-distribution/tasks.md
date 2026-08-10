@@ -57,6 +57,8 @@
     - npm：`@xlight-oss/visionary-server@0.2.1`（npm-scope 配置键为 `[dist] npm-scope`，非 `[dist.installer.npm].scope`）；token 需 `package: write` 权限 + `bypass_2fa`（账号开 2FA 时）
     - homebrew：formula 已推 `xlight/homebrew-tap`（需先建仓库并初始化 main 分支，空仓库无 main ref 会 checkout 失败）；同版本重发需 commit 幂等（release.yml 已加 `git diff --cached --quiet` 跳过）
     - MCP Registry 0.2.1 已发布，server.json 同步提交（104d994）
+    - v0.2.2 发布结果（2026-08-10，MCP instructions 改英文 + 版本 bump）：run 31352389388 全绿，npm/homebrew/Registry 三通道 0.2.2 全部确认（MCP instructions 已改为英文引导，工具 description 加主动调用触发）；
+    - 经验：mcp-publisher 登录 token 有效期短（不足 1 天），每次 Registry 发布需重新设备流授权；可考虑后续迁 github-oidc CI 自动发布
 - [x] 4.8 确认 Zed 扩展壳 `visionary-zed-ext` 无需改动即可下载裸二进制（方案 B 验收）
   - 代码确认：asset_name_for_platform 生成 `visionary-server-<arch>-<os>[.exe]` 与 workflow 追加的裸二进制命名一致，DownloadedFileType::Uncompressed 直接下载不依赖 archive
 - [x] 4.9 验证 `cargo binstall visionary-server` 可用（cargo-dist URL schema 自动识别，如失败则补 binstall 元数据）
