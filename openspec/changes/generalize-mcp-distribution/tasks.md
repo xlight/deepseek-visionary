@@ -88,3 +88,5 @@
 - [ ] 7.3 fork `zed-industries/extensions`，以 HTTPS submodule 挂入 `extensions/deepseek-visionary`（`path = "crates/visionary-zed-ext"`）
 - [ ] 7.4 顶层 `extensions.toml` 登记条目并 `pnpm sort-extensions`，提交到 fork
 - [ ] 7.5 创建 PR 至 `zed-industries/extensions`，通过 CI 与审核
+- [x] 7.6 接入 `huacnlee/zed-extension-action@v2` 自动化：tag 触发自动更新 fork 的 submodule 指针与 `extensions.toml` version 并创建 PR（`.github/workflows/zed-extension-release.yml`，docs 补充说明）
+  - 待启用：配置 `COMMITTER_TOKEN` secret（repo + workflow scopes）；首次上架 PR 合并后生效

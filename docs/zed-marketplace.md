@@ -73,10 +73,52 @@ git add -A && git commit -m "Update deepseek-visionary to vX.Y.Z"
 git push && gh pr create --repo zed-industries/extensions --fill
 ```
 
-## 自动化
+## 自动化（tag 触发自动提 PR）
 
-官方文档提到有社区 GitHub Action 可自动更新 submodule 指针 + version，
-待发布稳定后可接入（在 release workflow 中追加）。
+每次打 tag（`vX.Y.Z`）时，自动把新版本同步到 `zed-industries/extensions`
+并创建 PR。使用官方文档推荐的社区 Action `huacnlee/zed-extension-action@v2`
+（v2 支持扩展在 submodule 子目录、`path` 字段的仓库）。
+
+已配置于 `.github/workflows/zed-extension-release.yml`：
+
+```yaml
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  update-zed-extension:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: huacnlee/zed-extension-action@v2
+        with:
+          extension-name: deepseek-visionary
+          push-to: xlight/extensions
+        env:
+          COMMITTER_TOKEN: ${{ secrets.COMMITTER_TOKEN }}
+```
+
+### 启用前置（一次性）
+
+1. **首次上架 PR 已合并**（自动化只负责后续版本更新）
+2. **配置 `COMMITTER_TOKEN` secret**：
+   - GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)
+   - 勾选 `repo` 与 `workflow` scopes，生成后填入仓库
+     Settings → Secrets and variables → Actions → `COMMITTER_TOKEN`
+
+### 发版约定（重要）
+
+打 tag **前**必须同步 `crates/visionary-zed-ext/extension.toml` 的 `version`
+与 workspace `Cargo.toml` 一致——PR 的 `package` check 会校验
+`extensions.toml` 登记的 version 与 submodule 内 `extension.toml` 一致，
+不一致会被 CI 拒绝。
+
+### 局限
+
+- 自动创建 PR 后仍需 **Zed 维护者批准**（fork PR 的 workflow 需要 maintainer 批准）
+- PR 合并时机由 Zed 团队决定，自动化只能减少重复劳动，不能保证合并
+- PR 创建后如需修改，手动更新 fork 分支即可
 
 ## 备注
 

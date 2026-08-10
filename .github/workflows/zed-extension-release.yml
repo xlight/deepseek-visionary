@@ -1,0 +1,37 @@
+# 自动将新版本（tag vX.Y.Z）同步到 Zed 官方扩展仓库
+#
+# 使用社区 Action：huacnlee/zed-extension-action@v2
+# （zed.dev 官方文档推荐的方案）
+#
+# 流程：push tag → 更新 fork（xlight/extensions）中 submodule 指针与
+#       extensions.toml 的 version → 创建 PR 到 zed-industries/extensions
+#
+# 前置条件：
+#   1. 首次上架 PR 已合并（见 docs/zed-marketplace.md）
+#   2. 仓库 secrets 已配置 COMMITTER_TOKEN：
+#      - GitHub → Settings → Developer settings → Personal access tokens
+#        → Tokens (classic)，勾选 `repo` 与 `workflow` scopes
+#      - 仓库 → Settings → Secrets and variables → Actions → New secret
+#   3. 打 tag 前确保 `crates/visionary-zed-ext/extension.toml` 的 version
+#      与 workspace Cargo.toml 一致（PR 的 package check 会校验）
+
+name: Update Zed Extension
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  update-zed-extension:
+    name: Bump Zed Extension Version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update extension in zed-industries/extensions
+        uses: huacnlee/zed-extension-action@v2
+        with:
+          extension-name: deepseek-visionary
+          push-to: xlight/extensions
+        env:
+          # PAT（repo + workflow scopes），用于 push 到 fork 并创建 PR
+          COMMITTER_TOKEN: ${{ secrets.COMMITTER_TOKEN }}
