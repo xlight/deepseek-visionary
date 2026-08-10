@@ -114,6 +114,17 @@ jobs:
 `extensions.toml` 登记的 version 与 submodule 内 `extension.toml` 一致，
 不一致会被 CI 拒绝。
 
+**推荐用一条命令完成全部版本同步**（避免手动改漏）：
+
+```bash
+python3 scripts/bump_version.py <new-version>
+# 例如 python3 scripts/bump_version.py 0.3.0
+# 同步 Cargo.toml + Cargo.lock + extension.toml，并打印后续 commit/tag 步骤
+```
+
+CI（`ci.yml` 的 `version-consistency` job）会在 PR/main 上自动校验
+workspace 版本与 `extension.toml` 一致，漏同步会被拦截并提示执行该脚本。
+
 ### 局限
 
 - 自动创建 PR 后仍需 **Zed 维护者批准**（fork PR 的 workflow 需要 maintainer 批准）

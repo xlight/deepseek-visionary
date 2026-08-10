@@ -9,6 +9,36 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  version-consistency:
+    name: version consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check extension.toml matches workspace version
+        run: |
+          python3 - <<'EOF'
+          import re, sys, tomllib
+
+          cargo = open('Cargo.toml', encoding='utf-8').read()
+          m = re.search(
+              r'\[workspace\.package\][^\[]*?version\s*=\s*"([^"]+)"',
+              cargo, re.S)
+          if not m:
+              print('error: workspace version not found', file=sys.stderr)
+              sys.exit(1)
+          workspace_version = m.group(1)
+
+          ext = tomllib.load(open('crates/visionary-zed-ext/extension.toml', 'rb'))
+          ext_version = ext['version']
+          print(f'workspace: {workspace_version}, extension.toml: {ext_version}')
+          if workspace_version != ext_version:
+              print(
+                  'error: extension.toml version must match workspace version. '
+                  'Run: python3 scripts/bump_version.py <new-version>',
+                  file=sys.stderr)
+              sys.exit(1)
+          EOF
+
   check:
     name: fmt + clippy + test
     runs-on: ubuntu-latest
