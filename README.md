@@ -32,15 +32,15 @@ graph TD
 # 一键脚本（macOS / Linux）
 curl -LsSf https://github.com/xlight/deepseek-visionary/releases/latest/download/visionary-server-installer.sh | sh
 
-# 或 Homebrew（发布后可用）
-brew install <tap>/visionary-server
+# 或 Homebrew
+brew install xlight/tap/visionary-server
 
 # 或 npm
-npm install -g <npm-package>
+npm install -g @xlight-oss/visionary-server
 ```
 
 > 也可以直接从 GitHub Releases 下载对应平台的 `visionary-server-<target-triple>` 裸二进制加入 PATH。
-> Windows 用户可使用 PowerShell 安装脚本（发布后可用）。
+> Windows 用户可使用 PowerShell 安装脚本。
 
 ### 2. 接入你的 AI agent
 

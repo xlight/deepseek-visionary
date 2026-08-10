@@ -90,7 +90,7 @@ cargo-dist（0.32.x）生成 `release.yml` 替代手写流水线，自动产出 
 - **[直接写配置文件破坏用户现有配置]** → 备份先行 + 严格 JSON 解析失败即中止 + 只增改单一键；文档明确"先备份，`--dry-run` 预览"
 - **[cargo-dist 生成 workflow 与 mcpb/裸二进制追加步骤冲突]** → 先 `cargo dist plan` spike 验证；旧 release.yml 保留于 git 历史可回滚；发布用新 tag（v0.2.0）验证
 - **[opencode 配置实际是 JSONC 而非严格 JSON]** → 解析失败时中止并提示手动编辑，不猜测
-- **[npm 包名 / homebrew tap 名冲突]** → 用 scoped 包名（如 `@xlight/deepseek-visionary`）与独立 tap 仓库，实施时先查 npm 注册表与 GitHub 可用性
+- **[npm 包名 / homebrew tap 名冲突]** → 用 scoped 包名 `@xlight-oss/visionary-server`（npm 组织 xlight-oss，配置键为 `[dist] npm-scope`）与独立 tap 仓库 `xlight/homebrew-tap`
 - **[claude mcp add 交互提示挂起]** → 使用 `--scope user` 与非交互参数；超时降级为直接写配置
 - **[version bump 遗漏导致 cargo-dist 发布失败]** → 把"bump workspace version 并同步 server.json"纳入发布检查清单；发布流程首步即校验 `tag == v{version}`
 

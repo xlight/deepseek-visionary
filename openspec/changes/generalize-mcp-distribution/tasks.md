@@ -39,8 +39,8 @@
 - [x] 4.1 spike：`cargo dist init --hosting github` 生成 workflow，验证 `[[dist.extra-artifacts]]` 配置声明裸二进制与 mcpb（官方文档已确认 0.32 支持，实测确认字段行为）
   - 实测结论：0.32 的 extra-artifacts 是全局构建一次（is_global: true），`{target}`/`{exe}` 占位符不替换，会在发布时 MissingBinaries 报错；per-target 裸二进制/mcpb 改为 workflow 追加步骤
 - [x] 4.2 配置 `[workspace.metadata.dist]`：installers = shell/powershell/npm/homebrew，cargo-dist 版本、tap、npm scope（实施时查 npm 注册表与 GitHub 可用性）
-  - 已配：dist-workspace.toml 的 installers / cargo-dist-version / targets / github-runners / tap（`[dist]` 直接字段）/ npm scope（`[dist.installer.npm]`）；
-  - 外部依赖：需先创建 `xlight/homebrew-tap` 仓库、npm 账号 scope `@xlight` 可用、GitHub Actions secrets 配 `NPM_TOKEN`
+  - 已配：dist-workspace.toml 的 installers / cargo-dist-version / targets / github-runners / tap（`[dist]` 直接字段）/ npm scope（`[dist] npm-scope = "@xlight-oss"`）；
+  - 外部依赖：需先创建 `xlight/homebrew-tap` 仓库、npm 组织 `xlight-oss` 与发布 token（`package: write`）、GitHub Actions secrets 配 `NPM_TOKEN`
 - [x] 4.3 用 cargo-dist 生成 workflow 替换手写 `release.yml`，保留 tag 触发与 5 平台矩阵
   - 注意：`dist generate --mode ci` 会覆盖 release.yml，手工追加的裸二进制/mcpb/smoke 步骤需重新追加
 - [x] 4.4 在生成的 workflow 中追加：各平台裸二进制上传（`visionary-server-<target-triple>`，Windows 带 `.exe`）
