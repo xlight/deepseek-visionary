@@ -53,6 +53,10 @@
   - 本地演练（已通过）：`dist build --artifacts=host --allow-dirty` 产出 installer.sh / npm pkg / homebrew.rb / tar.xz / sha256，URL 均指向 v0.2.0；裸二进制 + mcpb 构建脚本本地验证通过
   - 发布前置（需用户）：① 创建 `xlight/homebrew-tap` 仓库 ② npm scope `@xlight` 发布权限 ③ GitHub Actions secrets 配 `NPM_TOKEN` ④ 提交本 change 全部改动
   - 发布结果（2026-08-10）：run 31322222493 全绿，33 个 release 资产齐全（5 裸二进制 + 5 mcpb + 5 archive + sha256 + installer.sh/ps1 + npm pkg + homebrew.rb + source）；`mcp-publisher publish` 成功，Registry `latest` = 0.2.0 且 5 mcpb sha256 与 server.json 一致；npm/homebrew 发布未执行（publish-jobs 置空，见 4.2 外部依赖）
+  - v0.2.1 发布结果（2026-08-10，npm/homebrew 通道打通）：run 31347310600 全绿，publish-npm + publish-homebrew-formula + announce 全部 ✓；
+    - npm：`@xlight-oss/visionary-server@0.2.1`（npm-scope 配置键为 `[dist] npm-scope`，非 `[dist.installer.npm].scope`）；token 需 `package: write` 权限 + `bypass_2fa`（账号开 2FA 时）
+    - homebrew：formula 已推 `xlight/homebrew-tap`（需先建仓库并初始化 main 分支，空仓库无 main ref 会 checkout 失败）；同版本重发需 commit 幂等（release.yml 已加 `git diff --cached --quiet` 跳过）
+    - MCP Registry 0.2.1 已发布，server.json 同步提交（104d994）
 - [x] 4.8 确认 Zed 扩展壳 `visionary-zed-ext` 无需改动即可下载裸二进制（方案 B 验收）
   - 代码确认：asset_name_for_platform 生成 `visionary-server-<arch>-<os>[.exe]` 与 workflow 追加的裸二进制命名一致，DownloadedFileType::Uncompressed 直接下载不依赖 archive
 - [x] 4.9 验证 `cargo binstall visionary-server` 可用（cargo-dist URL schema 自动识别，如失败则补 binstall 元数据）
@@ -74,3 +78,11 @@
   - doctor：全部检查项 ✅ 退出 0；init opencode --dry-run：预览不落盘；init opencode：写前备份 .bak.<UTC> + 合并写入 + 保留既有条目
 - [x] 6.4 README 与 `docs/integrations/` 全文走查：链接有效、命令可复制执行
   - README：通用 MCP 接入优先 + 文档矩阵 + apm 通道 + Zed 降级；6 份集成文档各含一键/手动/FAQ；命令与 onboarding.rs 实现一致
+
+## 7. Zed 官方市场上架（marketplace）
+
+- [x] 7.1 同步 `crates/visionary-zed-ext/extension.toml` 的 `version` 至 0.2.1，authors 补全邮箱（与 workspace 版本对齐）
+- [x] 7.2 编写 `docs/zed-marketplace.md`：首次上架步骤、更新流程、检查清单、PR 要点
+- [ ] 7.3 fork `zed-industries/extensions`，以 HTTPS submodule 挂入 `extensions/deepseek-visionary`（`path = "crates/visionary-zed-ext"`）
+- [ ] 7.4 顶层 `extensions.toml` 登记条目并 `pnpm sort-extensions`，提交到 fork
+- [ ] 7.5 创建 PR 至 `zed-industries/extensions`，通过 CI 与审核
