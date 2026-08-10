@@ -7,44 +7,44 @@
     "url": "https://github.com/xlight/deepseek-visionary",
     "source": "github"
   },
-  "version": "0.2.0",
+  "version": "0.2.1",
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/xlight/deepseek-visionary/releases/download/v0.2.0/visionary-server-aarch64-apple-darwin.mcpb",
-      "fileSha256": "b6587a8bbb5eba2d251fc3cc8ce921f7d2a30ea501fb689c8deb69269925549a",
+      "identifier": "https://github.com/xlight/deepseek-visionary/releases/download/v0.2.1/visionary-server-aarch64-apple-darwin.mcpb",
+      "fileSha256": "04a8a7e2c051ed2101ad9a578a87335b345941abc9715bac992b1e6746be64cd",
       "transport": {
         "type": "stdio"
       }
     },
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/xlight/deepseek-visionary/releases/download/v0.2.0/visionary-server-x86_64-apple-darwin.mcpb",
-      "fileSha256": "a11df1622a67e16f154959fe62c868ff687ad16194450693d0663cd14a89668b",
+      "identifier": "https://github.com/xlight/deepseek-visionary/releases/download/v0.2.1/visionary-server-x86_64-apple-darwin.mcpb",
+      "fileSha256": "46e21e99b8ff5f8826df3a87f10a5bb14eb2a7fdbc6c048732d548fdd1fe024f",
       "transport": {
         "type": "stdio"
       }
     },
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/xlight/deepseek-visionary/releases/download/v0.2.0/visionary-server-x86_64-unknown-linux-gnu.mcpb",
-      "fileSha256": "005e6f127c7bb5a763512278aedd7d4ec837fcf055065e223845562abb8760d2",
+      "identifier": "https://github.com/xlight/deepseek-visionary/releases/download/v0.2.1/visionary-server-x86_64-unknown-linux-gnu.mcpb",
+      "fileSha256": "e84f5c5475798640b9709c3f200a5a69519a847d1cecce920643b1294de35461",
       "transport": {
         "type": "stdio"
       }
     },
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/xlight/deepseek-visionary/releases/download/v0.2.0/visionary-server-aarch64-unknown-linux-gnu.mcpb",
-      "fileSha256": "83ec9929d215014a43865ec7002b14f14fb0ce32d0cab79e745064a6f182e92e",
+      "identifier": "https://github.com/xlight/deepseek-visionary/releases/download/v0.2.1/visionary-server-aarch64-unknown-linux-gnu.mcpb",
+      "fileSha256": "b3ea144b9decc4a761b491321851979efe5ba88fc83fe8a242f58725723078f0",
       "transport": {
         "type": "stdio"
       }
     },
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/xlight/deepseek-visionary/releases/download/v0.2.0/visionary-server-x86_64-pc-windows-msvc.mcpb",
-      "fileSha256": "ae5c0c7b63e94b281067c329caa04067eeecbf28415d5c5fa5b1895a64ba95aa",
+      "identifier": "https://github.com/xlight/deepseek-visionary/releases/download/v0.2.1/visionary-server-x86_64-pc-windows-msvc.mcpb",
+      "fileSha256": "46239d47f94654a296d91905674859a633576e37afcbab1aca5db9fcf86cdc17",
       "transport": {
         "type": "stdio"
       }
