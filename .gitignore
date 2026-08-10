@@ -5,3 +5,6 @@
 # Zed dev extension 构建产物（Zed 在扩展目录内生成）
 crates/visionary-zed-ext/target/
 crates/visionary-zed-ext/extension.wasm
+
+# 登录调试日志
+mcp-login.log
