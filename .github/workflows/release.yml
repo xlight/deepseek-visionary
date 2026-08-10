@@ -375,9 +375,15 @@ jobs:
             brew style --except-cops FormulaAudit/Homepage,FormulaAudit/Desc,FormulaAuditStrict --fix "Formula/${filename}" || true
 
             git add "Formula/${filename}"
-            git commit -m "${name} ${version}"
+            # 同版本重发时 formula 可能无变化（已提交过），无变化则跳过 commit，避免 git commit 报错
+            if git diff --cached --quiet; then
+              echo "${filename} unchanged, skipping commit"
+            else
+              git commit -m "${name} ${version}"
+            fi
           done
-          git push
+          # 全部 formula 均无变化时没有可推送的 commit，git push 会报 "Everything up-to-date"，容忍之
+          git push || true
 
   publish-npm:
     needs:
