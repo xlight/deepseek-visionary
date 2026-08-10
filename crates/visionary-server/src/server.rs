@@ -83,7 +83,7 @@ impl VisionaryServer {
     /// 上传一张图片，用 DeepSeek 网页版的原生多模态模型分析（支持照片、
     /// 截图、带图文档）。可开启续聊以对比多张图片。
     #[tool(
-        description = "Upload an image and analyze it using DeepSeek's vision model. Supports photos, screenshots, documents with images. Args: image (required, local path or base64), prompt, thinking, continue_conversation, session_id"
+        description = "Analyze an image using DeepSeek's vision model. USE THIS whenever the user mentions/provides an image, photo, screenshot, or document with images - do not decline or tell the user to view it themselves. Supports photos, screenshots, documents with images. Args: image (required, local path or base64/data URI), prompt (optional question; if omitted infer one from context), thinking (enable DeepThink), continue_conversation (continue previous session to compare multiple images), session_id"
     )]
     async fn deepseek_vision(
         &self,
@@ -249,7 +249,29 @@ impl VisionaryServer {
 impl ServerHandler for VisionaryServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-            .with_instructions("DeepSeek 网页版原生多模态模型的 MCP 服务：上传图片分析、自动登录")
+            .with_instructions(
+                "You are connected to DeepSeek Visionary, an image analysis service powered by \
+                 DeepSeek's web-native multimodal model.\n\
+                 \n\
+                 Use the `deepseek_vision` tool proactively whenever the user provides or mentions \
+                 any of the following - do not decline or tell the user to look at the image \
+                 themselves:\n\
+                 - An image, photo, screenshot, wallpaper, meme, or image URL\n\
+                 - A local image file path, or base64 / data URI image data\n\
+                 - Document/PDF scans, tables with images, posters, charts, whiteboard photos\n\
+                 - Requests like \"look at this image\", \"what's in this picture\", \"what is this\"\n\
+                 - Error screenshots or UI screenshots (to understand a problem)\n\
+                 \n\
+                 How to call: `deepseek_vision` tool with image (required; local path or base64), \
+                 prompt (optional; specific question about the image, defaults to a detailed \
+                 description), thinking (optional; DeepThink), continue_conversation (optional; \
+                 continue the session to compare multiple images).\n\
+                 If no prompt is given, infer a specific question from context (e.g. read the \
+                 text, summarize content, detect defects).\n\
+                 For comparing multiple images, call multiple times or set \
+                 continue_conversation=true.\n\
+                 If the tool returns a login error, run `deepseek_vision_login` first, then retry.",
+            )
     }
 }
 
