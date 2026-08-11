@@ -61,7 +61,7 @@ def send(proc, payload: dict):
 
 def spawn(binary: str):
     return subprocess.Popen(
-        [binary],
+        [binary, "mcp-stdio"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         # stderr 保持独立：server 日志走 stderr，stdout 是纯净的 MCP 协议通道

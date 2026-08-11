@@ -15,7 +15,7 @@ visionary-server init opencode
   "mcp": {
     "deepseek-visionary": {
       "type": "local",
-      "command": ["visionary-server"],
+      "command": ["visionary-server", "mcp-stdio"],
       "enabled": true,
       "timeout": 60000
     }
@@ -37,7 +37,7 @@ visionary-server init opencode
   "mcp": {
     "deepseek-visionary": {
       "type": "local",
-      "command": ["visionary-server"],
+      "command": ["visionary-server", "mcp-stdio"],
       "enabled": true,
       "timeout": 60000
     }
@@ -59,6 +59,6 @@ opencode mcp list
 ## 常见问题
 
 - **首次启动超时 / 工具加载失败**：确认 `timeout` 已设为 60000；确认 `visionary-server` 在 PATH。
-- **`command` 解析失败**：OpenCode 要求 `command` 为数组（`["visionary-server"]`），不是字符串。
+- **`command` 解析失败**：OpenCode 要求 `command` 为数组（`["visionary-server", "mcp-stdio"]`），不是字符串。
 - **未登录**：调用 `deepseek_vision` 前先调用 `deepseek_vision_login` 自动登录，或用环境变量 `DEEPSEEK_USER_TOKEN` 注入 token。
 - **二进制不在 PATH**：`init` 会检测并提示安装方式；也可在 `command` 中写绝对路径。

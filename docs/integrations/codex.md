@@ -16,7 +16,7 @@ visionary-server init codex
 ### 方式 A：CLI（推荐）
 
 ```bash
-codex mcp add deepseek-visionary -- visionary-server
+codex mcp add deepseek-visionary -- visionary-server mcp-stdio
 ```
 
 > 注意 `--` 分隔符形式：`codex mcp add <name> -- <command> [args...]`。
@@ -29,7 +29,7 @@ codex mcp add deepseek-visionary -- visionary-server
 ```toml
 [mcp_servers.deepseek-visionary]
 command = "visionary-server"
-args = []
+args = ["mcp-stdio"]
 ```
 
 > **键名必须是 `mcp_servers`**（不是 `mcp.servers`）。`mcp.servers` 会被 Codex
@@ -51,5 +51,5 @@ codex mcp list
   ```toml
   [mcp_servers.deepseek-visionary]
   command = "/path/to/visionary-server"
-  args = []
+  args = ["mcp-stdio"]
   ```

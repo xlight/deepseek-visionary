@@ -288,7 +288,7 @@ fn write_opencode(home: &Path, dry_run: bool) -> Result<()> {
     let path = opencode_config_path(home);
     let entry = serde_json::json!({
         "type": "local",
-        "command": ["visionary-server"],
+        "command": ["visionary-server", "mcp-stdio"],
         "enabled": true,
         "timeout": OPENCODE_TIMEOUT_MS,
     });
@@ -302,7 +302,7 @@ fn write_codex(home: &Path, dry_run: bool) -> Result<()> {
     if !dry_run {
         if let Some(codex) = find_in_path("codex") {
             let status = Command::new(codex)
-                .args(["mcp", "add", SERVER_NAME, "--", "visionary-server"])
+                .args(["mcp", "add", SERVER_NAME, "--", "visionary-server", "mcp-stdio"])
                 .status();
             if let Ok(st) = status {
                 if st.success() {
@@ -345,6 +345,7 @@ fn write_claude(home: &Path, dry_run: bool) -> Result<()> {
                     "user",
                     "--",
                     "visionary-server",
+                    "mcp-stdio",
                 ])
                 .status();
             if let Ok(st) = status {
@@ -356,7 +357,7 @@ fn write_claude(home: &Path, dry_run: bool) -> Result<()> {
         }
     }
 
-    let entry = serde_json::json!({ "command": "visionary-server", "args": [] });
+    let entry = serde_json::json!({ "command": "visionary-server", "args": ["mcp-stdio"] });
     merge_json_key(&path, &["mcpServers", SERVER_NAME], &entry, dry_run)
 }
 
@@ -365,14 +366,14 @@ fn write_claude_desktop(home: &Path, dry_run: bool) -> Result<()> {
     let path = claude_desktop_config_path(home).ok_or_else(|| {
         anyhow!("auto-locating the Claude Desktop config is not supported on this platform; configure manually (see docs/integrations/claude-desktop.md)")
     })?;
-    let entry = serde_json::json!({ "command": "visionary-server", "args": [] });
+    let entry = serde_json::json!({ "command": "visionary-server", "args": ["mcp-stdio"] });
     merge_json_key(&path, &["mcpServers", SERVER_NAME], &entry, dry_run)
 }
 
 /// Cursor：`mcpServers` 形状写 `~/.cursor/mcp.json`（用户级）。
 fn write_cursor(home: &Path, dry_run: bool) -> Result<()> {
     let path = cursor_config_path(home);
-    let entry = serde_json::json!({ "command": "visionary-server", "args": [] });
+    let entry = serde_json::json!({ "command": "visionary-server", "args": ["mcp-stdio"] });
     merge_json_key(&path, &["mcpServers", SERVER_NAME], &entry, dry_run)
 }
 
@@ -383,7 +384,10 @@ fn codex_section_toml() -> String {
         "command".into(),
         toml::Value::String("visionary-server".into()),
     );
-    table.insert("args".into(), toml::Value::Array(vec![]));
+    table.insert(
+        "args".into(),
+        toml::Value::Array(vec![toml::Value::String("mcp-stdio".into())]),
+    );
     format!("[mcp_servers.{SERVER_NAME}]\n{}", toml::Value::Table(table))
 }
 
@@ -575,6 +579,7 @@ mod tests {
         let entry = &root["mcp"]["deepseek-visionary"];
         assert_eq!(entry["type"], "local");
         assert_eq!(entry["command"][0], "visionary-server");
+        assert_eq!(entry["command"][1], "mcp-stdio");
         assert_eq!(entry["timeout"], 60000);
         assert!(entry["enabled"].as_bool().unwrap());
         // 原有配置保留
@@ -644,6 +649,10 @@ mod tests {
         );
         assert!(content.contains("command = \"visionary-server\""));
         assert!(
+            content.contains("args = [\"mcp-stdio\"]"),
+            "args must include mcp-stdio, got: {content}"
+        );
+        assert!(
             content.contains("model = \"gpt-5\""),
             "preserve existing toml"
         );
@@ -655,7 +664,7 @@ mod tests {
         // 直接测 JSON 兜底路径（避免真实 claude CLI 干扰 / 写入真实 ~/.claude.json）
         let home = temp_home("claude");
         let path = claude_config_path(&home);
-        let entry = serde_json::json!({ "command": "visionary-server", "args": [] });
+        let entry = serde_json::json!({ "command": "visionary-server", "args": ["mcp-stdio"] });
         merge_json_key(&path, &["mcpServers", SERVER_NAME], &entry, false).unwrap();
 
         let root: serde_json::Value =
@@ -663,6 +672,10 @@ mod tests {
         assert_eq!(
             root["mcpServers"]["deepseek-visionary"]["command"],
             "visionary-server"
+        );
+        assert_eq!(
+            root["mcpServers"]["deepseek-visionary"]["args"][0],
+            "mcp-stdio"
         );
         let _ = std::fs::remove_dir_all(&home);
     }
@@ -676,6 +689,10 @@ mod tests {
         let root: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert!(root["mcpServers"]["deepseek-visionary"].is_object());
+        assert_eq!(
+            root["mcpServers"]["deepseek-visionary"]["args"][0],
+            "mcp-stdio"
+        );
         let _ = std::fs::remove_dir_all(&home);
     }
 

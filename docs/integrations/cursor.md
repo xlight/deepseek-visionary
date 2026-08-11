@@ -21,7 +21,7 @@ visionary-server init cursor
   "mcpServers": {
     "deepseek-visionary": {
       "command": "visionary-server",
-      "args": []
+      "args": ["mcp-stdio"]
     }
   }
 }

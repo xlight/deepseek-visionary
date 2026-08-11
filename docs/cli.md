@@ -1,6 +1,6 @@
 # CLI 用法
 
-`visionary-server` 除 MCP stdio serve 模式外，提供完整的命令行子命令面，覆盖与 MCP 工具等价的核心能力。适合终端交互、脚本与 AI agent 调用（配合 `skills/visionary-cli/SKILL.md`）。
+`visionary-server` 除 `mcp-stdio`（MCP stdio serve）子命令外，提供完整的命令行子命令面，覆盖与 MCP 工具等价的核心能力。适合终端交互、脚本与 AI agent 调用（配合 `skills/visionary-cli/SKILL.md`）。
 
 ## 子命令一览
 
@@ -12,7 +12,8 @@
 | `logout` | `deepseek_vision_logout` | 清除保存的凭据 |
 | `doctor` | — | 完整环境诊断（平台/浏览器/config 权限/鉴权） |
 | `init [agent]` | — | 引导接入 AI agent |
-| （无参数） | — | 进入 MCP stdio serve 模式 |
+| `mcp-stdio` | — | 显式启动 MCP stdio serve 模式 |
+| （无参数） | — | 输出 help 用法（退出码 2，不进入 serve） |
 
 ## `vision` 参数
 

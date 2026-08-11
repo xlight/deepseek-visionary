@@ -1,7 +1,7 @@
-//! 二进制级回归测试：--version / 未知子命令 / 无参数 serve 握手。
+//! 二进制级回归测试：--version / 未知子命令 / mcp-stdio 握手 / 无参数 help。
 //!
-//! 关键约束（design.md 决策 1）：无参数启动必须进入 MCP stdio serve 模式，
-//! 与引入 CLI 前完全兼容——这里用真实 MCP initialize 握手验证。
+//! 关键约束（design.md 决策 1）：MCP stdio serve 必须显式 `mcp-stdio` 子命令启动；
+//! 无参数输出 help 并以退出码 2 退出——这里用真实 MCP initialize 握手验证 serve 路径。
 
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
@@ -42,10 +42,11 @@ fn unknown_subcommand_fails_without_serving() {
 }
 
 #[test]
-fn no_args_starts_mcp_serve_and_handshakes() {
-    // 无参数 = MCP stdio serve。写一个最小 initialize 请求，读回响应，
+fn mcp_stdio_starts_mcp_serve_and_handshakes() {
+    // `mcp-stdio` = MCP stdio serve。写一个最小 initialize 请求，读回响应，
     // 确认服务正常启动且不因 CLI 引入而破坏协议。
     let mut child = Command::new(bin())
+        .arg("mcp-stdio")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -73,6 +74,18 @@ fn no_args_starts_mcp_serve_and_handshakes() {
     // 关掉 stdin，服务应退出
     drop(stdin);
     let _ = child.wait();
+}
+
+#[test]
+fn no_args_prints_help_and_exits_2() {
+    // 无参数 = clap arg_required_else_help：stderr 输出 help/usage，退出码 2，不进入 serve。
+    let out = Command::new(bin()).output().expect("run");
+    assert_eq!(out.status.code(), Some(2), "no args should exit 2");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.to_lowercase().contains("usage") || stderr.contains("mcp-stdio"),
+        "stderr should contain help/usage, got: {stderr}"
+    );
 }
 
 #[test]

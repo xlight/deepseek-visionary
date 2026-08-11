@@ -70,7 +70,7 @@ impl zed::Extension for VisionaryExtension {
 
         Ok(Command {
             command: server_path,
-            args: vec![],
+            args: vec!["mcp-stdio".to_string()],
             env,
         })
     }

@@ -16,13 +16,13 @@ visionary-server init claude
 ### 方式 A：CLI（推荐）
 
 ```bash
-claude mcp add --transport stdio deepseek-visionary -- visionary-server
+claude mcp add --transport stdio deepseek-visionary -- visionary-server mcp-stdio
 ```
 
 加 `--scope user` 写入用户级配置（`~/.claude.json`），而非项目级 `.mcp.json`：
 
 ```bash
-claude mcp add --transport stdio deepseek-visionary --scope user -- visionary-server
+claude mcp add --transport stdio deepseek-visionary --scope user -- visionary-server mcp-stdio
 ```
 
 ### 方式 B：直接编辑配置
@@ -34,7 +34,7 @@ claude mcp add --transport stdio deepseek-visionary --scope user -- visionary-se
   "mcpServers": {
     "deepseek-visionary": {
       "command": "visionary-server",
-      "args": []
+      "args": ["mcp-stdio"]
     }
   }
 }

@@ -1,8 +1,9 @@
-//! CLI 入口：`--version` / `doctor` / `init` / `vision` / `status` / `login` / `logout` 子命令；
-//! 无参数时进入 MCP stdio serve 模式。
+//! CLI 入口：`--version` / `mcp-stdio` / `doctor` / `init` / `vision` / `status` /
+//! `login` / `logout` / `skill` 子命令；无参数时输出 help 并退出（clap
+//! `arg_required_else_help`，退出码 2）。
 //!
-//! 关键约束（design.md 决策 1）：所有 agent 配置都以 `command: ["visionary-server"]`
-//! 无参启动，因此无参数路径必须与引入 CLI 前完全兼容。
+//! 关键约束（design.md 决策 1）：MCP stdio 模式必须显式 `mcp-stdio` 子命令启动；
+//! 所有 agent 配置都以 `command: ["visionary-server", "mcp-stdio"]` 启动。
 
 use crate::hif::HifAuth;
 use crate::pipeline::{self, VisionRequest};
@@ -20,7 +21,10 @@ use std::time::Duration;
 #[command(
     name = "visionary-server",
     version,
-    about = "DeepSeek Visionary MCP server"
+    about = "DeepSeek Visionary MCP server",
+    arg_required_else_help = true,
+    after_help = "MCP stdio mode: run `visionary-server mcp-stdio` to start the MCP server.\n\
+                  Existing agent configs start the server without args; re-run `visionary-server init` to migrate them."
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -29,6 +33,8 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// 启动 MCP stdio 服务（MCP 模式入口）。
+    McpStdio,
     /// 诊断环境与配置（浏览器、凭据、平台/架构）。
     Doctor,
     /// 引导接入 AI agent（opencode / codex / claude / cursor / claude-desktop）。
@@ -119,7 +125,7 @@ pub struct InitArgs {
 pub async fn run() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        None => serve().await,
+        Some(Command::McpStdio) => serve().await,
         Some(Command::Doctor) => cmd_doctor().await,
         Some(Command::Init(args)) => crate::onboarding::cmd_init(args),
         Some(Command::Vision(args)) => cmd_vision(args).await,
@@ -127,10 +133,12 @@ pub async fn run() -> Result<()> {
         Some(Command::Login) => cmd_login().await,
         Some(Command::Logout) => cmd_logout().await,
         Some(Command::Skill(args)) => cmd_skill(args),
+        // 无参数由 clap 的 arg_required_else_help 拦截（输出 help 并 exit 2），不可达
+        None => unreachable!("no-args invocation is rejected by arg_required_else_help"),
     }
 }
 
-/// MCP stdio serve 模式（无参数时的默认行为，与引入 CLI 前完全一致）。
+/// MCP stdio serve 模式（`mcp-stdio` 子命令入口，行为与引入 CLI 前完全一致）。
 async fn serve() -> Result<()> {
     tracing::info!(
         "starting DeepSeek Visionary MCP server v{}",
@@ -550,16 +558,40 @@ mod tests {
     use clap::Parser;
 
     #[test]
-    fn no_args_means_serve() {
-        let cli = Cli::try_parse_from(["visionary-server"]).expect("no args should parse");
-        assert!(cli.command.is_none(), "no args must mean serve mode");
+    fn no_args_means_help() {
+        // arg_required_else_help：无参数时 clap 拒绝解析并输出 help（对应退出码 2）
+        let err = Cli::try_parse_from(["visionary-server"])
+            .expect_err("no args must be rejected by arg_required_else_help");
+        assert_eq!(
+            err.kind(),
+            clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+        );
+        let text = err.to_string();
+        assert!(
+            text.to_lowercase().contains("usage") || text.contains("mcp-stdio"),
+            "help should mention usage/mcp-stdio, got: {text}"
+        );
+    }
+
+    #[test]
+    fn mcp_stdio_subcommand_parses() {
+        let cli = Cli::try_parse_from(["visionary-server", "mcp-stdio"])
+            .expect("mcp-stdio parses");
+        assert!(matches!(cli.command, Some(Command::McpStdio)));
     }
 
     #[test]
     fn version_flag_parses() {
-        // clap `version` 属性自动提供 -V/--version；此处只验证可解析且不出现在子命令分支。
-        let cli = Cli::try_parse_from(["visionary-server"]).expect("parses");
-        assert!(cli.command.is_none());
+        // clap `version` 属性自动提供 -V/--version；--version 短路输出版本号。
+        let err = Cli::try_parse_from(["visionary-server", "--version"])
+            .expect_err("--version should short-circuit to version output");
+        assert_eq!(err.kind(), clap::error::ErrorKind::DisplayVersion);
+        let text = err.to_string();
+        assert!(
+            text.contains(env!("CARGO_PKG_VERSION")),
+            "version output should contain {}, got: {text}",
+            env!("CARGO_PKG_VERSION")
+        );
     }
 
     #[test]

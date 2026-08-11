@@ -21,7 +21,7 @@ visionary-server init claude-desktop
   "mcpServers": {
     "deepseek-visionary": {
       "command": "visionary-server",
-      "args": []
+      "args": ["mcp-stdio"]
     }
   }
 }

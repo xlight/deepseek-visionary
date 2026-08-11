@@ -50,7 +50,7 @@ def build_manifest() -> dict:
             "entry_point": CMD_NAME,
             "mcp_config": {
                 "command": CMD_NAME,
-                "args": [],
+                "args": ["mcp-stdio"],
                 "env": {},
             },
         },

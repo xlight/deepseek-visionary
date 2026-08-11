@@ -12,7 +12,7 @@
 3. 点击 **Install**
 
 扩展壳（`visionary-zed-ext`，wasm32-wasip2）会自动按平台从 GitHub Releases
-下载/缓存 `visionary-server` 原生二进制，并以 stdio 方式启动 MCP 服务。
+下载/缓存 `visionary-server` 原生二进制，并以 `mcp-stdio` 参数启动 MCP 服务。
 
 ## 本地联调（开发模式）
 

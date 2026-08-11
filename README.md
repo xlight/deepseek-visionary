@@ -13,7 +13,7 @@ graph TD
         AG -->|spawn 独立进程| SRV
     end
     subgraph visionary-server 原生二进制
-        SRV["MCP stdio 服务<br/>vision / status / login / logout 工具<br/>init / doctor CLI"]
+        SRV["CLI + MCP stdio 服务<br/>vision / status / login / logout / skill 工具<br/>mcp-stdio / init / doctor CLI"]
         CFG["~/.deepseek-visionary/config.json<br/>token + smidV2 + cf_clearance + 会话"]
         SRV --> CFG
     end
@@ -21,7 +21,7 @@ graph TD
     SRV -->|CDP 启动 + 监听| BRO["Chrome 系浏览器<br/>仅登录时出现"]
 ```
 
-- **visionary-server**：标准 MCP stdio 服务，实现完整 vision 流水线（PoW → 上传 → fork → HIF 签名 → SSE 流式 completion）与 CDP 自动登录；同时提供 `init` / `doctor` CLI 引导接入
+- **visionary-server**：单二进制，默认 CLI 模式（`vision` / `status` / `login` / `logout` / `skill` / `init` / `doctor`），`mcp-stdio` 子命令显式启动 MCP stdio 服务；实现完整 vision 流水线（PoW → 上传 → fork → HIF 签名 → SSE 流式 completion）与 CDP 自动登录
 - **visionary-zed-ext**：Zed 扩展壳（仅 Zed 需要），按平台从 GitHub Releases 下载/缓存 visionary-server 并启动
 
 ## 安装
@@ -42,7 +42,31 @@ npm install -g @xlight-oss/visionary-server
 > 也可以直接从 GitHub Releases 下载对应平台的 `visionary-server-<target-triple>` 裸二进制加入 PATH。
 > Windows 用户可使用 PowerShell 安装脚本。
 
-### 2. 接入你的 AI agent
+### 2. 快速开始（CLI + skill，推荐）
+
+CLI 是零配置入口：安装后即可直接在终端 / 脚本 / AI agent 中调用 `vision` 识图，无需任何 MCP 配置。首次使用先登录：
+
+```bash
+# 浏览器自动登录（后续无需重复）
+visionary-server login
+
+# 识图（agent/脚本调用务必加 --json 原子输出）
+visionary-server vision screenshot.png
+visionary-server vision img.png --json --prompt "图中有什么？" --thinking
+```
+
+给 AI agent 使用时，把内嵌的调用契约 skill 装进 agent 的 skills 目录，agent 即学会以 `--json` 原子输出正确调用：
+
+```bash
+# skill 内嵌于二进制，一条命令安装/更新
+visionary-server skill install
+# → 写入 ~/.agents/skills/visionary-cli/SKILL.md
+# 可将该目录移动到所用 agent 的默认 skills 目录
+```
+
+### 3. 进阶：接入 MCP 宿主
+
+需要把 `deepseek_vision` 作为 MCP 工具暴露给宿主（Zed / OpenCode / Codex / Claude Code / Cursor / Claude Desktop）时，用 `init` 一键接入：
 
 ```bash
 # 一键检测并接入（列出已安装 agent）
@@ -76,12 +100,12 @@ visionary-server init opencode --dry-run
 > 新兴通道：Microsoft Agent Package Manager 用户可直接
 > `apm install --mcp io.github.xlight/deepseek-visionary`（复用 MCP Registry 标识）。
 
-### 3. 登录
+### 4. 登录
 
-调用 MCP 工具的 `deepseek_vision_login` 完成自动登录：
+登录凭据保存在 `~/.deepseek-visionary/config.json`，CLI 与 MCP 模式共享；浏览器自动登录会打开窗口导航到 chat.deepseek.com，登录后自动抓取 token 并保存：
 
-- 会打开浏览器窗口并导航到 chat.deepseek.com
-- 在浏览器中登录后，工具自动抓取 token 并保存
+- CLI：`visionary-server login`（可先 `status --json` 预检）
+- MCP：调用工具的 `deepseek_vision_login`
 
 > 手动兜底：登录 chat.deepseek.com 后，DevTools → Application → Local Storage →
 > `userToken` → 复制 `JSON.parse(value).value`，写入 `~/.deepseek-visionary/config.json`：
@@ -90,9 +114,10 @@ visionary-server init opencode --dry-run
 > { "user_token": "你的 token" }
 > ```
 
-### 4. 使用
+### 5. 使用
 
-调用 `deepseek_vision` 传入图片路径或 base64 即可识图。
+- **CLI**：`visionary-server vision <image>` 识图（详见下文「CLI 工具」）
+- **MCP**：调用 `deepseek_vision` 传入图片路径或 base64 即可识图
 
 ## Zed 扩展安装
 
@@ -106,8 +131,9 @@ visionary-server init opencode --dry-run
 
 | 命令 | 说明 |
 |------|------|
-| `visionary-server`（无参数） | 进入 MCP stdio serve 模式（所有 agent 配置的默认入口） |
+| `visionary-server`（无参数） | 输出 help 用法信息并退出码 2（不进入任何模式） |
 | `visionary-server --version` | 输出版本号 |
+| `visionary-server mcp-stdio` | 显式启动 MCP stdio 服务（MCP 模式入口，所有 agent 配置均以此启动） |
 | `visionary-server vision <image>` | 用视觉模型分析图片（CLI 版 `deepseek_vision`）。`image` 支持路径 / base64 / data URI / `-`（stdin）；`--prompt` / `--thinking` / `--continue` / `--session-id` / `--json` / `--stream` / `--no-stream` |
 | `visionary-server status` | 轻量鉴权状态检查（CLI 版 `deepseek_vision_status`），`--json` 输出结构化状态 |
 | `visionary-server login` | 浏览器自动登录（CLI 版 `deepseek_vision_login`） |
