@@ -228,27 +228,20 @@ impl ServerHandler for VisionaryServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_instructions(
-                "You are connected to DeepSeek Visionary, an image analysis service powered by \
-                 DeepSeek's web-native multimodal model.\n\
+                "You are connected to DeepSeek Visionary (image analysis).\n\
                  \n\
-                 Use the `deepseek_vision` tool proactively whenever the user provides or mentions \
-                 any of the following - do not decline or tell the user to look at the image \
-                 themselves:\n\
-                 - An image, photo, screenshot, wallpaper, meme, or image URL\n\
-                 - A local image file path, or base64 / data URI image data\n\
+                 Use `deepseek_vision` immediately whenever the user provides or mentions an \
+                 image - do not decline or tell the user to look at it themselves. Applies to:\n\
+                 - Images, photos, screenshots, memes, image URLs, or local paths / base64 / data URI\n\
                  - Document/PDF scans, tables with images, posters, charts, whiteboard photos\n\
                  - Requests like \"look at this image\", \"what's in this picture\", \"what is this\"\n\
-                 - Error screenshots or UI screenshots (to understand a problem)\n\
+                 - Error or UI screenshots (to understand a problem)\n\
                  \n\
-                 How to call: `deepseek_vision` tool with image (required; local path or base64), \
-                 prompt (optional; specific question about the image, defaults to a detailed \
-                 description), thinking (optional; DeepThink), continue_conversation (optional; \
-                 continue the session to compare multiple images).\n\
-                 If no prompt is given, infer a specific question from context (e.g. read the \
-                 text, summarize content, detect defects).\n\
-                 For comparing multiple images, call multiple times or set \
-                 continue_conversation=true.\n\
-                 If the tool returns a login error, run `deepseek_vision_login` first, then retry.",
+                 Call with: image (required; local path or base64), prompt (optional; specific \
+                 question, defaults to detailed description - infer one from context if omitted), \
+                 thinking (optional; DeepThink), continue_conversation / session_id (optional; \
+                 compare multiple images).\n\
+                 On login error, call `deepseek_vision_login` first, then retry.",
             )
     }
 }
