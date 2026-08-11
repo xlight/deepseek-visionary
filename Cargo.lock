@@ -3240,7 +3240,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "visionary-server"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -3263,7 +3263,7 @@ dependencies = [
 
 [[package]]
 name = "visionary-zed-ext"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "schemars 0.8.22",
  "serde",
