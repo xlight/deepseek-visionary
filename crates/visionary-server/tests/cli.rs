@@ -144,7 +144,7 @@ fn logout_unauthenticated_succeeds() {
     assert!(out.status.success(), "logout should exit 0");
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
-        stdout.contains("已清除"),
+        stdout.contains("credentials cleared"),
         "logout should print clear confirmation, got: {stdout}"
     );
 }
@@ -185,5 +185,54 @@ fn vision_unauthenticated_json_mode_exits_nonzero_with_error() {
     assert!(
         v["error"].is_string(),
         "vision --json error should have error field, got: {stdout}"
+    );
+}
+
+#[test]
+fn skill_install_writes_embedded_skill() {
+    // 隔离 HOME：skill install 写入 ~/.agents/skills/visionary-cli/SKILL.md，退出 0。
+    let out = isolated_cmd().args(["skill", "install"]).output().expect("run");
+    assert!(out.status.success(), "skill install should exit 0");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("SKILL.md"), "should print path, got: {stdout}");
+
+    // 验证文件已写入且内容非空（以 --- 开头的 YAML frontmatter 开头）
+    let home = std::env::temp_dir().join(format!(
+        "visionary-cli-test-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("t")
+    ));
+    let path = home.join(".agents/skills/visionary-cli/SKILL.md");
+    let content = std::fs::read_to_string(&path).expect("SKILL.md should exist");
+    assert!(
+        content.starts_with("---\nname: visionary-cli"),
+        "SKILL.md should start with frontmatter, got: {}",
+        &content[..content.len().min(60)]
+    );
+}
+
+#[test]
+fn skill_install_overwrites_existing() {
+    // 隔离 HOME：重复 skill install 覆盖既有文件，仍退出 0 且内容一致。
+    let mut cmd = isolated_cmd();
+    cmd.args(["skill", "install"]);
+    let first = cmd.output().expect("first run");
+    assert!(first.status.success());
+    let second = cmd.output().expect("second run");
+    assert!(second.status.success(), "re-run should exit 0");
+    let stdout = String::from_utf8_lossy(&second.stdout);
+    assert!(
+        stdout.contains("Skill updated"),
+        "re-run should print updated hint, got: {stdout}"
+    );
+}
+
+#[test]
+fn skill_unknown_action_fails() {
+    // 隔离 HOME：未知 skill 操作报错退出非零。
+    let out = isolated_cmd().args(["skill", "frobnicate"]).output().expect("run");
+    assert!(
+        !out.status.success(),
+        "unknown skill action should exit non-zero"
     );
 }

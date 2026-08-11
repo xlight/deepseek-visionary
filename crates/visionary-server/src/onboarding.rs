@@ -182,11 +182,11 @@ fn run_init(home: &Path, args: &InitArgs) -> Result<()> {
     // 二进制 PATH 检测（避免写出无效配置）
     if find_in_path("visionary-server").is_none() {
         bail!(
-            "visionary-server 不在 PATH。请先安装：\n\
-              - 一键脚本: curl -LsSf https://github.com/xlight/deepseek-visionary/releases/latest/download/visionary-server-installer.sh | sh\n\
-              - Homebrew: brew install <tap>/visionary-server\n\
-              - npm: npm install -g <npm-package>\n\
-              或将二进制加入 PATH 后重试。"
+            "visionary-server is not in PATH. Install it first:\n\
+             - One-liner: curl -LsSf https://github.com/xlight/deepseek-visionary/releases/latest/download/visionary-server-installer.sh | sh\n\
+             - Homebrew: brew install <tap>/visionary-server\n\
+             - npm: npm install -g <npm-package>\n\
+             Or add the binary to PATH and retry."
         );
     }
 
@@ -196,13 +196,13 @@ fn run_init(home: &Path, args: &InitArgs) -> Result<()> {
 
     println!();
     if args.dry_run {
-        println!("（--dry-run：以上为预览，未写入任何文件）");
+        println!("(--dry-run: preview only, nothing was written)");
     } else {
-        println!("已配置 {} 个 agent：", targets.len());
+        println!("Configured {} agent(s):", targets.len());
         for agent in &targets {
             println!("  - {}", agent.name());
         }
-        println!("重启对应 agent 后生效。");
+        println!("Restart the agent for changes to take effect.");
     }
     Ok(())
 }
@@ -229,13 +229,13 @@ fn resolve_targets(args: &InitArgs) -> Result<Vec<Agent>> {
     if let Some(name) = &args.agent {
         if !flags.is_empty() {
             bail!(
-                "参数冲突：位置参数与多选 flags 不能同时使用。\
-                 请用 `visionary-server init <agent>` 或 `init --opencode --codex ...`（二选一）"
+                "Argument conflict: positional agent and multi-select flags cannot be combined.\
+                 Use either `visionary-server init <agent>` or `init --opencode --codex ...` (not both)"
             );
         }
         let agent = Agent::from_name(name).ok_or_else(|| {
             anyhow!(
-                "未知 agent `{name}`。支持：opencode / codex / claude / claude-desktop / cursor"
+                "Unknown agent `{name}`. Supported: opencode / codex / claude / claude-desktop / cursor"
             )
         })?;
         return Ok(vec![agent]);
@@ -249,14 +249,14 @@ fn interactive_listing(home: &Path) -> Result<()> {
     let installed: Vec<_> = detections.iter().filter(|d| d.installed).collect();
 
     if installed.is_empty() {
-        println!("未检测到任何受支持的 AI agent。");
-        println!("请安装目标 agent 后重试，或参考 docs/integrations/ 手动配置。");
+        println!("No supported AI agent detected.");
+        println!("Install your target agent and retry, or configure manually (see docs/integrations/).");
         bail!("no supported agent detected");
     }
 
-    println!("已检测到以下 agent：");
+    println!("Detected agents:");
     for d in &detections {
-        let mark = if d.installed { "✅" } else { "  " };
+        let mark = if d.installed { "[OK]" } else { "     " };
         let config = d
             .config_path
             .as_ref()
@@ -266,7 +266,7 @@ fn interactive_listing(home: &Path) -> Result<()> {
     }
     println!();
     println!(
-        "运行 `visionary-server init <agent>` 配置单个，或 `--opencode --codex ... --yes` 批量配置。"
+        "Run `visionary-server init <agent>` to configure one, or `--opencode --codex ... --yes` to batch configure."
     );
     Ok(())
 }
@@ -306,7 +306,7 @@ fn write_codex(home: &Path, dry_run: bool) -> Result<()> {
                 .status();
             if let Ok(st) = status {
                 if st.success() {
-                    println!("✓ 已通过 `codex mcp add` 注册 {SERVER_NAME}");
+                    println!("Registered {SERVER_NAME} via `codex mcp add`");
                     return Ok(());
                 }
             }
@@ -317,14 +317,14 @@ fn write_codex(home: &Path, dry_run: bool) -> Result<()> {
     let section = codex_section_toml();
     if dry_run {
         println!(
-            "[dry-run] 将写入 {}（首选 `codex mcp add`，此处预览兜底 TOML）：",
+            "[dry-run] would write {} (prefers `codex mcp add`; previewing fallback TOML):",
             path.display()
         );
         println!("{section}");
         return Ok(());
     }
     write_toml_section(&path, &section)?;
-    println!("✓ 已写入 {}", path.display());
+    println!("Wrote {}", path.display());
     Ok(())
 }
 
@@ -349,7 +349,7 @@ fn write_claude(home: &Path, dry_run: bool) -> Result<()> {
                 .status();
             if let Ok(st) = status {
                 if st.success() {
-                    println!("✓ 已通过 `claude mcp add` 注册 {SERVER_NAME}");
+                    println!("Registered {SERVER_NAME} via `claude mcp add`");
                     return Ok(());
                 }
             }
@@ -363,7 +363,7 @@ fn write_claude(home: &Path, dry_run: bool) -> Result<()> {
 /// Claude Desktop：`mcpServers` 形状写 `claude_desktop_config.json`。
 fn write_claude_desktop(home: &Path, dry_run: bool) -> Result<()> {
     let path = claude_desktop_config_path(home).ok_or_else(|| {
-        anyhow!("当前平台不支持自动定位 Claude Desktop 配置，请参考 docs/integrations/claude-desktop.md 手动配置")
+        anyhow!("auto-locating the Claude Desktop config is not supported on this platform; configure manually (see docs/integrations/claude-desktop.md)")
     })?;
     let entry = serde_json::json!({ "command": "visionary-server", "args": [] });
     merge_json_key(&path, &["mcpServers", SERVER_NAME], &entry, dry_run)
@@ -402,7 +402,7 @@ fn merge_json_key(
             std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
         serde_json::from_str(&raw).with_context(|| {
             format!(
-                "解析失败（不覆盖）：{} 不是合法 JSON。请手动修复后重试。",
+                "parse failed (not overwritten): {} is not valid JSON. Fix it manually and retry.",
                 path.display()
             )
         })?
@@ -417,7 +417,7 @@ fn merge_json_key(
         match is_object {
             Some(false) => {
                 bail!(
-                    "{} 的 `{key}` 不是 JSON 对象，无法安全合并，已中止（不覆盖）。",
+                    "`{key}` in {} is not a JSON object; cannot merge safely, aborted (not overwritten).",
                     path.display()
                 )
             }
@@ -434,13 +434,13 @@ fn merge_json_key(
 
     let preview = serde_json::to_string_pretty(&root)?;
     if dry_run {
-        println!("[dry-run] 将写入 {}：", path.display());
+        println!("[dry-run] would write {}:", path.display());
         println!("{preview}");
         return Ok(());
     }
 
     backup_then_write(path, &preview)?;
-    println!("✓ 已写入 {}", path.display());
+    println!("Wrote {}", path.display());
     Ok(())
 }
 
@@ -453,7 +453,7 @@ fn write_toml_section(path: &Path, section: &str) -> Result<()> {
         // 严格校验：现有内容必须是合法 TOML
         raw.parse::<toml::Value>().with_context(|| {
             format!(
-                "解析失败（不覆盖）：{} 不是合法 TOML。请手动修复后重试。",
+                "parse failed (not overwritten): {} is not valid TOML. Fix it manually and retry.",
                 path.display()
             )
         })?;
@@ -489,12 +489,12 @@ fn backup_then_write(path: &Path, content: &str) -> Result<()> {
         let backup = backup_path(path);
         std::fs::copy(path, &backup).with_context(|| {
             format!(
-                "备份 {} -> {} 失败，已中止",
+                "backup {} -> {} failed, aborted",
                 path.display(),
                 backup.display()
             )
         })?;
-        println!("  已备份到 {}", backup.display());
+        println!("  Backed up to {}", backup.display());
     }
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
@@ -619,7 +619,7 @@ mod tests {
         std::fs::write(&path, "{ not valid json").unwrap();
 
         let err = write_opencode(&home, false).unwrap_err();
-        assert!(err.to_string().contains("不是合法 JSON"));
+        assert!(err.to_string().contains("not valid JSON"));
         // 原文件未被覆盖
         let raw = std::fs::read_to_string(&path).unwrap();
         assert_eq!(raw, "{ not valid json");
@@ -720,7 +720,7 @@ mod tests {
             std::env::remove_var("PATH");
         }
         let err = result.unwrap_err();
-        assert!(err.to_string().contains("不在 PATH"));
+        assert!(err.to_string().contains("not in PATH"));
         let _ = std::fs::remove_dir_all(&home);
     }
 

@@ -74,10 +74,10 @@ impl VisionaryServer {
         if !self.config.is_authenticated() {
             return Ok(CallToolResult::error(vec![ContentBlock::text(
                 "DeepSeek token not configured.\n\n\
-                 运行 `deepseek_vision_login` 自动登录，或手动配置：\n\
-                 1. 打开 chat.deepseek.com 并登录\n\
-                 2. DevTools → Application → Local Storage → userToken\n\
-                 3. 将 JSON.parse(value).value 写入 ~/.deepseek-visionary/config.json 的 user_token",
+                 Run `deepseek_vision_login` to auto-login, or configure manually:\n\
+                 1. Open chat.deepseek.com and sign in\n\
+                 2. DevTools -> Application -> Local Storage -> userToken\n\
+                 3. Write JSON.parse(value).value into the user_token field of ~/.deepseek-visionary/config.json",
             )]));
         }
 
@@ -113,12 +113,12 @@ impl VisionaryServer {
                 let mut lines = vec![output.text];
                 if args.continue_conversation || args.session_id.is_some() {
                     lines.push(format!(
-                        "\n---\n[会话继续中] session_id: {}",
+                        "\n---\n[conversation continuing] session_id: {}",
                         output.session_id
                     ));
                 } else {
                     lines.push(format!(
-                        "\n---\n[session_id: {}] (可用 continue_conversation=true 继续此对话)",
+                        "\n---\n[session_id: {}] (set continue_conversation=true to keep chatting)",
                         output.session_id
                     ));
                 }
@@ -147,7 +147,7 @@ impl VisionaryServer {
             String::new(),
             format!(
                 "- Authenticated: {} ",
-                if token_valid { "✅" } else { "❌" }
+                if token_valid { "[OK]" } else { "[FAIL]" }
             ),
             format!(
                 "- Token configured: {}",
@@ -160,9 +160,9 @@ impl VisionaryServer {
             format!(
                 "- smidV2 cookie: {}",
                 if creds.smid_v2.is_empty() {
-                    "❌ (optional)"
+                    "[FAIL] (optional)"
                 } else {
-                    "✅"
+                    "[OK]"
                 }
             ),
             format!("- Base URL: {}", self.config.base_url),
@@ -172,7 +172,7 @@ impl VisionaryServer {
             lines.extend([
                 String::new(),
                 "Setup:".into(),
-                "  运行 `deepseek_vision_login` 自动登录，或设置 DEEPSEEK_USER_TOKEN 环境变量"
+                "  Run `deepseek_vision_login` to auto-login, or set the DEEPSEEK_USER_TOKEN environment variable"
                     .into(),
             ]);
             return Ok(CallToolResult::success(vec![ContentBlock::text(
@@ -184,13 +184,15 @@ impl VisionaryServer {
         // （与 `doctor` 子命令共用 auth::probe_token；401 即 token 失效）
         match crate::auth::probe_token(&self.config).await {
             Ok(_) => lines.push(format!(
-                "- Token validation: ✅ (live probe passed at {})",
+                "- Token validation: [OK] (live probe passed at {})",
                 self.config.base_url
             )),
             Err(e) => {
-                lines.push(format!("- Token validation: ❌ probe failed: {e}"));
+                lines.push(format!("- Token validation: [FAIL] probe failed: {e}"));
                 lines.push(String::new());
-                lines.push("Token 可能已失效，请运行 `deepseek_vision_login` 重新登录。".into());
+                lines.push(
+                    "The token may have expired. Run `deepseek_vision_login` to log in again.".into(),
+                );
             }
         }
 

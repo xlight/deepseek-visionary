@@ -84,8 +84,8 @@ pub fn find_browser() -> Result<PathBuf> {
         }
     }
     Err(anyhow!(
-        "未找到 Chrome / Chromium / Edge。请安装任意 Chrome 系浏览器后重试，\
-         或手动配置 ~/.deepseek-visionary/config.json（见 deepseek_vision_status 输出）"
+        "no Chrome / Chromium / Edge browser found. Install any Chromium-based browser and retry,\
+         or configure ~/.deepseek-visionary/config.json manually (see the deepseek_vision_status output)"
     ))
 }
 

@@ -112,6 +112,7 @@ visionary-server init opencode --dry-run
 | `visionary-server status` | 轻量鉴权状态检查（CLI 版 `deepseek_vision_status`），`--json` 输出结构化状态 |
 | `visionary-server login` | 浏览器自动登录（CLI 版 `deepseek_vision_login`） |
 | `visionary-server logout` | 清除保存的凭据（CLI 版 `deepseek_vision_logout`） |
+| `visionary-server skill install` | 安装 agent 调用契约 skill 到 `~/.agents/skills/`（内嵌于二进制） |
 | `visionary-server doctor` | 诊断环境：config 路径/权限、浏览器、token 有效性、平台 |
 | `visionary-server init [agent]` | 检测并接入已安装的 AI agent（`--dry-run` / `--yes` / 多选 flags） |
 
@@ -140,13 +141,14 @@ cat img.png | visionary-server vision - --json
 
 ### AI agent 使用（CLI + Skill）
 
-CLI 也是 AI agent 的零 MCP 配置工具面：只要 `visionary-server` 在 PATH，任何能执行 shell 的 agent 都可以调用它。仓库自带 agent 调用契约 `skills/visionary-cli/SKILL.md`，核心约定：**agent 调用 `vision` 必须加 `--json` 原子输出**（流式文本无结构化边界，不可可靠解析）。
+CLI 也是 AI agent 的零 MCP 配置工具面：只要 `visionary-server` 在 PATH，任何能执行 shell 的 agent 都可以调用它。二进制内嵌 agent 调用契约 `SKILL.md`（随安装具备），核心约定：**agent 调用 `vision` 必须加 `--json` 原子输出**（流式文本无结构化边界，不可可靠解析）。
 
-安装到 agent skill 目录（以 Zed 为例）：
+安装 skill 到 agent skill 目录（以 Zed 为例）：
 
 ```bash
-mkdir -p ~/.agents/skills
-cp -r skills/visionary-cli ~/.agents/skills/
+# skill 内嵌于二进制，无需本地仓库，一条命令安装/更新
+visionary-server skill install
+# → 写入 ~/.agents/skills/visionary-cli/SKILL.md
 ```
 
 ## MCP 工具

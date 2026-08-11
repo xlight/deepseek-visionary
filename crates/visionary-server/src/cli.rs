@@ -8,7 +8,7 @@ use crate::hif::HifAuth;
 use crate::pipeline::{self, VisionRequest};
 use crate::server::VisionaryServer;
 use crate::session::SessionStore;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
 use rmcp::ServiceExt;
 use std::io::{IsTerminal, Write};
@@ -41,6 +41,8 @@ pub enum Command {
     Login,
     /// 清除保存的凭据（CLI 版 deepseek_vision_logout）。
     Logout,
+    /// 安装 agent 调用契约 skill（内嵌于二进制）。
+    Skill(SkillArgs),
 }
 
 /// `vision` 子命令参数：图片 + 提示词/思考/会话续聊 + 输出模式开关。
@@ -77,6 +79,13 @@ pub struct StatusArgs {
     /// 原子 JSON 输出。
     #[arg(long)]
     pub json: bool,
+}
+
+/// `skill` 子命令参数。
+#[derive(Debug, Args)]
+pub struct SkillArgs {
+    /// 子操作：install（当前唯一）。
+    pub action: Option<String>,
 }
 
 /// `init` 子命令参数：位置参数（单个 agent）或多选 flags（批量）+ `--yes` / `--dry-run`。
@@ -117,6 +126,7 @@ pub async fn run() -> Result<()> {
         Some(Command::Status(args)) => cmd_status(args).await,
         Some(Command::Login) => cmd_login().await,
         Some(Command::Logout) => cmd_logout().await,
+        Some(Command::Skill(args)) => cmd_skill(args),
     }
 }
 
@@ -164,16 +174,16 @@ async fn cmd_doctor() -> Result<()> {
             lines.push(format!("- Config: {} ({})", path.display(), perms));
         }
         Err(e) => {
-            lines.push(format!("- Config: ❌ {e}"));
+            lines.push(format!("- Config: [FAIL] {e}"));
             issues += 1;
         }
     }
 
     // 浏览器检测
     match crate::browser::find_browser() {
-        Ok(b) => lines.push(format!("- Browser: ✅ {}", b.display())),
+        Ok(b) => lines.push(format!("- Browser: [OK] {}", b.display())),
         Err(e) => {
-            lines.push(format!("- Browser: ❌ {e}"));
+            lines.push(format!("- Browser: [FAIL] {e}"));
             issues += 1;
         }
     }
@@ -183,22 +193,22 @@ async fn cmd_doctor() -> Result<()> {
     let authenticated = config.is_authenticated();
     lines.push(format!(
         "- Authenticated: {}",
-        if authenticated { "✅" } else { "❌" }
+        if authenticated { "[OK]" } else { "[FAIL]" }
     ));
 
     if authenticated {
         match tokio::time::timeout(Duration::from_secs(15), crate::auth::probe_token(&config)).await
         {
             Ok(Ok(())) => lines.push(format!(
-                "- Token validation: ✅ (live probe passed at {})",
+                "- Token validation: [OK] (live probe passed at {})",
                 config.base_url
             )),
             Ok(Err(e)) => {
-                lines.push(format!("- Token validation: ❌ probe failed: {e}"));
+                lines.push(format!("- Token validation: [FAIL] probe failed: {e}"));
                 issues += 1;
             }
             Err(_) => {
-                lines.push("- Token validation: ⚠️ probe timed out".to_string());
+                lines.push("- Token validation: [WARN] probe timed out".to_string());
             }
         }
     }
@@ -206,10 +216,11 @@ async fn cmd_doctor() -> Result<()> {
     if issues > 0 {
         lines.push(String::new());
         lines.push(
-            "需修复：运行 `visionary-server login` 自动登录，或设置 DEEPSEEK_USER_TOKEN 环境变量；"
+            "To fix: run `visionary-server login` to auto-login, or set the DEEPSEEK_USER_TOKEN environment variable."
                 .into(),
         );
-        lines.push("安装 Chrome / Chromium / Edge 任一浏览器以支持自动登录。".into());
+        lines
+            .push("Install Chrome / Chromium / Edge for auto-login support.".into());
     }
 
     for line in &lines {
@@ -255,10 +266,10 @@ enum OutputMode {
 /// 在解析期拦截，此处仍防御性检查以保证纯函数可独立测试。
 fn resolve_output_mode(tty: bool, stream: bool, no_stream: bool, json: bool) -> Result<OutputMode, String> {
     if stream && no_stream {
-        return Err("--stream 与 --no-stream 不能同时指定".into());
+        return Err("--stream and --no-stream cannot be used together".into());
     }
     if json && stream {
-        return Err("--json 与 --stream 不能同时指定（--json 恒为原子输出）".into());
+        return Err("--json and --stream cannot be used together (--json is always atomic)".into());
     }
     if json {
         return Ok(OutputMode::Json);
@@ -289,7 +300,10 @@ async fn cmd_vision(args: VisionArgs) -> Result<()> {
 
     let config = crate::config::Config::load()?;
     if !config.is_authenticated() {
-        fail(mode, "未登录：请先运行 `visionary-server login` 自动登录，或设置 DEEPSEEK_USER_TOKEN 环境变量。");
+        fail(
+            mode,
+            "Not logged in: run `visionary-server login` to auto-login, or set the DEEPSEEK_USER_TOKEN environment variable.",
+        );
     }
 
     // 读取图片（路径 / base64 / data URI / stdin）
@@ -337,7 +351,7 @@ async fn cmd_vision(args: VisionArgs) -> Result<()> {
             match result {
                 Ok(output) => {
                     println!(
-                        "\n---\n[session_id: {}] (可用 --continue 继续此对话)",
+                        "\n---\n[session_id: {}] (use --continue to keep chatting)",
                         output.session_id
                     );
                 }
@@ -364,7 +378,7 @@ async fn cmd_vision(args: VisionArgs) -> Result<()> {
                     } else {
                         println!("{}", output.text);
                         println!(
-                            "\n---\n[session_id: {}] (可用 --continue 继续此对话)",
+                            "\n---\n[session_id: {}] (use --continue to keep chatting)",
                             output.session_id
                         );
                     }
@@ -412,7 +426,7 @@ async fn cmd_status(args: StatusArgs) -> Result<()> {
         String::new(),
         format!(
             "- Authenticated: {}",
-            if authenticated { "✅" } else { "❌" }
+            if authenticated { "[OK]" } else { "[FAIL]" }
         ),
         format!(
             "- Token configured: {}",
@@ -425,9 +439,9 @@ async fn cmd_status(args: StatusArgs) -> Result<()> {
         format!(
             "- smidV2 cookie: {}",
             if creds.smid_v2.is_empty() {
-                "❌ (optional)"
+                "[FAIL] (optional)"
             } else {
-                "✅"
+                "[OK]"
             }
         ),
         format!("- Base URL: {}", config.base_url),
@@ -436,16 +450,16 @@ async fn cmd_status(args: StatusArgs) -> Result<()> {
         lines.push(format!(
             "- Token validation: {}",
             if token_valid {
-                "✅ (live probe passed)"
+                "[OK] (live probe passed)"
             } else {
-                "❌ probe failed"
+                "[FAIL] probe failed"
             }
         ));
     }
     if !token_valid {
         lines.push(String::new());
         lines.push(
-            "未登录：请运行 `visionary-server login` 自动登录，或设置 DEEPSEEK_USER_TOKEN 环境变量。"
+            "Not logged in: run `visionary-server login` to auto-login, or set the DEEPSEEK_USER_TOKEN environment variable."
                 .into(),
         );
     }
@@ -476,6 +490,45 @@ async fn cmd_logout() -> Result<()> {
     let config = crate::config::Config::load()?;
     let text = crate::login::run_logout(&config).await?;
     println!("{text}");
+    Ok(())
+}
+
+/// 内嵌的 agent 调用契约 SKILL.md（随二进制分发，版本必然匹配）。
+const EMBEDDED_SKILL: &str = include_str!("../../../skills/visionary-cli/SKILL.md");
+
+/// `skill install`：把内嵌 SKILL.md 写入 `~/.agents/skills/visionary-cli/SKILL.md`。
+///
+/// design 决策 7：通过安装脚本（cargo-dist / brew / npm）装二进制的用户本地没有仓库，
+/// 无法 `cp -r skills/...`；内嵌保证安装二进制即具备 skill，已存在时覆盖并提示。
+fn cmd_skill(args: SkillArgs) -> Result<()> {
+    match args.action.as_deref() {
+        Some("install") | None => {}
+        Some(other) => {
+            eprintln!("Unknown skill action: {other} (only `install` is supported)");
+            std::process::exit(1);
+        }
+    }
+
+    // ~/.agents/skills/visionary-cli/（镜像数据目录逻辑，但固定到 ~/.agents）
+    let home = std::env::var_os("HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let dir = home.join(".agents").join("skills").join("visionary-cli");
+    std::fs::create_dir_all(&dir).context("create skill directory")?;
+    let path = dir.join("SKILL.md");
+    let existed = path.exists();
+    std::fs::write(&path, EMBEDDED_SKILL).context("write SKILL.md")?;
+    if existed {
+        println!("Skill updated: {}", path.display());
+    } else {
+        println!("Skill installed: {}", path.display());
+    }
+    println!(
+        "Tip: if your agent's default skills dir is not ~/.agents/skills (e.g. Claude Code uses ~/.claude/skills),\n\
+         move the visionary-cli directory to that agent's default dir, e.g.:\n\
+         mv {} ~/.claude/skills/",
+        dir.display()
+    );
     Ok(())
 }
 
@@ -650,6 +703,22 @@ mod tests {
             Cli::try_parse_from(["visionary-server", "logout"]).unwrap().command,
             Some(Command::Logout)
         ));
+    }
+
+    #[test]
+    fn skill_subcommand_parses() {
+        // `skill install` 可解析；action 省略时默认 install。
+        let cli = Cli::try_parse_from(["visionary-server", "skill", "install"])
+            .expect("skill install parses");
+        let Some(Command::Skill(args)) = cli.command else {
+            panic!("expected skill subcommand");
+        };
+        assert_eq!(args.action.as_deref(), Some("install"));
+        let cli = Cli::try_parse_from(["visionary-server", "skill"]).expect("skill parses");
+        let Some(Command::Skill(args)) = cli.command else {
+            panic!("expected skill subcommand");
+        };
+        assert!(args.action.is_none(), "action optional, defaults to install");
     }
 
     // ---- 输出模式决策纯函数（task 4.2）----

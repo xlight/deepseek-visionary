@@ -35,26 +35,28 @@ const POLL_INTERVAL: Duration = Duration::from_secs(1);
 pub async fn run_login(config: &Config) -> Result<String> {
     // 已配置 token 时幂等提示
     if config.is_authenticated() {
-        return Ok("已配置 token。如需重新登录，请先运行 visionary-server logout。".into());
+        return Ok(
+            "Token already configured. To re-login, run `visionary-server logout` first.".into(),
+        );
     }
 
     match login_flow(config).await {
         Ok(creds) => {
             config.save_credentials(&creds)?;
             Ok(format!(
-                "✅ 登录成功！已保存凭据：\n\
+                "Login successful! Credentials saved:\n\
                  - user_token: {}...\n\
                  - smidV2: {}\n\
                  - cf_clearance: {}\n\
-                 现在可以直接使用 visionary-server vision 识图。",
+                 You can now analyze images with `visionary-server vision`.",
                 mask(&creds.user_token),
                 if creds.smid_v2.is_empty() {
-                    "无".to_string()
+                    "none".to_string()
                 } else {
                     mask(&creds.smid_v2)
                 },
                 if creds.cf_clearance.is_empty() {
-                    "无".to_string()
+                    "none".to_string()
                 } else {
                     mask(&creds.cf_clearance)
                 },
@@ -64,9 +66,9 @@ pub async fn run_login(config: &Config) -> Result<String> {
             // 超时或未完成登录时，浏览器保持打开，用户可继续操作后重跑。
             // 返回 Err：CLI 据此退出非零；MCP handler 映射回 CallToolResult::error。
             Err(anyhow!(
-                "登录未完成：{e}\n\
-                 浏览器窗口保持打开。请完成登录后重新运行 visionary-server login，\
-                 或手动配置 ~/.deepseek-visionary/config.json。"
+                "Login incomplete: {e}\n\
+                 The browser window stays open. Finish logging in and run `visionary-server login` again,\
+                 or configure ~/.deepseek-visionary/config.json manually."
             ))
         }
     }
@@ -77,8 +79,8 @@ pub async fn run_logout(config: &Config) -> Result<String> {
     config
         .save_credentials(&Credentials::default())
         .context("failed to clear credentials")?;
-    Ok("✅ 已清除保存的凭据。\n\
-         如需重新登录，运行 visionary-server login。"
+    Ok("Saved credentials cleared.\n\
+         To log in again, run `visionary-server login`."
         .into())
 }
 
@@ -138,7 +140,10 @@ async fn wait_for_login(browser: &mut Browser, _profile_dir: &PathBuf) -> Result
     let deadline = tokio::time::Instant::now() + login_timeout();
     loop {
         if tokio::time::Instant::now() >= deadline {
-            return Err(anyhow!("等待登录超时（{} 秒）", login_timeout().as_secs()));
+            return Err(anyhow!(
+                "Login timed out after {} seconds",
+                login_timeout().as_secs()
+            ));
         }
 
         // 读取 localStorage.userToken（页面 localStorage 里存的是 JSON 字符串，
