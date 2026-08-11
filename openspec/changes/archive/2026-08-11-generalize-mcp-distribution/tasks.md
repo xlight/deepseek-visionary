@@ -85,8 +85,8 @@
 
 - [x] 7.1 同步 `crates/visionary-zed-ext/extension.toml` 的 `version` 至 0.2.1，authors 补全邮箱（与 workspace 版本对齐）
 - [x] 7.2 编写 `docs/zed-marketplace.md`：首次上架步骤、更新流程、检查清单、PR 要点
-- [ ] 7.3 fork `zed-industries/extensions`，以 HTTPS submodule 挂入 `extensions/deepseek-visionary`（`path = "crates/visionary-zed-ext"`）
-- [ ] 7.4 顶层 `extensions.toml` 登记条目并 `pnpm sort-extensions`，提交到 fork
+- [x] 7.3 fork `zed-industries/extensions`，以 HTTPS submodule 挂入 `extensions/deepseek-visionary`（`path = "crates/visionary-zed-ext"`）
+- [x] 7.4 顶层 `extensions.toml` 登记条目并 `pnpm sort-extensions`，提交到 fork
 - [x] 7.5 创建 PR 至 `zed-industries/extensions`（#7159），后续更新至 v0.2.2（submodule 指针 9018d26 + version 0.2.2），CLA 已签、cla-signed 通过；剩余 danger/package workflow 待维护者批准
 - [x] 7.6 接入 `huacnlee/zed-extension-action@v2` 自动化：tag 触发自动更新 fork 的 submodule 指针与 `extensions.toml` version 并创建 PR（`.github/workflows/zed-extension-release.yml`，docs 补充说明）
   - 待启用：配置 `COMMITTER_TOKEN` secret（repo + workflow scopes）；首次上架 PR 合并后生效
