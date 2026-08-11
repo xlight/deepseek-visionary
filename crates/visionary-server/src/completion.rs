@@ -90,8 +90,15 @@ impl CompletionTransport for ReqwestTransport {
 
 /// 执行 vision completion，返回 (回答文本, 新的 parent_message_id)。
 ///
-/// 对应 Python `_vision_completion`。
-pub async fn vision_completion(
+/// 对应 Python `_vision_completion`。`on_token` 为可选流式回调：
+/// 解析到内容增量时先回调再收集（CLI 流式打印用）；`None` 时仅收集（MCP / `--json`）。
+///
+/// 约束：`F: Send`——rmcp `#[tool]` 宏要求 handler future Send，`&mut dyn FnMut` 非 Send，
+/// 故用泛型（design 决策 2 / Risks）。
+///
+/// 8 参数为共享流水线签名（design 决策 2 明确透传回调），保持单函数复用。
+#[allow(clippy::too_many_arguments)]
+pub async fn vision_completion<F>(
     client: &ApiClient,
     hif: &HifAuth,
     session_id: &str,
@@ -99,7 +106,11 @@ pub async fn vision_completion(
     prompt: &str,
     thinking: bool,
     parent_message_id: Option<&str>,
-) -> Result<(String, Option<String>)> {
+    on_token: Option<F>,
+) -> Result<(String, Option<String>)>
+where
+    F: FnMut(&str) + Send,
+{
     let config = &client.config;
     let token = config.credentials().user_token;
 
@@ -170,13 +181,20 @@ pub async fn vision_completion(
         .post_stream(&url, &headers, &cookies, &body)
         .await?;
 
-    parse_sse(&mut stream).await
+    parse_sse(&mut stream, on_token).await
 }
 
 /// 逐行解析 SSE 流（对应 Python `_vision_completion` 的循环体）。
-async fn parse_sse<S>(stream: &mut S) -> Result<(String, Option<String>)>
+///
+/// `on_token` 为可选流式回调：解析到 `v` 字符串或 `type=text` 增量时
+/// 先回调再收集，收集逻辑天然复用，无需双分支。
+async fn parse_sse<S, F>(
+    stream: &mut S,
+    mut on_token: Option<F>,
+) -> Result<(String, Option<String>)>
 where
     S: futures_util::Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Unpin,
+    F: FnMut(&str) + Send,
 {
     let mut text_parts: Vec<String> = Vec::new();
     let mut new_parent_message_id: Option<String> = None;
@@ -233,6 +251,9 @@ where
 
                 // 文本增量：`v` 为字符串时直接拼接
                 if let Some(v) = event.get("v").and_then(|v| v.as_str()) {
+                    if let Some(cb) = on_token.as_mut() {
+                        cb(v);
+                    }
                     text_parts.push(v.to_string());
                 }
 
@@ -260,6 +281,9 @@ where
                         _ => String::new(),
                     };
                     if !joined.is_empty() {
+                        if let Some(cb) = on_token.as_mut() {
+                            cb(&joined);
+                        }
                         text_parts.push(joined);
                     }
                 }
@@ -291,7 +315,7 @@ mod tests {
         let mut boxed: Box<
             dyn futures_util::Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Unpin,
         > = Box::new(stream);
-        let (text, parent_id) = parse_sse(&mut boxed).await.unwrap();
+        let (text, parent_id) = parse_sse(&mut boxed, None::<fn(&str)>).await.unwrap();
         assert_eq!(text, "你好，世界!");
         assert_eq!(parent_id.as_deref(), Some("m1"));
     }
@@ -305,7 +329,32 @@ mod tests {
         let mut boxed: Box<
             dyn futures_util::Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Unpin,
         > = Box::new(stream);
-        let err = parse_sse(&mut boxed).await.unwrap_err();
+        let err = parse_sse(&mut boxed, None::<fn(&str)>).await.unwrap_err();
         assert!(err.to_string().contains("content filter"));
+    }
+
+    #[tokio::test]
+    async fn parse_sse_streams_tokens_via_callback() {
+        // 流式分支：回调逐块触发且顺序一致，收集结果与无回调时一致。
+        let sse = concat!(
+            "data: {\"v\":\"你\",\"response_message_id\":\"m1\"}\n\n",
+            "data: {\"v\":\"好\"}\n\n",
+            "data: {\"type\":\"text\",\"text\":\"！\"}\n\n",
+            "data: [DONE]\n\n"
+        );
+        let stream = futures_util::stream::iter(vec![Ok::<_, reqwest::Error>(bytes::Bytes::from(
+            sse.as_bytes().to_vec(),
+        ))]);
+        let mut boxed: Box<
+            dyn futures_util::Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Unpin,
+        > = Box::new(stream);
+
+        let mut streamed = String::new();
+        let (text, parent_id) = parse_sse(&mut boxed, Some(|tok: &str| streamed.push_str(tok)))
+            .await
+            .unwrap();
+        assert_eq!(streamed, "你好！", "callback should receive all deltas in order");
+        assert_eq!(text, "你好！", "collected result should equal streamed content");
+        assert_eq!(parent_id.as_deref(), Some("m1"));
     }
 }

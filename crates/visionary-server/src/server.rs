@@ -10,7 +10,6 @@ use crate::config::Config;
 use crate::hif::HifAuth;
 use crate::pipeline::{self, VisionRequest};
 use crate::session::SessionStore;
-use base64::Engine as _;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, ContentBlock, ServerCapabilities, ServerInfo};
@@ -59,23 +58,6 @@ impl VisionaryServer {
             config,
         }
     }
-
-    /// 读取图片：支持本地路径、base64、data URI（对应 server.py 的读取逻辑）。
-    fn read_image(args: &VisionArgs) -> Result<Vec<u8>, String> {
-        let image_path = &args.image;
-        if image_path.starts_with("data:") || is_base64(image_path) {
-            let encoded = image_path
-                .split_once(',')
-                .map(|(_, e)| e)
-                .unwrap_or(image_path);
-            base64::engine::general_purpose::STANDARD
-                .decode(encoded)
-                .map_err(|e| format!("Failed to decode base64 image: {e}"))
-        } else {
-            std::fs::read(image_path)
-                .map_err(|e| format!("Failed to read image `{image_path}`: {e}"))
-        }
-    }
 }
 
 #[tool_router]
@@ -100,29 +82,19 @@ impl VisionaryServer {
         }
 
         // 读取图片
-        let image_data = match Self::read_image(&args) {
+        let image_data = match pipeline::read_image(&args.image) {
             Ok(d) => d,
             Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
         };
 
-        // 会话连续性（对应 Python handle_vision 的 session 解析）
-        let (reuse_session_id, reuse_parent_message_id) = if let Some(sid) = &args.session_id {
-            let saved = self.session_store.load();
-            let parent = saved
-                .filter(|s| s.session_id.as_deref() == Some(sid.as_str()))
-                .and_then(|s| s.parent_message_id);
-            (Some(sid.clone()), parent)
-        } else if args.continue_conversation {
-            let saved = self.session_store.load();
-            match saved {
-                Some(s) => (s.session_id, s.parent_message_id),
-                None => (None, None),
-            }
-        } else {
-            (None, None)
-        };
+        // 会话连续性（对应 Python handle_vision 的 session 解析，抽为共享函数）
+        let (reuse_session_id, reuse_parent_message_id) = pipeline::resolve_session_reuse(
+            &self.session_store,
+            args.session_id.as_deref(),
+            args.continue_conversation,
+        );
 
-        match pipeline::run_vision_pipeline(
+        match pipeline::run_vision_pipeline::<fn(&str)>(
             &self.config,
             &self.hif,
             &self.session_store,
@@ -133,6 +105,7 @@ impl VisionaryServer {
                 session_id: reuse_session_id,
                 parent_message_id: reuse_parent_message_id,
             },
+            None, // MCP 工具不流式，仅收集完整结果（fn 指针满足 Send 约束）
         )
         .await
         {
@@ -231,9 +204,13 @@ impl VisionaryServer {
         description = "Open a browser window to log in to chat.deepseek.com, automatically capture the token and cookies, and save them. Returns login instructions. For manual setup, edit ~/.deepseek-visionary/config.json"
     )]
     async fn deepseek_vision_login(&self) -> Result<CallToolResult, McpError> {
-        crate::login::run_login(&self.config)
-            .await
-            .map_err(|e| McpError::internal_error(format!("login failed: {e}"), None))
+        // 失败返回 CallToolResult::error（保持 MCP 行为：工具级错误而非内部错误）
+        match crate::login::run_login(&self.config).await {
+            Ok(text) => Ok(CallToolResult::success(vec![ContentBlock::text(text)])),
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!(
+                "{e}"
+            ))])),
+        }
     }
 
     /// 清除保存的凭据（任务 5.5 接线）。
@@ -241,6 +218,7 @@ impl VisionaryServer {
     async fn deepseek_vision_logout(&self) -> Result<CallToolResult, McpError> {
         crate::login::run_logout(&self.config)
             .await
+            .map(|text| CallToolResult::success(vec![ContentBlock::text(text)]))
             .map_err(|e| McpError::internal_error(format!("logout failed: {e}"), None))
     }
 }
@@ -273,12 +251,4 @@ impl ServerHandler for VisionaryServer {
                  If the tool returns a login error, run `deepseek_vision_login` first, then retry.",
             )
     }
-}
-
-/// base64 探测（对应 Python `_is_base64`：长度 >100 且可解码）。
-fn is_base64(s: &str) -> bool {
-    if s.len() <= 100 {
-        return false;
-    }
-    base64::engine::general_purpose::STANDARD.decode(s).is_ok()
 }

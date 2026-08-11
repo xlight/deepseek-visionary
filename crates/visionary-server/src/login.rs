@@ -14,7 +14,6 @@ use crate::config::{self, Config, Credentials};
 use anyhow::{anyhow, Context, Result};
 use chromiumoxide::browser::{Browser, BrowserConfig};
 use futures_util::StreamExt;
-use rmcp::model::{CallToolResult, ContentBlock};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -30,24 +29,24 @@ fn login_timeout() -> Duration {
 /// 轮询间隔：1 秒。
 const POLL_INTERVAL: Duration = Duration::from_secs(1);
 
-/// `deepseek_vision_login` 工具实现（任务 5.4）。
-pub async fn run_login(config: &Config) -> Result<CallToolResult> {
+/// `deepseek_vision_login` 工具实现（任务 5.4）与 CLI `login` 子命令共用。
+///
+/// 返回人类可读文本（MCP handler 包装成 `CallToolResult`，CLI 直接打印）。
+pub async fn run_login(config: &Config) -> Result<String> {
     // 已配置 token 时幂等提示
     if config.is_authenticated() {
-        return Ok(CallToolResult::success(vec![ContentBlock::text(
-            "已配置 token。如需重新登录，请先运行 deepseek_vision_logout。",
-        )]));
+        return Ok("已配置 token。如需重新登录，请先运行 visionary-server logout。".into());
     }
 
     match login_flow(config).await {
         Ok(creds) => {
             config.save_credentials(&creds)?;
-            Ok(CallToolResult::success(vec![ContentBlock::text(format!(
+            Ok(format!(
                 "✅ 登录成功！已保存凭据：\n\
                  - user_token: {}...\n\
                  - smidV2: {}\n\
                  - cf_clearance: {}\n\
-                 现在可以直接使用 deepseek_vision 识图。",
+                 现在可以直接使用 visionary-server vision 识图。",
                 mask(&creds.user_token),
                 if creds.smid_v2.is_empty() {
                     "无".to_string()
@@ -59,28 +58,28 @@ pub async fn run_login(config: &Config) -> Result<CallToolResult> {
                 } else {
                     mask(&creds.cf_clearance)
                 },
-            ))]))
+            ))
         }
         Err(e) => {
-            // 超时或未完成登录时，浏览器保持打开，用户可继续操作后重跑
-            Ok(CallToolResult::error(vec![ContentBlock::text(format!(
+            // 超时或未完成登录时，浏览器保持打开，用户可继续操作后重跑。
+            // 返回 Err：CLI 据此退出非零；MCP handler 映射回 CallToolResult::error。
+            Err(anyhow!(
                 "登录未完成：{e}\n\
-                 浏览器窗口保持打开。请完成登录后重新运行 deepseek_vision_login，\
+                 浏览器窗口保持打开。请完成登录后重新运行 visionary-server login，\
                  或手动配置 ~/.deepseek-visionary/config.json。"
-            ))]))
+            ))
         }
     }
 }
 
-/// `deepseek_vision_logout` 工具实现（任务 5.5）。
-pub async fn run_logout(config: &Config) -> Result<CallToolResult> {
+/// `deepseek_vision_logout` 工具实现（任务 5.5）与 CLI `logout` 子命令共用。
+pub async fn run_logout(config: &Config) -> Result<String> {
     config
         .save_credentials(&Credentials::default())
         .context("failed to clear credentials")?;
-    Ok(CallToolResult::success(vec![ContentBlock::text(
-        "✅ 已清除保存的凭据。\n\
-         如需重新登录，运行 deepseek_vision_login。",
-    )]))
+    Ok("✅ 已清除保存的凭据。\n\
+         如需重新登录，运行 visionary-server login。"
+        .into())
 }
 
 /// 完整登录流程：启动浏览器 → 等待登录 → 抓取凭据。

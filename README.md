@@ -108,8 +108,46 @@ visionary-server init opencode --dry-run
 |------|------|
 | `visionary-server`（无参数） | 进入 MCP stdio serve 模式（所有 agent 配置的默认入口） |
 | `visionary-server --version` | 输出版本号 |
+| `visionary-server vision <image>` | 用视觉模型分析图片（CLI 版 `deepseek_vision`）。`image` 支持路径 / base64 / data URI / `-`（stdin）；`--prompt` / `--thinking` / `--continue` / `--session-id` / `--json` / `--stream` / `--no-stream` |
+| `visionary-server status` | 轻量鉴权状态检查（CLI 版 `deepseek_vision_status`），`--json` 输出结构化状态 |
+| `visionary-server login` | 浏览器自动登录（CLI 版 `deepseek_vision_login`） |
+| `visionary-server logout` | 清除保存的凭据（CLI 版 `deepseek_vision_logout`） |
 | `visionary-server doctor` | 诊断环境：config 路径/权限、浏览器、token 有效性、平台 |
 | `visionary-server init [agent]` | 检测并接入已安装的 AI agent（`--dry-run` / `--yes` / 多选 flags） |
+
+### CLI 输出模式（`vision`）
+
+`vision` 的输出模式由 stdout 是否 TTY 与显式开关共同决定：
+
+| 场景 | 默认行为 | 消费方 |
+|------|----------|--------|
+| 终端（TTY） | 流式打印回答文本 | 人 |
+| 管道/脚本（非 TTY） | 一次性输出完整文本 | 脚本兑底 |
+| `visionary-server vision img.png --json` | 原子 JSON：`{"text", "session_id", "parent_message_id"}`（失败为 `{"error"}`） | 脚本 / AI agent（推荐） |
+
+`--stream` / `--no-stream` 可强制指定模式；`--json` 恒为原子输出（不与 `--stream` 同用）。失败时退出码非零。
+
+```bash
+# 终端交互：流式输出
+visionary-server vision screenshot.png
+
+# 脚本/agent：结构化输出
+visionary-server vision img.png --json --prompt "图中有什么？"
+
+# 管道输入
+cat img.png | visionary-server vision - --json
+```
+
+### AI agent 使用（CLI + Skill）
+
+CLI 也是 AI agent 的零 MCP 配置工具面：只要 `visionary-server` 在 PATH，任何能执行 shell 的 agent 都可以调用它。仓库自带 agent 调用契约 `skills/visionary-cli/SKILL.md`，核心约定：**agent 调用 `vision` 必须加 `--json` 原子输出**（流式文本无结构化边界，不可可靠解析）。
+
+安装到 agent skill 目录（以 Zed 为例）：
+
+```bash
+mkdir -p ~/.agents/skills
+cp -r skills/visionary-cli ~/.agents/skills/
+```
 
 ## MCP 工具
 

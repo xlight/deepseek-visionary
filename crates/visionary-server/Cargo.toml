@@ -37,3 +37,6 @@ chromiumoxide = "0.7"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp", "tiff", "ico"] }
 clap.workspace = true
 toml.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

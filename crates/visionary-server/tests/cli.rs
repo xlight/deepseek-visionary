@@ -89,3 +89,101 @@ fn doctor_subcommand_exits_cleanly() {
         "doctor should print diagnostics, got: {stdout}"
     );
 }
+
+/// 构造一个隔离 HOME 的 Command（不触碰真实 ~/.deepseek-visionary 配置）。
+///
+/// 用进程 id 保证并行测试间目录唯一。
+fn isolated_cmd() -> Command {
+    let home = std::env::temp_dir().join(format!(
+        "visionary-cli-test-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("t")
+    ));
+    let _ = std::fs::remove_dir_all(&home);
+    let _ = std::fs::create_dir_all(&home);
+    let mut cmd = Command::new(bin());
+    cmd.env("HOME", &home);
+    cmd
+}
+
+#[test]
+fn status_json_unauthenticated_exits_nonzero_with_shape() {
+    // 隔离 HOME（无凭据）：status --json 输出完整状态 JSON（token_valid=false），退出非零。
+    let out = isolated_cmd().args(["status", "--json"]).output().expect("run");
+    assert!(
+        !out.status.success(),
+        "unauthenticated status --json should exit non-zero"
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("status --json should be valid JSON");
+    assert_eq!(v["authenticated"], false);
+    assert_eq!(v["token_configured"], false);
+    assert_eq!(v["token_valid"], false);
+    assert!(v["base_url"].is_string(), "base_url should be present");
+}
+
+#[test]
+fn status_text_unauthenticated_exits_nonzero() {
+    // 隔离 HOME（无凭据）：status 文本模式输出未认证提示，退出非零。
+    let out = isolated_cmd().arg("status").output().expect("run");
+    assert!(
+        !out.status.success(),
+        "unauthenticated status should exit non-zero"
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("Authenticated"),
+        "status text should report auth state, got: {stdout}"
+    );
+}
+
+#[test]
+fn logout_unauthenticated_succeeds() {
+    // 隔离 HOME（无凭据）：logout 清除空凭据，输出结果，退出 0。
+    let out = isolated_cmd().arg("logout").output().expect("run");
+    assert!(out.status.success(), "logout should exit 0");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("已清除"),
+        "logout should print clear confirmation, got: {stdout}"
+    );
+}
+
+#[test]
+fn vision_unauthenticated_text_mode_exits_nonzero() {
+    // 隔离 HOME（无凭据）+ 显式 --no-stream（不依赖 CI 的 TTY 探测）：
+    // vision 未登录 → stderr 登录指引，退出非零，不进入 serve。
+    let out = isolated_cmd()
+        .args(["vision", "x.png", "--no-stream"])
+        .output()
+        .expect("run");
+    assert!(
+        !out.status.success(),
+        "unauthenticated vision should exit non-zero"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("visionary-server login"),
+        "stderr should guide login, got: {stderr}"
+    );
+}
+
+#[test]
+fn vision_unauthenticated_json_mode_exits_nonzero_with_error() {
+    // 隔离 HOME（无凭据）：vision --json 未登录 → stdout 原子 {"error"}，退出非零。
+    let out = isolated_cmd()
+        .args(["vision", "x.png", "--json"])
+        .output()
+        .expect("run");
+    assert!(
+        !out.status.success(),
+        "unauthenticated vision --json should exit non-zero"
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value =
+        serde_json::from_str(&stdout).expect("vision --json error should be valid JSON");
+    assert!(
+        v["error"].is_string(),
+        "vision --json error should have error field, got: {stdout}"
+    );
+}
