@@ -353,8 +353,14 @@ mod tests {
         let (text, parent_id) = parse_sse(&mut boxed, Some(|tok: &str| streamed.push_str(tok)))
             .await
             .unwrap();
-        assert_eq!(streamed, "你好！", "callback should receive all deltas in order");
-        assert_eq!(text, "你好！", "collected result should equal streamed content");
+        assert_eq!(
+            streamed, "你好！",
+            "callback should receive all deltas in order"
+        );
+        assert_eq!(
+            text, "你好！",
+            "collected result should equal streamed content"
+        );
         assert_eq!(parent_id.as_deref(), Some("m1"));
     }
 }

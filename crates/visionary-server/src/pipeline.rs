@@ -51,10 +51,7 @@ pub fn read_image(image: &str) -> Result<Vec<u8>, String> {
         return Ok(buf);
     }
     if image.starts_with("data:") || is_base64(image) {
-        let encoded = image
-            .split_once(',')
-            .map(|(_, e)| e)
-            .unwrap_or(image);
+        let encoded = image.split_once(',').map(|(_, e)| e).unwrap_or(image);
         base64::engine::general_purpose::STANDARD
             .decode(encoded)
             .map_err(|e| format!("Failed to decode base64 image: {e}"))

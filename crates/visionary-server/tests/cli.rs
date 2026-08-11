@@ -122,13 +122,17 @@ fn isolated_cmd() -> Command {
 #[test]
 fn status_json_unauthenticated_exits_nonzero_with_shape() {
     // 隔离 HOME（无凭据）：status --json 输出完整状态 JSON（token_valid=false），退出非零。
-    let out = isolated_cmd().args(["status", "--json"]).output().expect("run");
+    let out = isolated_cmd()
+        .args(["status", "--json"])
+        .output()
+        .expect("run");
     assert!(
         !out.status.success(),
         "unauthenticated status --json should exit non-zero"
     );
     let stdout = String::from_utf8_lossy(&out.stdout);
-    let v: serde_json::Value = serde_json::from_str(&stdout).expect("status --json should be valid JSON");
+    let v: serde_json::Value =
+        serde_json::from_str(&stdout).expect("status --json should be valid JSON");
     assert_eq!(v["authenticated"], false);
     assert_eq!(v["token_configured"], false);
     assert_eq!(v["token_valid"], false);
@@ -204,10 +208,16 @@ fn vision_unauthenticated_json_mode_exits_nonzero_with_error() {
 #[test]
 fn skill_install_writes_embedded_skill() {
     // 隔离 HOME：skill install 写入 ~/.agents/skills/visionary-cli/SKILL.md，退出 0。
-    let out = isolated_cmd().args(["skill", "install"]).output().expect("run");
+    let out = isolated_cmd()
+        .args(["skill", "install"])
+        .output()
+        .expect("run");
     assert!(out.status.success(), "skill install should exit 0");
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("SKILL.md"), "should print path, got: {stdout}");
+    assert!(
+        stdout.contains("SKILL.md"),
+        "should print path, got: {stdout}"
+    );
 
     // 验证文件已写入且内容非空（以 --- 开头的 YAML frontmatter 开头）
     let home = std::env::temp_dir().join(format!(
@@ -243,7 +253,10 @@ fn skill_install_overwrites_existing() {
 #[test]
 fn skill_unknown_action_fails() {
     // 隔离 HOME：未知 skill 操作报错退出非零。
-    let out = isolated_cmd().args(["skill", "frobnicate"]).output().expect("run");
+    let out = isolated_cmd()
+        .args(["skill", "frobnicate"])
+        .output()
+        .expect("run");
     assert!(
         !out.status.success(),
         "unknown skill action should exit non-zero"

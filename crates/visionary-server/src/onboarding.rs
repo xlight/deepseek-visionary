@@ -250,7 +250,9 @@ fn interactive_listing(home: &Path) -> Result<()> {
 
     if installed.is_empty() {
         println!("No supported AI agent detected.");
-        println!("Install your target agent and retry, or configure manually (see docs/integrations/).");
+        println!(
+            "Install your target agent and retry, or configure manually (see docs/integrations/)."
+        );
         bail!("no supported agent detected");
     }
 
@@ -302,7 +304,14 @@ fn write_codex(home: &Path, dry_run: bool) -> Result<()> {
     if !dry_run {
         if let Some(codex) = find_in_path("codex") {
             let status = Command::new(codex)
-                .args(["mcp", "add", SERVER_NAME, "--", "visionary-server", "mcp-stdio"])
+                .args([
+                    "mcp",
+                    "add",
+                    SERVER_NAME,
+                    "--",
+                    "visionary-server",
+                    "mcp-stdio",
+                ])
                 .status();
             if let Ok(st) = status {
                 if st.success() {

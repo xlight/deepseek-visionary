@@ -191,7 +191,8 @@ impl VisionaryServer {
                 lines.push(format!("- Token validation: [FAIL] probe failed: {e}"));
                 lines.push(String::new());
                 lines.push(
-                    "The token may have expired. Run `deepseek_vision_login` to log in again.".into(),
+                    "The token may have expired. Run `deepseek_vision_login` to log in again."
+                        .into(),
                 );
             }
         }

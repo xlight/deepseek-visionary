@@ -227,8 +227,7 @@ async fn cmd_doctor() -> Result<()> {
             "To fix: run `visionary-server login` to auto-login, or set the DEEPSEEK_USER_TOKEN environment variable."
                 .into(),
         );
-        lines
-            .push("Install Chrome / Chromium / Edge for auto-login support.".into());
+        lines.push("Install Chrome / Chromium / Edge for auto-login support.".into());
     }
 
     for line in &lines {
@@ -272,7 +271,12 @@ enum OutputMode {
 ///
 /// 冲突（`--stream` 与 `--no-stream`、`--json` 与 `--stream`）由 clap `conflicts_with`
 /// 在解析期拦截，此处仍防御性检查以保证纯函数可独立测试。
-fn resolve_output_mode(tty: bool, stream: bool, no_stream: bool, json: bool) -> Result<OutputMode, String> {
+fn resolve_output_mode(
+    tty: bool,
+    stream: bool,
+    no_stream: bool,
+    json: bool,
+) -> Result<OutputMode, String> {
     if stream && no_stream {
         return Err("--stream and --no-stream cannot be used together".into());
     }
@@ -288,7 +292,11 @@ fn resolve_output_mode(tty: bool, stream: bool, no_stream: bool, json: bool) -> 
     if no_stream {
         return Ok(OutputMode::AtomicText);
     }
-    Ok(if tty { OutputMode::Stream } else { OutputMode::AtomicText })
+    Ok(if tty {
+        OutputMode::Stream
+    } else {
+        OutputMode::AtomicText
+    })
 }
 
 /// `vision`：CLI 方式运行完整 vision 流水线（design 决策 3/4/6）。
@@ -369,7 +377,11 @@ async fn cmd_vision(args: VisionArgs) -> Result<()> {
         OutputMode::AtomicText | OutputMode::Json => {
             // 原子模式：不流式（None::<fn(&str)> 满足 Send 约束）
             match pipeline::run_vision_pipeline::<fn(&str)>(
-                &config, &hif, &session_store, request, None,
+                &config,
+                &hif,
+                &session_store,
+                request,
+                None,
             )
             .await
             {
@@ -575,8 +587,7 @@ mod tests {
 
     #[test]
     fn mcp_stdio_subcommand_parses() {
-        let cli = Cli::try_parse_from(["visionary-server", "mcp-stdio"])
-            .expect("mcp-stdio parses");
+        let cli = Cli::try_parse_from(["visionary-server", "mcp-stdio"]).expect("mcp-stdio parses");
         assert!(matches!(cli.command, Some(Command::McpStdio)));
     }
 
@@ -645,7 +656,13 @@ mod tests {
         };
         assert_eq!(args.image, "img.png");
         assert_eq!(args.prompt, "请详细描述这张图片中的内容");
-        assert!(!args.thinking && !args.continue_conversation && !args.stream && !args.no_stream && !args.json);
+        assert!(
+            !args.thinking
+                && !args.continue_conversation
+                && !args.stream
+                && !args.no_stream
+                && !args.json
+        );
         assert!(args.session_id.is_none());
     }
 
@@ -691,8 +708,14 @@ mod tests {
     #[test]
     fn vision_stream_no_stream_conflict_rejected() {
         assert!(
-            Cli::try_parse_from(["visionary-server", "vision", "x.png", "--stream", "--no-stream"])
-                .is_err(),
+            Cli::try_parse_from([
+                "visionary-server",
+                "vision",
+                "x.png",
+                "--stream",
+                "--no-stream"
+            ])
+            .is_err(),
             "--stream and --no-stream are mutually exclusive"
         );
     }
@@ -728,11 +751,15 @@ mod tests {
     #[test]
     fn login_logout_subcommands_parse() {
         assert!(matches!(
-            Cli::try_parse_from(["visionary-server", "login"]).unwrap().command,
+            Cli::try_parse_from(["visionary-server", "login"])
+                .unwrap()
+                .command,
             Some(Command::Login)
         ));
         assert!(matches!(
-            Cli::try_parse_from(["visionary-server", "logout"]).unwrap().command,
+            Cli::try_parse_from(["visionary-server", "logout"])
+                .unwrap()
+                .command,
             Some(Command::Logout)
         ));
     }
@@ -750,14 +777,20 @@ mod tests {
         let Some(Command::Skill(args)) = cli.command else {
             panic!("expected skill subcommand");
         };
-        assert!(args.action.is_none(), "action optional, defaults to install");
+        assert!(
+            args.action.is_none(),
+            "action optional, defaults to install"
+        );
     }
 
     // ---- 输出模式决策纯函数（task 4.2）----
 
     #[test]
     fn output_mode_tty_defaults_to_stream() {
-        assert_eq!(resolve_output_mode(true, false, false, false).unwrap(), OutputMode::Stream);
+        assert_eq!(
+            resolve_output_mode(true, false, false, false).unwrap(),
+            OutputMode::Stream
+        );
     }
 
     #[test]
@@ -771,7 +804,10 @@ mod tests {
     #[test]
     fn output_mode_stream_flag_overrides_default() {
         // 非 TTY 但 --stream → 强制流式
-        assert_eq!(resolve_output_mode(false, true, false, false).unwrap(), OutputMode::Stream);
+        assert_eq!(
+            resolve_output_mode(false, true, false, false).unwrap(),
+            OutputMode::Stream
+        );
         // TTY 但 --no-stream → 强制原子文本
         assert_eq!(
             resolve_output_mode(true, false, true, false).unwrap(),
@@ -781,8 +817,14 @@ mod tests {
 
     #[test]
     fn output_mode_json_is_always_atomic() {
-        assert_eq!(resolve_output_mode(false, false, false, true).unwrap(), OutputMode::Json);
-        assert_eq!(resolve_output_mode(true, false, false, true).unwrap(), OutputMode::Json);
+        assert_eq!(
+            resolve_output_mode(false, false, false, true).unwrap(),
+            OutputMode::Json
+        );
+        assert_eq!(
+            resolve_output_mode(true, false, false, true).unwrap(),
+            OutputMode::Json
+        );
         assert_eq!(
             resolve_output_mode(true, false, true, true).unwrap(),
             OutputMode::Json,
