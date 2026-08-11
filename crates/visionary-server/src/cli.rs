@@ -16,7 +16,7 @@ use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
 use std::time::Duration;
 
-/// DeepSeek Visionary MCP server（原生二进制）。
+/// DeepSeek Visionary MCP server (native binary).
 #[derive(Debug, Parser)]
 #[command(
     name = "visionary-server",
@@ -33,48 +33,48 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// 启动 MCP stdio 服务（MCP 模式入口）。
+    /// Start the MCP stdio server (MCP mode entry point).
     McpStdio,
-    /// 诊断环境与配置（浏览器、凭据、平台/架构）。
+    /// Diagnose environment and config (browser, credentials, platform/architecture).
     Doctor,
-    /// 引导接入 AI agent（opencode / codex / claude / cursor / claude-desktop）。
+    /// Bootstrap AI agent integration (opencode / codex / claude / cursor / claude-desktop).
     Init(InitArgs),
-    /// 用 DeepSeek 视觉模型分析图片（CLI 版 deepseek_vision）。
+    /// Analyze an image with DeepSeek's vision model (CLI counterpart of deepseek_vision).
     Vision(VisionArgs),
-    /// 轻量鉴权状态检查（CLI 版 deepseek_vision_status）。
+    /// Lightweight auth status check (CLI counterpart of deepseek_vision_status).
     Status(StatusArgs),
-    /// 浏览器自动登录（CLI 版 deepseek_vision_login）。
+    /// Browser auto-login (CLI counterpart of deepseek_vision_login).
     Login,
-    /// 清除保存的凭据（CLI 版 deepseek_vision_logout）。
+    /// Clear saved credentials (CLI counterpart of deepseek_vision_logout).
     Logout,
-    /// 安装 agent 调用契约 skill（内嵌于二进制）。
+    /// Install the agent-calling-contract skill (embedded in the binary).
     Skill(SkillArgs),
 }
 
 /// `vision` 子命令参数：图片 + 提示词/思考/会话续聊 + 输出模式开关。
 #[derive(Debug, Args)]
 pub struct VisionArgs {
-    /// 图片：本地路径 / base64 / data URI，或 `-` 从 stdin 读取。
+    /// Image: local path / base64 / data URI, or `-` to read from stdin.
     pub image: String,
-    /// 对图片的问题（默认：请详细描述这张图片中的内容）。
+    /// Question about the image (default: detailed description in Chinese).
     #[arg(long, default_value = "请详细描述这张图片中的内容")]
     pub prompt: String,
-    /// 启用 DeepThink 深度思考。
+    /// Enable DeepThink deep reasoning.
     #[arg(long)]
     pub thinking: bool,
-    /// 续聊：复用上一次会话并链式追问，可对比多张图片。
+    /// Continue the session for multi-image comparison and follow-up questions.
     #[arg(long)]
     pub continue_conversation: bool,
-    /// 显式复用指定 session_id（优先于 --continue）。
+    /// Explicitly reuse a session_id (takes precedence over --continue).
     #[arg(long)]
     pub session_id: Option<String>,
-    /// 强制流式输出（覆盖 TTY 检测默认）。
+    /// Force streaming output (overrides TTY detection).
     #[arg(long, conflicts_with = "no_stream")]
     pub stream: bool,
-    /// 强制原子输出（覆盖 TTY 检测默认）。
+    /// Force atomic output (overrides TTY detection).
     #[arg(long, conflicts_with = "stream")]
     pub no_stream: bool,
-    /// 原子 JSON 输出（禁用流式）。
+    /// Atomic JSON output (disables streaming).
     #[arg(long, conflicts_with = "stream")]
     pub json: bool,
 }
@@ -82,7 +82,7 @@ pub struct VisionArgs {
 /// `status` 子命令参数。
 #[derive(Debug, Args)]
 pub struct StatusArgs {
-    /// 原子 JSON 输出。
+    /// Atomic JSON output.
     #[arg(long)]
     pub json: bool,
 }
@@ -90,34 +90,34 @@ pub struct StatusArgs {
 /// `skill` 子命令参数。
 #[derive(Debug, Args)]
 pub struct SkillArgs {
-    /// 子操作：install（当前唯一）。
+    /// Sub-action: install (currently the only one).
     pub action: Option<String>,
 }
 
 /// `init` 子命令参数：位置参数（单个 agent）或多选 flags（批量）+ `--yes` / `--dry-run`。
 #[derive(Debug, Args)]
 pub struct InitArgs {
-    /// 目标 agent 名：opencode / codex / claude / claude-desktop / cursor。
+    /// Target agent name: opencode / codex / claude / claude-desktop / cursor.
     pub agent: Option<String>,
-    /// 批量：同时配置 opencode。
+    /// Batch: also configure opencode.
     #[arg(long)]
     pub opencode: bool,
-    /// 批量：同时配置 Codex。
+    /// Batch: also configure Codex.
     #[arg(long)]
     pub codex: bool,
-    /// 批量：同时配置 Claude Code。
+    /// Batch: also configure Claude Code.
     #[arg(long)]
     pub claude: bool,
-    /// 批量：同时配置 Claude Desktop。
+    /// Batch: also configure Claude Desktop.
     #[arg(long, visible_alias = "claude-desktop")]
     pub claude_desktop: bool,
-    /// 批量：同时配置 Cursor。
+    /// Batch: also configure Cursor.
     #[arg(long)]
     pub cursor: bool,
-    /// 免交互：跳过确认直接写入。
+    /// Non-interactive: skip confirmation and write directly.
     #[arg(long)]
     pub yes: bool,
-    /// 仅预览将写入的配置，不落盘。
+    /// Only preview the config to be written, without touching disk.
     #[arg(long)]
     pub dry_run: bool,
 }
