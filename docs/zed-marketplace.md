@@ -119,7 +119,11 @@ jobs:
 ```bash
 python3 scripts/bump_version.py <new-version>
 # 例如 python3 scripts/bump_version.py 0.3.0
-# 同步 Cargo.toml + Cargo.lock + extension.toml，并打印后续 commit/tag 步骤
+# 同步 Cargo.toml + Cargo.lock + extension.toml + packages/dsh-plugin/package.json
+#   + server.json（version 与下载 URL），校验一致性，并打印后续 commit/tag 步骤
+
+# 一键发布（bump + commit + tag + push，push 触发各 release workflow）
+python3 scripts/bump_version.py <new-version> --release
 ```
 
 CI（`ci.yml` 的 `version-consistency` job）会在 PR/main 上自动校验
