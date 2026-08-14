@@ -639,7 +639,8 @@ mod tests {
 
     #[test]
     fn init_dsh_positional_parses() {
-        let cli = Cli::try_parse_from(["visionary-server", "init", "dsh"]).expect("init dsh parses");
+        let cli =
+            Cli::try_parse_from(["visionary-server", "init", "dsh"]).expect("init dsh parses");
         let Some(Command::Init(args)) = cli.command else {
             panic!("expected init subcommand");
         };

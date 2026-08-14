@@ -31,12 +31,7 @@ jobs:
           set -euo pipefail
           TAG="${GITHUB_REF_NAME#v}"
           PKG_VERSION=$(python3 -c "import json;print(json.load(open('packages/dsh-plugin/package.json'))['version'])")
-          WORKSPACE_VERSION=$(python3 -c "
-import re
-cargo = open('Cargo.toml', encoding='utf-8').read()
-m = re.search(r'\[workspace\.package\][^\[]*?version\s*=\s*\"([^\"]+)\"', cargo, re.S)
-print(m.group(1))
-")
+          WORKSPACE_VERSION=$(python3 -c "import re;c=open('Cargo.toml',encoding='utf-8').read();m=re.search(r'\[workspace\.package\][^\[]*?version\s*=\s*\"([^\"]+)\"',c,re.S);print(m.group(1))")
           echo "tag: v$TAG | package.json: $PKG_VERSION | workspace: $WORKSPACE_VERSION"
           if [ "$TAG" != "$PKG_VERSION" ] || [ "$TAG" != "$WORKSPACE_VERSION" ]; then
             echo "::error::version mismatch — bump packages/dsh-plugin/package.json to $TAG (see scripts/bump_version.py)"

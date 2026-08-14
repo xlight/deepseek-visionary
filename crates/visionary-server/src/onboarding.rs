@@ -791,7 +791,10 @@ mod tests {
             yes: false,
             dry_run: false,
         };
-        assert_eq!(resolve_targets(&args).unwrap(), vec![Agent::DeepseekHarness]);
+        assert_eq!(
+            resolve_targets(&args).unwrap(),
+            vec![Agent::DeepseekHarness]
+        );
     }
 
     #[test]
@@ -885,7 +888,11 @@ mod tests {
         std::env::set_var("DSH_HOME", "/custom/dsh");
         assert_eq!(dsh_home_dir(&home), PathBuf::from("/custom/dsh"));
         std::env::set_var("DSH_HOME", "");
-        assert_eq!(dsh_home_dir(&home), home.join(".dsh"), "empty DSH_HOME falls back");
+        assert_eq!(
+            dsh_home_dir(&home),
+            home.join(".dsh"),
+            "empty DSH_HOME falls back"
+        );
         std::env::set_var("DSH_HOME", "   ");
         assert_eq!(
             dsh_home_dir(&home),
@@ -909,8 +916,16 @@ mod tests {
 
         write_dsh(&home, false).unwrap();
 
-        let dsh_root = home.join(".dsh").join("skills").join("visionary-cli").join("SKILL.md");
-        let agents_root = home.join(".agents").join("skills").join("visionary-cli").join("SKILL.md");
+        let dsh_root = home
+            .join(".dsh")
+            .join("skills")
+            .join("visionary-cli")
+            .join("SKILL.md");
+        let agents_root = home
+            .join(".agents")
+            .join("skills")
+            .join("visionary-cli")
+            .join("SKILL.md");
         assert!(dsh_root.exists(), "DSH skill root must be written");
         assert!(agents_root.exists(), "agents skill root must be written");
         // 内容与内嵌一致
