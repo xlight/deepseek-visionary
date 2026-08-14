@@ -122,6 +122,8 @@ visionary-server vision img.png --no-stream
 
 与 MCP 模式共享：`DEEPSEEK_USER_TOKEN` / `DEEPSEEK_SMIDV2` / `DEEPSEEK_CF_CLEARANCE` / `DEEPSEEK_BASE_URL` / `DEEPSEEK_LOGIN_TIMEOUT`。
 
+登录页语言：默认跟随系统 locale（`LC_ALL` / `LC_MESSAGES` / `LANG`，如 `zh_CN.UTF-8` → 中文版），可用 `DEEPSEEK_LOGIN_LANG` 手动指定（如 `zh-CN` / `en` / `ja`）。
+
 ## 与 MCP 工具的关系
 
 - 四个子命令与 MCP 工具共享同一核心实现（`pipeline.rs` / `login.rs` / `auth.rs`），无两套漂移代码
