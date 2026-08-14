@@ -1,7 +1,7 @@
 id = "deepseek-visionary"
 name = "DeepSeek Visionary"
 description = "DeepSeek web vision model as an MCP context server, with browser auto-login"
-version = "0.4.0"
+version = "0.5.0"
 schema_version = 1
 authors = ["xLight <xbluelight@gmail.com>"]
 repository = "https://github.com/xlight/deepseek-visionary"
