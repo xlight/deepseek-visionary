@@ -1,0 +1,6 @@
+# @xlight-oss/visionary-dsh bundle patch.
+# Registers the DeepSeek Visionary native tools into the DSH composition.
+# Installed via: dsh plugin --profile <name> add @xlight-oss/visionary-dsh
+- insert:
+    - id: visionary-vision
+      name: '@xlight-oss/visionary-dsh'

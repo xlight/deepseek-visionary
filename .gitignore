@@ -8,3 +8,7 @@ crates/visionary-zed-ext/extension.wasm
 
 # 登录调试日志
 mcp-login.log
+
+# Node 插件包（packages/dsh-plugin）
+node_modules/
+.pnpm-store/

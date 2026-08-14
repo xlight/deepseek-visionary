@@ -97,7 +97,9 @@ visionary-server init opencode --dry-run
 | Claude Code | [claude-code.md](docs/integrations/claude-code.md) | `visionary-server init claude` |
 | Cursor | [cursor.md](docs/integrations/cursor.md) | `visionary-server init cursor` |
 | Claude Desktop | [claude-desktop.md](docs/integrations/claude-desktop.md) | `visionary-server init claude-desktop` |
-| DeepSeek Harness | [deepseek-harness.md](docs/integrations/deepseek-harness.md) | `visionary-server init dsh`（skill + CLI 轻量接入） |
+| DeepSeek Harness | [deepseek-harness.md](docs/integrations/deepseek-harness.md) | 原生插件 `dsh plugin --profile web add @xlight-oss/visionary-dsh`（推荐）或 `visionary-server init dsh`（skill + CLI 轻量接入） |
+
+> **DeepSeek Harness 原生插件**：DSH 用户还可安装 npm 插件包 `@xlight-oss/visionary-dsh`，把 `deepseek_vision` / `deepseek_vision_status` / `deepseek_vision_login` / `deepseek_vision_logout` 注册为 DSH 原生工具（结构化 schema、宿主级执行，续聊/登录不受 bash 沙箱限制），安装详见 [packages/dsh-plugin/README.md](packages/dsh-plugin/README.md)。
 
 > 新兴通道：Microsoft Agent Package Manager 用户可直接
 > `apm install --mcp io.github.xlight/deepseek-visionary`（复用 MCP Registry 标识）。
@@ -179,7 +181,7 @@ visionary-server skill install
 # → 写入 ~/.agents/skills/visionary-cli/SKILL.md
 ```
 
-> **DeepSeek Harness（DSH）**：DSH 默认扫描 `~/.agents/skills` 与 `~/.dsh/skills` 作为技能根，上述位置天然兼容；运行 `visionary-server init dsh` 会额外写入 DSH 专属技能根并汇总提示（见 [deepseek-harness.md](docs/integrations/deepseek-harness.md)）。
+> **DeepSeek Harness（DSH）**：DSH 默认扫描 `~/.agents/skills` 与 `~/.dsh/skills` 作为技能根，上述位置天然兼容；运行 `visionary-server init dsh` 会额外写入 DSH 专属技能根并汇总提示（见 [deepseek-harness.md](docs/integrations/deepseek-harness.md)）。DSH 用户更推荐安装原生插件 `@xlight-oss/visionary-dsh`（`dsh plugin --profile web add`），把 `deepseek_vision` 等注册为宿主级原生工具，续聊/登录不受 bash 沙箱限制（见 [packages/dsh-plugin/README.md](packages/dsh-plugin/README.md)）。
 
 ## MCP 工具
 

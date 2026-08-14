@@ -82,11 +82,12 @@ pub fn home_dir() -> Result<PathBuf> {
         .context("HOME/USERPROFILE not set")
 }
 
-/// DeepSeek Harness 根目录：`$DSH_HOME` 环境变量优先，未设置时回退 `~/.dsh`。
-/// 与 DSH 官方 `dsh-home-paths` 解析规则一致；检测与写入必须共用同一解析结果。
+/// DeepSeek Harness 根目录：`$DSH_HOME` 环境变量优先，未设置或空白时回退 `~/.dsh`。
+/// 与 DSH 官方 `dsh-home-paths` 解析规则一致（空白 `$DSH_HOME` 视为未设置）；
+/// 检测与写入必须共用同一解析结果。
 pub fn dsh_home_dir(home: &Path) -> PathBuf {
     std::env::var_os("DSH_HOME")
-        .filter(|v| !v.is_empty())
+        .filter(|v| !v.to_string_lossy().trim().is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join(".dsh"))
 }
@@ -885,6 +886,12 @@ mod tests {
         assert_eq!(dsh_home_dir(&home), PathBuf::from("/custom/dsh"));
         std::env::set_var("DSH_HOME", "");
         assert_eq!(dsh_home_dir(&home), home.join(".dsh"), "empty DSH_HOME falls back");
+        std::env::set_var("DSH_HOME", "   ");
+        assert_eq!(
+            dsh_home_dir(&home),
+            home.join(".dsh"),
+            "whitespace-only DSH_HOME falls back (matches dsh-home-paths)"
+        );
         if let Some(old) = old {
             std::env::set_var("DSH_HOME", old);
         } else {
