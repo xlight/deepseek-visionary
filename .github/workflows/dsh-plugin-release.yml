@@ -54,7 +54,7 @@ jobs:
         working-directory: packages/dsh-plugin
 
       - name: Publish to npm
-        run: pnpm publish --no-git-checks
+        run: pnpm publish --no-git-checks --access public
         working-directory: packages/dsh-plugin
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

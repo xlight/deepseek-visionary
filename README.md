@@ -1,8 +1,8 @@
 # DeepSeek Visionary
 
-在任意支持 MCP 的 AI agent（Zed、OpenCode、Codex、Claude Code、Cursor、Claude Desktop）或 DeepSeek Harness（DSH）中使用 **DeepSeek 网页版的原生多模态视觉模型**，支持**浏览器自动登录**（无需手动复制 token）。
+在任意支持 MCP 的 AI agent（Zed、OpenCode、Codex、Claude Code、Cursor、Claude Desktop）、DeepSeek Harness（DSH，原生插件或 skill + CLI）中使用 **DeepSeek 网页版的原生多模态视觉模型**，支持**浏览器自动登录**（无需手动复制 token）。
 
-这是 Python 版 `deepseek-vision-mcp` 的 Rust 全量重写：单原生二进制，多平台分发。
+这是 Python 版 `deepseek-vision-mcp` 的 Rust 全量重写：单原生二进制，多平台分发。DSH 用户另有原生插件包 `@xlight-oss/visionary-dsh`（`dsh plugin` 一键安装，无需 API key）。
 
 ## 架构
 
@@ -12,8 +12,12 @@ graph TD
         AG["Zed / OpenCode / Codex / Claude Code / Cursor / Claude Desktop"]
         AG -->|spawn 独立进程| SRV
     end
+    subgraph DSH[DeepSeek Harness]
+        DP["@xlight-oss/visionary-dsh 插件<br/>deepseek_vision 等 4 个原生工具"]
+        DP -->|宿主进程 spawn| SRV
+    end
     subgraph visionary-server 原生二进制
-        SRV["CLI + MCP stdio 服务<br/>vision / status / login / logout / skill 工具<br/>mcp-stdio / init / doctor CLI"]
+        SRV["CLI + MCP stdio 服务<br/>vision / status / login / logout / skill / init / doctor<br/>mcp-stdio CLI"]
         CFG["~/.deepseek-visionary/config.json<br/>token + smidV2 + cf_clearance + 会话"]
         SRV --> CFG
     end
@@ -22,6 +26,7 @@ graph TD
 ```
 
 - **visionary-server**：单二进制，默认 CLI 模式（`vision` / `status` / `login` / `logout` / `skill` / `init` / `doctor`），`mcp-stdio` 子命令显式启动 MCP stdio 服务；实现完整 vision 流水线（PoW → 上传 → fork → HIF 签名 → SSE 流式 completion）与 CDP 自动登录
+- **@xlight-oss/visionary-dsh**：DSH 原生插件包（npm，纯 ESM 无构建），经 `ctx.tools` 注册 `deepseek_vision` 等 4 个原生工具，宿主进程内 spawn `visionary-server` 复用 Rust 管道（续聊/登录不受 bash 沙箱限制）
 - **visionary-zed-ext**：Zed 扩展壳（仅 Zed 需要），按平台从 GitHub Releases 下载/缓存 visionary-server 并启动
 
 ## 安装
@@ -81,7 +86,7 @@ visionary-server init claude-desktop
 visionary-server init dsh   # DeepSeek Harness（skill + CLI 轻量接入）
 
 # 批量接入多个 agent（免交互）
-visionary-server init --opencode --codex --yes
+visionary-server init --opencode --codex --dsh --yes
 
 # 先预览将写入的配置（不落盘）
 visionary-server init opencode --dry-run
@@ -104,12 +109,29 @@ visionary-server init opencode --dry-run
 > 新兴通道：Microsoft Agent Package Manager 用户可直接
 > `apm install --mcp io.github.xlight/deepseek-visionary`（复用 MCP Registry 标识）。
 
-### 4. 登录
+### 4. DeepSeek Harness 原生插件（DSH 用户推荐）
 
-登录凭据保存在 `~/.deepseek-visionary/config.json`，CLI 与 MCP 模式共享；浏览器自动登录会打开窗口导航到 chat.deepseek.com，登录后自动抓取 token 并保存：
+DSH 用户除 `init dsh`（skill + CLI）外，更推荐安装原生插件，获得宿主级权限与结构化工具 schema：
+
+```bash
+# 前置：安装二进制（见上文）并确保能被插件找到
+#       （Config.binaryPath → DEEPSEEK_VISIONARY_BIN → PATH 任一即可）
+
+# 一键安装（npm 包，发布后）
+dsh plugin --profile web add @xlight-oss/visionary-dsh
+
+# 或本地路径（开发验证）
+dsh plugin --profile web add /path/to/packages/dsh-plugin
+```
+
+`dsh plugin` 经包内 `dsh.bundle.patch` 声明自动注册 `visionary-vision` 插件行，重启 DSH 后 4 个原生工具出现在工具目录，模型可直接调用（无需手写任何配置）。验证：`dsh --profile web --dump-config` 应出现 `@xlight-oss/visionary-dsh` 层。详见 [packages/dsh-plugin/README.md](packages/dsh-plugin/README.md)。
+
+### 5. 登录
+
+登录凭据保存在 `~/.deepseek-visionary/config.json`，CLI / MCP / DSH 插件三路共享；浏览器自动登录会打开窗口导航到 chat.deepseek.com，登录后自动抓取 token 并保存：
 
 - CLI：`visionary-server login`（可先 `status --json` 预检）
-- MCP：调用工具的 `deepseek_vision_login`
+- MCP / DSH 原生工具：调用 `deepseek_vision_login`
 
 > 手动兜底：登录 chat.deepseek.com 后，DevTools → Application → Local Storage →
 > `userToken` → 复制 `JSON.parse(value).value`，写入 `~/.deepseek-visionary/config.json`：
@@ -118,10 +140,10 @@ visionary-server init opencode --dry-run
 > { "user_token": "你的 token" }
 > ```
 
-### 5. 使用
+### 6. 使用
 
 - **CLI**：`visionary-server vision <image>` 识图（详见下文「CLI 工具」）
-- **MCP**：调用 `deepseek_vision` 传入图片路径或 base64 即可识图
+- **MCP / DSH 原生工具**：调用 `deepseek_vision` 传入图片路径 / base64 / data URI 即可识图
 
 ## Zed 扩展安装
 
@@ -183,13 +205,15 @@ visionary-server skill install
 
 > **DeepSeek Harness（DSH）**：DSH 默认扫描 `~/.agents/skills` 与 `~/.dsh/skills` 作为技能根，上述位置天然兼容；运行 `visionary-server init dsh` 会额外写入 DSH 专属技能根并汇总提示（见 [deepseek-harness.md](docs/integrations/deepseek-harness.md)）。DSH 用户更推荐安装原生插件 `@xlight-oss/visionary-dsh`（`dsh plugin --profile web add`），把 `deepseek_vision` 等注册为宿主级原生工具，续聊/登录不受 bash 沙箱限制（见 [packages/dsh-plugin/README.md](packages/dsh-plugin/README.md)）。
 
-## MCP 工具
+## 工具面（MCP / DSH 原生）
+
+同一组工具既以 MCP 工具暴露给 MCP 宿主，也以 DSH 原生工具注册给 DeepSeek Harness（命名与 schema 一致）：
 
 | 工具 | 说明 |
 |------|------|
-| `deepseek_vision` | 上传本地图片（路径 / base64）并用 DeepSeek 视觉模型分析。参数：`image`（必填）、`prompt`、`thinking`、`continue_conversation`、`session_id` |
+| `deepseek_vision` | 上传本地图片（路径 / base64 / data URI）并用 DeepSeek 视觉模型分析。参数：`image`（必填）、`prompt`、`thinking`、`continue_conversation`、`session_id` |
 | `deepseek_vision_status` | 检查登录状态与 token 有效性（含真实校验探针） |
-| `deepseek_vision_login` | 浏览器自动登录并抓取凭据 |
+| `deepseek_vision_login` | 浏览器自动登录并抓取凭据（阻塞，超时可配） |
 | `deepseek_vision_logout` | 清除保存的凭据 |
 
 ### 会话续聊
@@ -209,6 +233,7 @@ visionary-server skill install
 | `DEEPSEEK_SMIDV2` / `DEEPSEEK_CF_CLEARANCE` | 覆盖对应 cookie（可选） |
 | `DEEPSEEK_BASE_URL` | API 基地址（默认 `https://chat.deepseek.com`） |
 | `DEEPSEEK_LOGIN_TIMEOUT` | 登录等待超时秒数（默认 600） |
+| `DEEPSEEK_VISIONARY_BIN` | DSH 插件解析二进制路径（`Config.binaryPath` → 此变量 → PATH） |
 
 ## 开发
 
@@ -222,7 +247,26 @@ cargo build -p visionary-zed-ext --release --target wasm32-wasip2
 
 # 测试
 cargo test -p visionary-server
+
+# DSH 插件包（纯 ESM，无构建；开发需装 devDependencies 供本地 link 安装解析 peer）
+cd packages/dsh-plugin && pnpm install
 ```
+
+## 发布
+
+版本号由 `scripts/bump_version.py` 统一管理（同步 Cargo.toml / Cargo.lock / extension.toml / packages/dsh-plugin/package.json / server.json 共 6 处并校验一致性）：
+
+```bash
+# 只 bump + 校验 + 打印步骤
+python3 scripts/bump_version.py <new-version>
+
+# 一键发布：bump + commit + tag vX.Y.Z + push（触发 cargo-dist / Zed 同步 / npm 发布三个 workflow）
+python3 scripts/bump_version.py <new-version> --release
+```
+
+发布后从 GitHub Release 下载 5 平台 `.mcpb`，运行
+`python3 scripts/update_server_json.py <version> v<version> dist/` 更新
+`server.json` 的 `fileSha256`（MCP Registry 元数据）。
 
 ## 平台支持
 
