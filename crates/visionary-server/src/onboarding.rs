@@ -7,7 +7,7 @@
 //! - `--dry-run` 只预览不落盘；`--yes` 免交互
 //! - opencode 显式 `timeout: 60000`（官方默认 5000ms，冷启动会超时）
 
-use crate::cli::InitArgs;
+use crate::cli::{install_skill, InitArgs};
 use anyhow::{anyhow, bail, Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -25,6 +25,8 @@ pub enum Agent {
     Claude,
     ClaudeDesktop,
     Cursor,
+    /// DeepSeek Harness（`dsh`）：skill + CLI 轻量接入，不写 MCP 配置。
+    DeepseekHarness,
 }
 
 impl Agent {
@@ -35,6 +37,7 @@ impl Agent {
             Agent::Claude => "claude",
             Agent::ClaudeDesktop => "claude-desktop",
             Agent::Cursor => "cursor",
+            Agent::DeepseekHarness => "dsh",
         }
     }
 
@@ -45,17 +48,21 @@ impl Agent {
             "claude" => Some(Agent::Claude),
             "claude-desktop" | "claude_desktop" => Some(Agent::ClaudeDesktop),
             "cursor" => Some(Agent::Cursor),
+            "dsh" | "deepseek-harness" | "deepseek_harness" | "harness" => {
+                Some(Agent::DeepseekHarness)
+            }
             _ => None,
         }
     }
 
-    fn all() -> [Agent; 5] {
+    fn all() -> [Agent; 6] {
         [
             Agent::Opencode,
             Agent::Codex,
             Agent::Claude,
             Agent::ClaudeDesktop,
             Agent::Cursor,
+            Agent::DeepseekHarness,
         ]
     }
 }
@@ -73,6 +80,15 @@ pub fn home_dir() -> Result<PathBuf> {
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("USERPROFILE").map(PathBuf::from))
         .context("HOME/USERPROFILE not set")
+}
+
+/// DeepSeek Harness 根目录：`$DSH_HOME` 环境变量优先，未设置时回退 `~/.dsh`。
+/// 与 DSH 官方 `dsh-home-paths` 解析规则一致；检测与写入必须共用同一解析结果。
+pub fn dsh_home_dir(home: &Path) -> PathBuf {
+    std::env::var_os("DSH_HOME")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".dsh"))
 }
 
 /// 在 PATH 中查找可执行文件（Windows 自动补 `.exe`）。
@@ -110,6 +126,12 @@ pub fn detect_agents(home: &Path) -> Vec<Detection> {
                 Agent::Cursor => {
                     let p = cursor_config_path(home);
                     (find_in_path("cursor").is_some() || p.exists(), Some(p))
+                }
+                Agent::DeepseekHarness => {
+                    // `dsh` 在 PATH，或 DSH 根下已有 profile（初始化过 dsh web / headless）
+                    let root = dsh_home_dir(home);
+                    let has_profiles = root.join("profiles").exists();
+                    (find_in_path("dsh").is_some() || has_profiles, Some(root))
                 }
             };
             Detection {
@@ -225,6 +247,9 @@ fn resolve_targets(args: &InitArgs) -> Result<Vec<Agent>> {
     if args.cursor {
         flags.push(Agent::Cursor);
     }
+    if args.dsh {
+        flags.push(Agent::DeepseekHarness);
+    }
 
     if let Some(name) = &args.agent {
         if !flags.is_empty() {
@@ -235,7 +260,7 @@ fn resolve_targets(args: &InitArgs) -> Result<Vec<Agent>> {
         }
         let agent = Agent::from_name(name).ok_or_else(|| {
             anyhow!(
-                "Unknown agent `{name}`. Supported: opencode / codex / claude / claude-desktop / cursor"
+                "Unknown agent `{name}`. Supported: opencode / codex / claude / claude-desktop / cursor / dsh"
             )
         })?;
         return Ok(vec![agent]);
@@ -282,7 +307,38 @@ fn write_agent(home: &Path, agent: Agent, dry_run: bool) -> Result<()> {
         Agent::Claude => write_claude(home, dry_run),
         Agent::ClaudeDesktop => write_claude_desktop(home, dry_run),
         Agent::Cursor => write_cursor(home, dry_run),
+        Agent::DeepseekHarness => write_dsh(home, dry_run),
     }
+}
+
+/// DeepSeek Harness：skill + CLI 轻量接入（不写 MCP 配置）。
+///
+/// 把内嵌 SKILL.md 安装到 DSH 的两个技能发现根：
+/// - `$DSH_HOME/skills/visionary-cli/`（DSH user 技能根，始终扫描）
+/// - `~/.agents/skills/visionary-cli/`（DSH 默认扫描的 agents 技能根，与 `skill install` 一致）
+fn write_dsh(home: &Path, dry_run: bool) -> Result<()> {
+    let dsh_root = dsh_home_dir(home);
+    let mut targets = vec![dsh_root.join("skills").join("visionary-cli")];
+    targets.push(home.join(".agents").join("skills").join("visionary-cli"));
+
+    if dry_run {
+        println!("[dry-run] would install the embedded SKILL.md to:");
+        for dir in &targets {
+            println!("  {}", dir.join("SKILL.md").display());
+        }
+        return Ok(());
+    }
+
+    println!("Configuring DeepSeek Harness (dsh) via skill + CLI:");
+    for dir in &targets {
+        install_skill(dir)?;
+    }
+    println!(
+        "  Skills installed to the DSH discovery roots. Restart dsh (or wait for its skill watcher)\n\
+         and the `visionary-cli` skill will appear in the harness skill catalog.\n\
+         Tip: run `visionary-server login` first, then the agent calls `visionary-server vision <image> --json`."
+    );
+    Ok(())
 }
 
 /// opencode：顶层 `mcp` 键 + `type: local` + `command` 数组 + `timeout: 60000`。
@@ -714,10 +770,39 @@ mod tests {
             claude: false,
             claude_desktop: false,
             cursor: false,
+            dsh: false,
             yes: false,
             dry_run: false,
         };
         assert!(resolve_targets(&args).is_err());
+    }
+
+    #[test]
+    fn resolve_targets_dsh_flag_collects() {
+        let args = InitArgs {
+            agent: None,
+            opencode: false,
+            codex: false,
+            claude: false,
+            claude_desktop: false,
+            cursor: false,
+            dsh: true,
+            yes: false,
+            dry_run: false,
+        };
+        assert_eq!(resolve_targets(&args).unwrap(), vec![Agent::DeepseekHarness]);
+    }
+
+    #[test]
+    fn from_name_accepts_dsh_aliases() {
+        for name in ["dsh", "deepseek-harness", "deepseek_harness", "harness"] {
+            assert_eq!(
+                Agent::from_name(name),
+                Some(Agent::DeepseekHarness),
+                "alias `{name}` should map to DeepseekHarness"
+            );
+        }
+        assert_eq!(Agent::from_name("dsh").unwrap().name(), "dsh");
     }
 
     #[test]
@@ -736,6 +821,7 @@ mod tests {
                 claude: false,
                 claude_desktop: false,
                 cursor: false,
+                dsh: false,
                 yes: false,
                 dry_run: false,
             },
@@ -747,6 +833,115 @@ mod tests {
         }
         let err = result.unwrap_err();
         assert!(err.to_string().contains("not in PATH"));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn dsh_detection_via_profiles_dir() {
+        let _guard = PATH_LOCK.lock().unwrap();
+        let home = temp_home("dsh-detect");
+        // 环境里可能设置了 DSH_HOME，统一清掉让检测走 ~/.dsh 路径
+        let old_dsh = std::env::var_os("DSH_HOME");
+        std::env::remove_var("DSH_HOME");
+        // 无 ~/.dsh/profiles → 未检测（PATH 中大概率没有 dsh）
+        let detections = detect_agents(&home);
+        let dsh = detections
+            .iter()
+            .find(|d| d.agent == Agent::DeepseekHarness)
+            .unwrap();
+        if find_in_path("dsh").is_none() {
+            assert!(!dsh.installed, "no profiles dir and no dsh in PATH");
+        }
+        // 创建 ~/.dsh/profiles/web → 已检测，config_path 指向 DSH 根
+        let profiles = home.join(".dsh").join("profiles").join("web");
+        std::fs::create_dir_all(&profiles).unwrap();
+        let detections = detect_agents(&home);
+        let dsh = detections
+            .iter()
+            .find(|d| d.agent == Agent::DeepseekHarness)
+            .unwrap();
+        assert!(dsh.installed, "profiles dir should mark dsh as installed");
+        assert_eq!(
+            dsh.config_path.as_deref(),
+            Some(home.join(".dsh").as_path()),
+            "config_path should be the DSH root"
+        );
+        if let Some(old) = old_dsh {
+            std::env::set_var("DSH_HOME", old);
+        } else {
+            std::env::remove_var("DSH_HOME");
+        }
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn dsh_home_dir_respects_env_var() {
+        let _guard = PATH_LOCK.lock().unwrap();
+        let home = temp_home("dsh-home");
+        let old = std::env::var_os("DSH_HOME");
+        std::env::remove_var("DSH_HOME");
+        assert_eq!(dsh_home_dir(&home), home.join(".dsh"));
+        std::env::set_var("DSH_HOME", "/custom/dsh");
+        assert_eq!(dsh_home_dir(&home), PathBuf::from("/custom/dsh"));
+        std::env::set_var("DSH_HOME", "");
+        assert_eq!(dsh_home_dir(&home), home.join(".dsh"), "empty DSH_HOME falls back");
+        if let Some(old) = old {
+            std::env::set_var("DSH_HOME", old);
+        } else {
+            std::env::remove_var("DSH_HOME");
+        }
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn write_dsh_installs_skill_to_both_roots() {
+        let _guard = PATH_LOCK.lock().unwrap();
+        let home = temp_home("dsh-write");
+        let old = std::env::var_os("DSH_HOME");
+        std::env::remove_var("DSH_HOME");
+
+        write_dsh(&home, false).unwrap();
+
+        let dsh_root = home.join(".dsh").join("skills").join("visionary-cli").join("SKILL.md");
+        let agents_root = home.join(".agents").join("skills").join("visionary-cli").join("SKILL.md");
+        assert!(dsh_root.exists(), "DSH skill root must be written");
+        assert!(agents_root.exists(), "agents skill root must be written");
+        // 内容与内嵌一致
+        let embedded = include_str!("../../../skills/visionary-cli/SKILL.md");
+        assert_eq!(std::fs::read_to_string(&dsh_root).unwrap(), embedded);
+        assert_eq!(std::fs::read_to_string(&agents_root).unwrap(), embedded);
+
+        if let Some(old) = old {
+            std::env::set_var("DSH_HOME", old);
+        } else {
+            std::env::remove_var("DSH_HOME");
+        }
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn write_dsh_dry_run_does_not_touch_disk() {
+        let _guard = PATH_LOCK.lock().unwrap();
+        let home = temp_home("dsh-dryrun");
+        let old = std::env::var_os("DSH_HOME");
+        std::env::remove_var("DSH_HOME");
+
+        write_dsh(&home, true).unwrap();
+
+        assert!(
+            !home.join(".dsh").join("skills").exists(),
+            "dry-run must not create DSH skills dir"
+        );
+        assert!(
+            !home.join(".agents").join("skills").exists(),
+            "dry-run must not create agents skills dir"
+        );
+
+        if let Some(old) = old {
+            std::env::set_var("DSH_HOME", old);
+        } else {
+            std::env::remove_var("DSH_HOME");
+        }
         let _ = std::fs::remove_dir_all(&home);
     }
 

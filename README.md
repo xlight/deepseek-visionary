@@ -1,6 +1,6 @@
 # DeepSeek Visionary
 
-在任意支持 MCP 的 AI agent（Zed、OpenCode、Codex、Claude Code、Cursor、Claude Desktop）中使用 **DeepSeek 网页版的原生多模态视觉模型**，支持**浏览器自动登录**（无需手动复制 token）。
+在任意支持 MCP 的 AI agent（Zed、OpenCode、Codex、Claude Code、Cursor、Claude Desktop）或 DeepSeek Harness（DSH）中使用 **DeepSeek 网页版的原生多模态视觉模型**，支持**浏览器自动登录**（无需手动复制 token）。
 
 这是 Python 版 `deepseek-vision-mcp` 的 Rust 全量重写：单原生二进制，多平台分发。
 
@@ -78,6 +78,7 @@ visionary-server init codex
 visionary-server init claude
 visionary-server init cursor
 visionary-server init claude-desktop
+visionary-server init dsh   # DeepSeek Harness（skill + CLI 轻量接入）
 
 # 批量接入多个 agent（免交互）
 visionary-server init --opencode --codex --yes
@@ -96,6 +97,7 @@ visionary-server init opencode --dry-run
 | Claude Code | [claude-code.md](docs/integrations/claude-code.md) | `visionary-server init claude` |
 | Cursor | [cursor.md](docs/integrations/cursor.md) | `visionary-server init cursor` |
 | Claude Desktop | [claude-desktop.md](docs/integrations/claude-desktop.md) | `visionary-server init claude-desktop` |
+| DeepSeek Harness | [deepseek-harness.md](docs/integrations/deepseek-harness.md) | `visionary-server init dsh`（skill + CLI 轻量接入） |
 
 > 新兴通道：Microsoft Agent Package Manager 用户可直接
 > `apm install --mcp io.github.xlight/deepseek-visionary`（复用 MCP Registry 标识）。
@@ -140,7 +142,7 @@ visionary-server init opencode --dry-run
 | `visionary-server logout` | 清除保存的凭据（CLI 版 `deepseek_vision_logout`） |
 | `visionary-server skill install` | 安装 agent 调用契约 skill 到 `~/.agents/skills/`（内嵌于二进制） |
 | `visionary-server doctor` | 诊断环境：config 路径/权限、浏览器、token 有效性、平台 |
-| `visionary-server init [agent]` | 检测并接入已安装的 AI agent（`--dry-run` / `--yes` / 多选 flags） |
+| `visionary-server init [agent]` | 检测并接入已安装的 AI agent（`--dry-run` / `--yes` / 多选 flags，含 `dsh`） |
 
 ### CLI 输出模式（`vision`）
 
@@ -176,6 +178,8 @@ CLI 也是 AI agent 的零 MCP 配置工具面：只要 `visionary-server` 在 P
 visionary-server skill install
 # → 写入 ~/.agents/skills/visionary-cli/SKILL.md
 ```
+
+> **DeepSeek Harness（DSH）**：DSH 默认扫描 `~/.agents/skills` 与 `~/.dsh/skills` 作为技能根，上述位置天然兼容；运行 `visionary-server init dsh` 会额外写入 DSH 专属技能根并汇总提示（见 [deepseek-harness.md](docs/integrations/deepseek-harness.md)）。
 
 ## MCP 工具
 

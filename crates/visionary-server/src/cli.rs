@@ -37,7 +37,7 @@ pub enum Command {
     McpStdio,
     /// Diagnose environment and config (browser, credentials, platform/architecture).
     Doctor,
-    /// Bootstrap AI agent integration (opencode / codex / claude / cursor / claude-desktop).
+    /// Bootstrap AI agent integration (opencode / codex / claude / cursor / claude-desktop / dsh).
     Init(InitArgs),
     /// Analyze an image with DeepSeek's vision model (CLI counterpart of deepseek_vision).
     Vision(VisionArgs),
@@ -97,7 +97,7 @@ pub struct SkillArgs {
 /// `init` 子命令参数：位置参数（单个 agent）或多选 flags（批量）+ `--yes` / `--dry-run`。
 #[derive(Debug, Args)]
 pub struct InitArgs {
-    /// Target agent name: opencode / codex / claude / claude-desktop / cursor.
+    /// Target agent name: opencode / codex / claude / claude-desktop / cursor / dsh.
     pub agent: Option<String>,
     /// Batch: also configure opencode.
     #[arg(long)]
@@ -114,6 +114,9 @@ pub struct InitArgs {
     /// Batch: also configure Cursor.
     #[arg(long)]
     pub cursor: bool,
+    /// Batch: also configure DeepSeek Harness (dsh, skill + CLI route).
+    #[arg(long)]
+    pub dsh: bool,
     /// Non-interactive: skip confirmation and write directly.
     #[arg(long)]
     pub yes: bool,
@@ -516,10 +519,30 @@ async fn cmd_logout() -> Result<()> {
 /// 内嵌的 agent 调用契约 SKILL.md（随二进制分发，版本必然匹配）。
 const EMBEDDED_SKILL: &str = include_str!("../../../skills/visionary-cli/SKILL.md");
 
+/// 把内嵌 SKILL.md 安装到指定技能根目录（创建 `<dir>/SKILL.md`，目录自动创建，
+/// 已存在则覆盖并提示"已更新"）。返回写入的文件路径。
+///
+/// 供 `skill install`（`~/.agents/skills/visionary-cli/`）与 `init dsh`
+/// （DSH 技能根 `$DSH_HOME/skills/` 与 `~/.agents/skills/`）复用。
+pub fn install_skill(dir: &std::path::Path) -> Result<std::path::PathBuf> {
+    std::fs::create_dir_all(dir).context("create skill directory")?;
+    let path = dir.join("SKILL.md");
+    let existed = path.exists();
+    std::fs::write(&path, EMBEDDED_SKILL).context("write SKILL.md")?;
+    if existed {
+        println!("Skill updated: {}", path.display());
+    } else {
+        println!("Skill installed: {}", path.display());
+    }
+    Ok(path)
+}
+
 /// `skill install`：把内嵌 SKILL.md 写入 `~/.agents/skills/visionary-cli/SKILL.md`。
 ///
 /// design 决策 7：通过安装脚本（cargo-dist / brew / npm）装二进制的用户本地没有仓库，
 /// 无法 `cp -r skills/...`；内嵌保证安装二进制即具备 skill，已存在时覆盖并提示。
+/// DSH（DeepSeek Harness）默认扫描 `~/.agents/skills`，因此该位置同时覆盖 DSH；
+/// `init dsh` 会额外写入 DSH 专属技能根（见 onboarding.rs）。
 fn cmd_skill(args: SkillArgs) -> Result<()> {
     match args.action.as_deref() {
         Some("install") | None => {}
@@ -534,15 +557,7 @@ fn cmd_skill(args: SkillArgs) -> Result<()> {
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::path::PathBuf::from("."));
     let dir = home.join(".agents").join("skills").join("visionary-cli");
-    std::fs::create_dir_all(&dir).context("create skill directory")?;
-    let path = dir.join("SKILL.md");
-    let existed = path.exists();
-    std::fs::write(&path, EMBEDDED_SKILL).context("write SKILL.md")?;
-    if existed {
-        println!("Skill updated: {}", path.display());
-    } else {
-        println!("Skill installed: {}", path.display());
-    }
+    install_skill(&dir)?;
     println!(
         "Tip: if your agent's default skills dir is not ~/.agents/skills (e.g. Claude Code uses ~/.claude/skills),\n\
          move the visionary-cli directory to that agent's default dir, e.g.:\n\
@@ -623,6 +638,16 @@ mod tests {
     }
 
     #[test]
+    fn init_dsh_positional_parses() {
+        let cli = Cli::try_parse_from(["visionary-server", "init", "dsh"]).expect("init dsh parses");
+        let Some(Command::Init(args)) = cli.command else {
+            panic!("expected init subcommand");
+        };
+        assert_eq!(args.agent.as_deref(), Some("dsh"));
+        assert!(!args.dry_run && !args.yes && !args.dsh);
+    }
+
+    #[test]
     fn init_flags_parse() {
         let cli = Cli::try_parse_from([
             "visionary-server",
@@ -637,7 +662,18 @@ mod tests {
             panic!("expected init subcommand");
         };
         assert!(args.opencode && args.codex && args.yes && args.dry_run);
-        assert!(!args.claude && !args.cursor && !args.claude_desktop);
+        assert!(!args.claude && !args.cursor && !args.claude_desktop && !args.dsh);
+    }
+
+    #[test]
+    fn init_dsh_flag_parses() {
+        let cli =
+            Cli::try_parse_from(["visionary-server", "init", "--dsh"]).expect("init --dsh parses");
+        let Some(Command::Init(args)) = cli.command else {
+            panic!("expected init subcommand");
+        };
+        assert!(args.dsh, "--dsh flag should be set");
+        assert!(args.agent.is_none());
     }
 
     #[test]
