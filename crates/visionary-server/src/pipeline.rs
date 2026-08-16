@@ -116,7 +116,10 @@ where
     }
 
     // Step 1: 上传所有图片（OCR）+ 轮询 SUCCESS
-    tracing::info!("Step 1: uploading {} image(s)...", request.images_data.len());
+    tracing::info!(
+        "Step 1: uploading {} image(s)...",
+        request.images_data.len()
+    );
     let mut file_infos = Vec::with_capacity(request.images_data.len());
     for image_data in &request.images_data {
         let file_info = upload::upload_and_wait(&client, image_data.clone()).await?;

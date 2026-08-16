@@ -87,12 +87,7 @@ pub async fn wait_for_success(
     let interval = client.config.poll_interval;
     let deadline = Instant::now() + timeout;
 
-    let terminal_failures = [
-        "FAILED",
-        "CONTENT_FILTER",
-        "CONTENT_TOO_LONG",
-        "CANCELLED",
-    ];
+    let terminal_failures = ["FAILED", "CONTENT_FILTER", "CONTENT_TOO_LONG", "CANCELLED"];
 
     let mut last_status = "PENDING".to_string();
     loop {

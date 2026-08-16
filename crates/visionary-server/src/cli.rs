@@ -741,7 +741,11 @@ mod tests {
         let Some(Command::Vision(args)) = cli.command else {
             panic!("expected vision subcommand");
         };
-        assert_eq!(args.images, vec!["-".to_string()], "`-` means read image from stdin");
+        assert_eq!(
+            args.images,
+            vec!["-".to_string()],
+            "`-` means read image from stdin"
+        );
     }
 
     #[test]
