@@ -560,9 +560,9 @@ fn cmd_skill(args: SkillArgs) -> Result<()> {
     }
 
     // ~/.agents/skills/visionary-cli/（镜像数据目录逻辑，但固定到 ~/.agents）
-    let home = std::env::var_os("HOME")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    // 用户目录走 onboarding::home_dir()（Unix: HOME，Windows: USERPROFILE），
+    // 避免 Windows 无 HOME 时错误回退到当前工作目录。
+    let home = crate::onboarding::home_dir()?;
     let dir = home.join(".agents").join("skills").join("visionary-cli");
     install_skill(&dir)?;
     println!(

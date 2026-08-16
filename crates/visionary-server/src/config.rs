@@ -15,10 +15,11 @@ use std::sync::RwLock;
 use std::time::Duration;
 
 /// 数据目录：`~/.deepseek-visionary/`，存放 config.json 与 session.json。
+///
+/// 用户目录解析走 `onboarding::home_dir()`（Unix: HOME，Windows: USERPROFILE），
+/// 保证无 `HOME` 环境变量的 Windows PowerShell/cmd 环境下同样可用。
 fn data_dir() -> Result<PathBuf> {
-    let home = env::var_os("HOME")
-        .map(PathBuf::from)
-        .context("HOME not set")?;
+    let home = crate::onboarding::home_dir()?;
     Ok(home.join(".deepseek-visionary"))
 }
 
@@ -199,6 +200,10 @@ fn env_f64(key: &str, default: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    /// 序列化环境变量相关测试，避免并行测试互相污染。
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn credentials_roundtrip() {
@@ -222,5 +227,40 @@ mod tests {
         assert_eq!(read.smid_v2, "smid");
         assert_eq!(read.cf_clearance, "cf");
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn data_dir_falls_back_to_userprofile_without_home() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let old_home = std::env::var_os("HOME");
+        let old_userprofile = std::env::var_os("USERPROFILE");
+        std::env::remove_var("HOME");
+        std::env::set_var("USERPROFILE", "C:\\Users\\testuser");
+
+        // Windows 风格：无 HOME，仅 USERPROFILE → 回退到 USERPROFILE
+        let dir = data_dir().expect("data_dir should fall back to USERPROFILE");
+        assert_eq!(
+            dir,
+            PathBuf::from("C:\\Users\\testuser").join(".deepseek-visionary")
+        );
+
+        // 两者皆缺失 → 明确报错
+        std::env::remove_var("USERPROFILE");
+        let err = data_dir().unwrap_err();
+        assert!(
+            err.to_string().contains("HOME/USERPROFILE not set"),
+            "unexpected error: {err}"
+        );
+
+        if let Some(old) = old_home {
+            std::env::set_var("HOME", old);
+        } else {
+            std::env::remove_var("HOME");
+        }
+        if let Some(old) = old_userprofile {
+            std::env::set_var("USERPROFILE", old);
+        } else {
+            std::env::remove_var("USERPROFILE");
+        }
     }
 }

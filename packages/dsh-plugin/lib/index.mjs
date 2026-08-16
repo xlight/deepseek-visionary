@@ -15,7 +15,7 @@
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import z from "@deepseek-ai/schemastery";
 import { spawn } from "node:child_process";
-import { statSync } from "node:fs";
+import { statSync, readFileSync } from "node:fs";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -52,6 +52,43 @@ const Config = z.object({
 
 // --- binary resolution -------------------------------------------------------
 
+// npm 全局安装（@xlight-oss/visionary-server）在 Windows 上只在 PATH 生成
+// .cmd/.ps1 shim（node 包装脚本），真实 exe 在包内 node_modules/.bin_real/。
+// shim 层用 spawnSync + stdio:"inherit" 转发——直接 spawn shim 会丢 stdout 管道、
+// kill 链路断裂（孤儿进程）。故：解析 shim 文本定位 exe 真身，spawn 真身。
+const NPM_PKG_SHIM_RE =
+  /node_modules[\\/]@xlight-oss[\\/]visionary-server[\\/]run-visionary-server\.js/;
+
+// 从 npm shim（.cmd/.ps1）文本中解析出 exe 真身路径。
+// shim 内容形如：... "%dp0%\node_modules\@xlight-oss\visionary-server\run-visionary-server.js" ...
+// 包目录 = <shim目录>\node_modules\@xlight-oss\visionary-server
+// 真身   = <包目录>\node_modules\.bin_real\visionary-server.exe
+function resolveFromNpmShim(shimPath) {
+  let text;
+  try {
+    text = readFileSync(shimPath, "utf8");
+  } catch {
+    return null;
+  }
+  const m = NPM_PKG_SHIM_RE.exec(text);
+  if (!m) return null;
+  // shim 文本使用反斜杠分隔符（Windows 产物）；手动切分保证在任意平台
+  // （包括测试跑的 macOS/Linux）都能解析，不依赖 path.dirname 的分隔符语义。
+  const pkgParts = m[0].split(/[\\/]+/).filter(Boolean);
+  if (pkgParts.length < 3) return null;
+  // node_modules\@xlight-oss\visionary-server\run-visionary-server.js → 去掉末段（文件名）
+  // npm shim 是 Windows 产物（.cmd/.ps1），包内 exe 恒为 visionary-server.exe，
+  // 与 process.platform 无关——固定扩展名保证任意平台测试/解析一致。
+  const pkgDir = path.join(path.dirname(shimPath), ...pkgParts.slice(0, -1));
+  const candidate = path.join(pkgDir, "node_modules", ".bin_real", "visionary-server.exe");
+  try {
+    if (statSync(candidate).isFile()) return candidate;
+  } catch {
+    // keep looking
+  }
+  return null;
+}
+
 function resolveBinaryPath(config) {
   if (config.binaryPath) return config.binaryPath;
   const fromEnv = process.env.DEEPSEEK_VISIONARY_BIN;
@@ -65,17 +102,40 @@ function resolveBinaryPath(config) {
       // keep looking
     }
   }
+  // win32 追加：npm 全局包 shim（.cmd / .ps1）→ 解析 exe 真身
+  if (process.platform === "win32") {
+    for (const shimName of ["visionary-server.cmd", "visionary-server.ps1"]) {
+      for (const dir of (process.env.PATH || "").split(path.delimiter).filter(Boolean)) {
+        const shim = path.join(dir, shimName);
+        try {
+          if (statSync(shim).isFile()) {
+            const resolved = resolveFromNpmShim(shim);
+            if (resolved) return resolved;
+          }
+        } catch {
+          // keep looking
+        }
+      }
+    }
+  }
   return null;
 }
 
 const binaryMissingHelp = () =>
-  [
-    "visionary-server binary not found. Install it and retry:",
-    "  - One-liner: curl -LsSf https://github.com/xlight/deepseek-visionary/releases/latest/download/visionary-server-installer.sh | sh",
-    "  - Homebrew: brew install <tap>/visionary-server",
-    "  - npm: npm install -g @xlight-oss/visionary-server",
-    "Or point the plugin at the binary via Config.binaryPath / DEEPSEEK_VISIONARY_BIN.",
-  ].join("\n");
+  process.platform === "win32"
+    ? [
+        "visionary-server binary not found. Install it and retry:",
+        "  - npm: npm install -g @xlight-oss/visionary-server  (then restart DSH)",
+        "  - or download from GitHub Releases: https://github.com/xlight/deepseek-visionary/releases/latest",
+        "Or point the plugin at the binary via Config.binaryPath / DEEPSEEK_VISIONARY_BIN.",
+      ].join("\n")
+    : [
+        "visionary-server binary not found. Install it and retry:",
+        "  - One-liner: curl -LsSf https://github.com/xlight/deepseek-visionary/releases/latest/download/visionary-server-installer.sh | sh",
+        "  - Homebrew: brew install <tap>/visionary-server",
+        "  - npm: npm install -g @xlight-oss/visionary-server",
+        "Or point the plugin at the binary via Config.binaryPath / DEEPSEEK_VISIONARY_BIN.",
+      ].join("\n");
 
 // --- subprocess --------------------------------------------------------------
 
@@ -172,16 +232,20 @@ function parseMinor(v) {
 // --- tools -------------------------------------------------------------------
 
 function apply(ctx, config) {
-  const binary = resolveBinaryPath(config);
   const loginSeconds = (() => {
     const raw = Number(process.env.DEEPSEEK_LOGIN_TIMEOUT);
     if (Number.isFinite(raw) && raw > 0) return raw;
     return config.loginTimeoutSeconds > 0 ? config.loginTimeoutSeconds : 600;
   })();
 
+  // 版本探测：apply 时 fire-and-forget（仅用于结果附带版本警告）。
+  // 注意：二进制路径【不在此缓存】——每次工具调用经 requireBinary()
+  // 重新 resolveBinaryPath(config)，用户修改 PATH / DEEPSEEK_VISIONARY_BIN
+  // 后无需重启 DSH 即生效（懒解析，成本为数次 statSync）。
   let versionInfo = { known: false, compatible: true, version: "" };
-  if (binary) {
-    runCli(binary, ["--version"], { timeoutMs: 5000 })
+  const probeBinary = resolveBinaryPath(config);
+  if (probeBinary) {
+    runCli(probeBinary, ["--version"], { timeoutMs: 5000 })
       .then((r) => {
         const version = (r.stdout || r.stderr).trim();
         versionInfo = {
@@ -219,7 +283,9 @@ function apply(ctx, config) {
     });
   }
 
+  // 懒解析：每次工具调用重新定位二进制（PATH / 环境变量改动即时生效）。
   const requireBinary = () => {
+    const binary = resolveBinaryPath(config);
     if (!binary) throw new Error(binaryMissingHelp());
     return binary;
   };
@@ -412,4 +478,4 @@ function apply(ctx, config) {
   );
 }
 
-export { name, inject, Config, apply };
+export { name, inject, Config, apply, resolveBinaryPath, resolveFromNpmShim };

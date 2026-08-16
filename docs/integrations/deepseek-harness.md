@@ -116,7 +116,7 @@ visionary-server vision screenshot.png --json
 - **skill 没出现在技能目录**：确认 DSH 已重启（技能根有 Chokidar 观察，新增文件一般会被自动发现）；确认装到了被扫描的根（`init dsh` 会同时写两个用户级根）。
 - **未登录**：`visionary-server login` 自动登录，或设置环境变量 `DEEPSEEK_USER_TOKEN` 注入 token。`login` 会写 config.json 并打开浏览器，**建议在用户自己的终端执行**（而非在 DSH 会话内），避免 DSH 沙箱的写限制。
 - **单次识图正常但 `--continue-conversation` 续聊不生效**：DSH 的 bash 沙箱（默认 `workspace-write`）只允许写 workspace 与 /tmp；`visionary-server` 把会话状态持久化在 `~/.deepseek-visionary/session.json`（工作区外），该写入会被沙箱拒绝，会话不跨调用持久（单次识图不受影响——读图与网络请求不受文件沙箱限制）。需要多图对比时，在 DSH 会话中使用 `danger-full-access` 沙箱模式，或接受单次调用。
-- **`visionary-server: command not found`**：二进制不在 DSH 进程的 PATH，用绝对路径调用，或重新安装并确认 PATH。
+- **`visionary-server: command not found`**：二进制不在 DSH 进程的 PATH，用绝对路径调用，或重新安装并确认 PATH。Windows 下若用 `npm install -g @xlight-oss/visionary-server` 安装，PATH 里只有 shim（`.cmd`/`.ps1`），插件会自动解析 shim 定位真实 exe（无需手动处理）；若仍失败，配置 `Config.binaryPath` 指向 `node_modules\.bin_real\visionary-server.exe`。插件在每次工具调用时重新解析二进制路径——改 PATH/环境变量后无需重启 DSH 即生效。
 - **`$DSH_HOME` 自定义**：`init dsh` 遵循 `$DSH_HOME` 环境变量（未设置时回退 `~/.dsh`）；若 `$DSH_AGENTS_HOME` 也被自定义，`~/.dsh/skills` 根仍会被 DSH 扫描，不受影响。
 - **安全提示：`image` 指向的文件会被读取并上传**：`vision`（以及插件工具 `deepseek_vision`）的 `image` 参数指向的本地文件会被程序读取并上传至 chat.deepseek.com 供视觉模型分析——**仅传有意分享的路径**。模型或提示注入可能诱导其读取本地文件（如 `~/.ssh/id_rsa`、`.env`）借上传通道外传；不要把敏感路径交给模型自由选择，agent 会话中提供图片时同样遵循此约束。
 

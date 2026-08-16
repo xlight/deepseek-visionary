@@ -49,7 +49,8 @@ npm install -g @xlight-oss/visionary-server
 ```
 
 > 也可以直接从 GitHub Releases 下载对应平台的 `visionary-server-<target-triple>` 裸二进制加入 PATH（Windows 为 `.exe`，或 `.zip` 解压）。
-> Windows 安装脚本默认装到 `$HOME\.cargo\bin` 并自动写入 PATH（加 `-NoModifyPath` 可跳过）；首次运行若遇 SmartScreen 弹窗，点「更多信息 → 仍要运行」即可。
+> Windows 安装脚本默认装到 `$HOME\.cargo\bin` 并自动写入 PATH（加 `-NoModifyPath` 可跳过）；该目录只是 cargo-dist 的默认命名约定，**不要求安装 cargo**——非 Rust 用户可用 `VISIONARY_SERVER_INSTALL_DIR` 环境变量自定义安装目录，或直接用 npm 全局包。首次运行若遇 SmartScreen 弹窗，点「更多信息 → 仍要运行」即可。
+> **npm 全局包注意**：Windows 上 `npm install -g @xlight-oss/visionary-server` 的 PATH 里只有 shim（`.cmd` / `.ps1`），DSH 原生插件会自动解析 shim 定位真实 exe——安装后重启 DSH 即可用。
 
 ### 2. 快速开始（CLI + skill，推荐）
 

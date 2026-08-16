@@ -31,13 +31,15 @@ dsh plugin --profile web add /path/to/packages/dsh-plugin
 
 ## 前置要求
 
-`visionary-server` 二进制需可被找到（三者任一）：
+`visionary-server` 二进制需可被找到（三者任一，按优先序）：
 
 1. `Config.binaryPath`（插件配置，绝对路径）
 2. `DEEPSEEK_VISIONARY_BIN` 环境变量
-3. 在 PATH 中
+3. 在 PATH 中（Windows 额外支持 npm 全局包的 `.cmd` / `.ps1` shim——插件自动解析 shim 定位包内 `node_modules/.bin_real/visionary-server.exe` 真身）
 
-安装二进制见 [DeepSeek Visionary 安装章节](https://github.com/xlight/deepseek-visionary#安装)（install.sh / brew / npm）。未找到时工具返回含安装指引的错误。
+二进制路径在**每次工具调用时**重新解析（懒解析）：修改 PATH 或设置 `DEEPSEEK_VISIONARY_BIN` 后无需重启 DSH 即生效。
+
+安装二进制见 [DeepSeek Visionary 安装章节](https://github.com/xlight/deepseek-visionary#安装)（install.sh / brew / npm）。未找到时工具返回含安装指引的错误（Windows 提示 npm / binaryPath 指引）。
 
 ## 配置
 
