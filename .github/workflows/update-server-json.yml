@@ -1,7 +1,13 @@
 # 发布后自动回填 server.json 的 fileSha256（MCP Registry 元数据）
 #
-# 触发：GitHub Release published（cargo-dist 的 `gh release create` 一次性携带
-#       全部 assets 创建 release，故触发时 5 个 .mcpb 已就位）
+# 触发：Release workflow（cargo-dist）成功完成且为 tag push 时运行。
+#
+# 背景：不能用 `release: published` 事件——由 GITHUB_TOKEN（CI）创建的 release
+#       不会向其他 workflow 广播 `published` 事件（v0.6.0 实测未触发，release
+#       已 published 但本 workflow 零 run）。故改用 workflow_run 监听 Release
+#       workflow 的完成事件。Tag 取自 github.event.workflow_run.head_branch：
+#       tag push 触发 Release 时该字段即 tag 名（v0.6.0 实测确认）。
+#
 # 流程：下载 release 的 *.mcpb → update_server_json.py 计算哈希并更新
 #       server.json（version + identifier + fileSha256）→ commit 回 main
 #
@@ -9,28 +15,39 @@
 #   - 仅 push 到 main（无 tag），不会触发 release.yml（push tags 才触发）
 #   - 会触发 ci.yml（push main）——其 version-consistency 只校验
 #     extension.toml == workspace，不校验 server.json，不会失败
-#   - GITHUB_TOKEN 默认对同仓库有 contents: write，无需 PAT
+#   - workflow_run 触发时 checkout 取 default branch（main），符合"回填到
+#     main"的语义；GITHUB_TOKEN 默认对同仓库有 contents: write，无需 PAT
+#   - Release workflow 的 PR 运行（event == 'pull_request'）不创建 release，
+#     由 if 守卫排除；tag push 运行（event == 'push'）必然匹配版本号 tag
+#   - concurrency 防止多个 Release 并行时 server.json 写冲突
 
 name: Update server.json (MCP Registry)
 
 on:
-  release:
-    types: [published]
+  workflow_run:
+    workflows: ["Release"]
+    types:
+      - completed
 
 permissions:
   contents: write
 
+concurrency:
+  group: update-server-json
+  cancel-in-progress: false
+
 jobs:
   update-server-json:
-    name: Backfill fileSha256 for ${{ github.event.release.tag_name }}
+    name: Backfill fileSha256 for ${{ github.event.workflow_run.head_branch }}
     runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Download mcpb assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ github.event.workflow_run.head_branch }}
         run: |
           mkdir -p dist
           gh release download "$TAG" --pattern "*.mcpb" --dir dist --clobber
@@ -38,14 +55,14 @@ jobs:
 
       - name: Update server.json
         env:
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ github.event.workflow_run.head_branch }}
         run: |
           VERSION="${TAG#v}"
           python3 scripts/update_server_json.py "$VERSION" "$TAG" dist/
 
       - name: Commit and push
         env:
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ github.event.workflow_run.head_branch }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
