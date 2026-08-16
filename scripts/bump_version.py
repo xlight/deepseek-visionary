@@ -286,10 +286,11 @@ def main() -> None:
         print("  - npm 发布 @xlight-oss/visionary-dsh（dsh-plugin-release.yml，v* tag）")
         print()
         print("发布后待办：")
-        print("  1. 从 GitHub Release 下载 5 平台 .mcpb 后运行：")
-        print("     python3 scripts/update_server_json.py "
-              f"{new_version} {tag} dist/")
-        print("     （用实际产物更新 server.json 的 fileSha256）")
+        print("  1. server.json 的 fileSha256 由 update-server-json workflow")
+        print("     （workflow_run 监听 Release 完成）自动回填，无需手动操作；")
+        print("     若未触发，可手动兜底：")
+        print(f"     gh release download v{new_version} --pattern '*.mcpb' --dir dist --clobber")
+        print(f"     python3 scripts/update_server_json.py {new_version} v{new_version} dist/")
     else:
         print()
         print("完成。后续发布步骤：")
