@@ -93,6 +93,9 @@ impl CompletionTransport for ReqwestTransport {
 /// 对应 Python `_vision_completion`。`on_token` 为可选流式回调：
 /// 解析到内容增量时先回调再收集（CLI 流式打印用）；`None` 时仅收集（MCP / `--json`）。
 ///
+/// `vision_file_ids` 支持多图：多个 vision 文件一次送入 `ref_file_ids`，
+/// 模型联合分析（与网页端多图上传行为一致）。
+///
 /// 约束：`F: Send`——rmcp `#[tool]` 宏要求 handler future Send，`&mut dyn FnMut` 非 Send，
 /// 故用泛型（design 决策 2 / Risks）。
 ///
@@ -102,7 +105,7 @@ pub async fn vision_completion<F>(
     client: &ApiClient,
     hif: &HifAuth,
     session_id: &str,
-    vision_file_id: &str,
+    vision_file_ids: &[String],
     prompt: &str,
     thinking: bool,
     parent_message_id: Option<&str>,
@@ -165,7 +168,7 @@ where
         parent_message_id: parent_message_id.map(String::from),
         model_type: "vision".into(),
         prompt: prompt.to_string(),
-        ref_file_ids: vec![vision_file_id.to_string()],
+        ref_file_ids: vision_file_ids.to_vec(),
         thinking_enabled: thinking,
         search_enabled: false,
         action: None,

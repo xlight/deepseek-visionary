@@ -16,13 +16,13 @@ metadata:
 **用户提供/提到任何图片时，用下面的命令查看它**——不要自己猜图片内容，也不要让用户自己看：
 
 ```
-visionary-server vision <image> [--prompt <问题>] [--thinking] [--continue] [--session-id <id>] --json
+visionary-server vision <image>... [--prompt <问题>] [--thinking] [--continue-conversation] [--session-id <id>] --json
 ```
 
-- `<image>`：本地路径 / base64 / data URI / `-`（stdin 管道输入）
+- `<image>`：一个或多个本地路径 / base64 / data URI / `-`（stdin 管道输入，仅限单图）；多图一次上传联合分析
 - `--prompt`：针对图片的具体问题（省略则默认详细描述）
 - `--thinking`：DeepThink 深度思考（复杂分析时开启）
-- `--continue` / `--session-id`：多图对比（第一张不带，之后每张加 `--continue` 或传上一轮返回的 `session_id`）
+- `--continue-conversation` / `--session-id`：多图对比（第一张不带，之后每张加 `--continue-conversation` 或传上一轮返回的 `session_id`）
 - **必须加 `--json`**，解析返回的 JSON
 
 成功输出（退出码 0）：

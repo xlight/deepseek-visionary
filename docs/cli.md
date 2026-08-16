@@ -6,7 +6,7 @@
 
 | 子命令 | 对应 MCP 工具 | 说明 |
 |--------|---------------|------|
-| `vision <image>` | `deepseek_vision` | 分析图片（完整 vision 流水线） |
+| `vision <image...>` | `deepseek_vision` | 分析一张或多张图片（完整 vision 流水线；多图一次上传联合分析） |
 | `status` | `deepseek_vision_status` | 轻量鉴权状态检查 |
 | `login` | `deepseek_vision_login` | 浏览器自动登录 |
 | `logout` | `deepseek_vision_logout` | 清除保存的凭据 |
@@ -18,14 +18,14 @@
 ## `vision` 参数
 
 ```
-visionary-server vision <image> [--prompt <q>] [--thinking] [--continue] [--session-id <id>] [--stream|--no-stream] [--json]
+visionary-server vision <image>... [--prompt <q>] [--thinking] [--continue-conversation] [--session-id <id>] [--stream|--no-stream] [--json]
 ```
 
-- `image`：本地路径 / base64 / data URI / `-`（从 stdin 读取全部字节）
+- `image`：一个或多个本地路径 / base64 / data URI；多图一次上传、fork、联合分析（与网页端多图行为一致）。`-`（从 stdin 读取全部字节）仅限单图
 - `--prompt`：对图片的问题（默认：请详细描述这张图片中的内容）
 - `--thinking`：启用 DeepThink 深度思考
-- `--continue`：续聊，复用上一次会话（可对比多张图片）
-- `--session-id`：显式复用指定会话（优先于 `--continue`）
+- `--continue-conversation`：续聊，复用上一次会话（可对比多张图片）
+- `--session-id`：显式复用指定会话（优先于 `--continue-conversation`）
 - `--stream` / `--no-stream`：强制流式 / 强制原子输出（覆盖 TTY 检测默认）
 - `--json`：原子 JSON 输出（禁用流式；与 `--stream` 互斥）
 

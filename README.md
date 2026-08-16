@@ -166,7 +166,7 @@ dsh plugin --profile web add /path/to/packages/dsh-plugin
 | `visionary-server`（无参数） | 输出 help 用法信息并退出码 2（不进入任何模式） |
 | `visionary-server --version` | 输出版本号 |
 | `visionary-server mcp-stdio` | 显式启动 MCP stdio 服务（MCP 模式入口，所有 agent 配置均以此启动） |
-| `visionary-server vision <image>` | 用视觉模型分析图片（CLI 版 `deepseek_vision`）。`image` 支持路径 / base64 / data URI / `-`（stdin）；`--prompt` / `--thinking` / `--continue` / `--session-id` / `--json` / `--stream` / `--no-stream` |
+| `visionary-server vision <image>...` | 用视觉模型分析一张或多张图片（CLI 版 `deepseek_vision`）。`image` 支持路径 / base64 / data URI / `-`（stdin，仅单图）；多图一次上传联合分析（与网页端多图行为一致）；`--prompt` / `--thinking` / `--continue-conversation` / `--session-id` / `--json` / `--stream` / `--no-stream` |
 | `visionary-server status` | 轻量鉴权状态检查（CLI 版 `deepseek_vision_status`），`--json` 输出结构化状态 |
 | `visionary-server login` | 浏览器自动登录（CLI 版 `deepseek_vision_login`） |
 | `visionary-server logout` | 清除保存的凭据（CLI 版 `deepseek_vision_logout`） |
@@ -217,7 +217,7 @@ visionary-server skill install
 
 | 工具 | 说明 |
 |------|------|
-| `deepseek_vision` | 上传本地图片（路径 / base64 / data URI）并用 DeepSeek 视觉模型分析。参数：`image`（必填）、`prompt`、`thinking`、`continue_conversation`、`session_id` |
+| `deepseek_vision` | 上传一张或多张图片（路径 / base64 / data URI）并用 DeepSeek 视觉模型分析；多图经 `images` 数组一次上传、模型联合分析（与网页端多图行为一致）。参数：`images`（多图）/ `image`（单图，向后兼容，二选一）、`prompt`、`thinking`、`continue_conversation`、`session_id` |
 | `deepseek_vision_status` | 检查登录状态与 token 有效性（含真实校验探针） |
 | `deepseek_vision_login` | 浏览器自动登录并抓取凭据（阻塞，超时可配） |
 | `deepseek_vision_logout` | 清除保存的凭据 |

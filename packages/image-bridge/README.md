@@ -96,7 +96,7 @@ visionary-image-bridge:
 | 切到 VL 模型后历史图片不可见 | 桥接按请求实时判定能力——VL 路由（原生支持 image）**不会**被改写，历史图片自动恢复原生可见；若仍不可见，确认 VL 模型确实声明了 `inputModalities` 含 `image` |
 | 设置面板改配置不生效 | 确认 `settings.yaml` 无冲突值；`promptTemplate` 缺少 `{path}` 会被校验拒绝 |
 | agent-loop invariant（log-reconstruction desync）误报 | 不应发生：改写重入请求丢失 agent-loop 身份标记，desync 校验被跳过（这是改写得以存在的必要条件）；若宿主升级为内容级校验，属版本兼容面，请联系反馈 |
-| `deepseek_vision` 返回 `File ... processing failed: status=CONTENT_EMPTY` | **暂记为待查项**：同一图片在 chat.deepseek.com 网页端可直接分析，经 `deepseek_vision`（CLI 上传/转 fork 路径）则失败；已排除格式（PNG/JPEG）、尺寸、文件体积、透明度因素——疑似 CLI 上传/处理路径与网页端（浏览器侧压缩/上传流）存在差异。**搁置待查**，可先重试或经网页端处理 |
+| `deepseek_vision` 返回 `File ... processing failed: status=CONTENT_EMPTY` | **已修复（2026-08-16）**：根因是后端对上传图片做 OCR 文本提取，无 OCR 文字（如纯插画/渐变/深色无文字图）即标记 `CONTENT_EMPTY`，与视觉模型能否识图无关；旧版 CLI 将其当作硬失败中止。修复：`upload.rs` 对 `CONTENT_EMPTY` 不再中止，继续 fork 到 vision 模型（与网页端行为一致）。**需要重新安装 `visionary-server` 二进制（≥0.5.x 修复版）** |
 
 ## 与社区方案的关系
 

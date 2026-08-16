@@ -28,7 +28,7 @@ dsh plugin --profile web add /path/to/packages/dsh-plugin
 | `deepseek_vision_login` | 浏览器自动登录（阻塞，超时可配） |
 | `deepseek_vision_logout` | 清除保存的凭据 |
 
-原生工具在 DSH **宿主进程**执行（不经 bash 沙箱），因此 `--continue` 续聊（写 `~/.deepseek-visionary/session.json`）与 `login`（起浏览器、写 config.json）不受 `workspace-write` 写限制。安装与配置详见插件包 [README](../../packages/dsh-plugin/README.md)。
+原生工具在 DSH **宿主进程**执行（不经 bash 沙箱），因此 `--continue-conversation` 续聊（写 `~/.deepseek-visionary/session.json`）与 `login`（起浏览器、写 config.json）不受 `workspace-write` 写限制。安装与配置详见插件包 [README](../../packages/dsh-plugin/README.md)。
 
 ## 接入方式二：skill + CLI（轻量）
 
@@ -60,7 +60,7 @@ visionary-server init dsh
 
 ## 在 DSH 中使用
 
-**插件路径**：模型直接调用 `deepseek_vision` 原生工具（识图 / 状态 / 登录 / 登出），无需经过 shell；工具在宿主进程执行，`--continue` 续聊与 `login` 不受 bash 沙箱写限制。
+**插件路径**：模型直接调用 `deepseek_vision` 原生工具（识图 / 状态 / 登录 / 登出），无需经过 shell；工具在宿主进程执行，`--continue-conversation` 续聊与 `login` 不受 bash 沙箱写限制。
 
 **skill + CLI 路径**：DSH 的 agent 加载 `visionary-cli` skill 后，会按契约调用（**必须加 `--json` 原子输出**）：
 
@@ -113,7 +113,7 @@ visionary-server vision screenshot.png --json
 
 - **skill 没出现在技能目录**：确认 DSH 已重启（技能根有 Chokidar 观察，新增文件一般会被自动发现）；确认装到了被扫描的根（`init dsh` 会同时写两个用户级根）。
 - **未登录**：`visionary-server login` 自动登录，或设置环境变量 `DEEPSEEK_USER_TOKEN` 注入 token。`login` 会写 config.json 并打开浏览器，**建议在用户自己的终端执行**（而非在 DSH 会话内），避免 DSH 沙箱的写限制。
-- **单次识图正常但 `--continue` 续聊不生效**：DSH 的 bash 沙箱（默认 `workspace-write`）只允许写 workspace 与 /tmp；`visionary-server` 把会话状态持久化在 `~/.deepseek-visionary/session.json`（工作区外），该写入会被沙箱拒绝，会话不跨调用持久（单次识图不受影响——读图与网络请求不受文件沙箱限制）。需要多图对比时，在 DSH 会话中使用 `danger-full-access` 沙箱模式，或接受单次调用。
+- **单次识图正常但 `--continue-conversation` 续聊不生效**：DSH 的 bash 沙箱（默认 `workspace-write`）只允许写 workspace 与 /tmp；`visionary-server` 把会话状态持久化在 `~/.deepseek-visionary/session.json`（工作区外），该写入会被沙箱拒绝，会话不跨调用持久（单次识图不受影响——读图与网络请求不受文件沙箱限制）。需要多图对比时，在 DSH 会话中使用 `danger-full-access` 沙箱模式，或接受单次调用。
 - **`visionary-server: command not found`**：二进制不在 DSH 进程的 PATH，用绝对路径调用，或重新安装并确认 PATH。
 - **`$DSH_HOME` 自定义**：`init dsh` 遵循 `$DSH_HOME` 环境变量（未设置时回退 `~/.dsh`）；若 `$DSH_AGENTS_HOME` 也被自定义，`~/.dsh/skills` 根仍会被 DSH 扫描，不受影响。
 - **安全提示：`image` 指向的文件会被读取并上传**：`vision`（以及插件工具 `deepseek_vision`）的 `image` 参数指向的本地文件会被程序读取并上传至 chat.deepseek.com 供视觉模型分析——**仅传有意分享的路径**。模型或提示注入可能诱导其读取本地文件（如 `~/.ssh/id_rsa`、`.env`）借上传通道外传；不要把敏感路径交给模型自由选择，agent 会话中提供图片时同样遵循此约束。

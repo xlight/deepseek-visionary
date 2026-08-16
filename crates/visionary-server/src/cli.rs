@@ -51,11 +51,12 @@ pub enum Command {
     Skill(SkillArgs),
 }
 
-/// `vision` 子命令参数：图片 + 提示词/思考/会话续聊 + 输出模式开关。
+/// `vision` 子命令参数：一张或多张图片 + 提示词/思考/会话续聊 + 输出模式开关。
 #[derive(Debug, Args)]
 pub struct VisionArgs {
-    /// Image: local path / base64 / data URI, or `-` to read from stdin.
-    pub image: String,
+    /// One or more images: local paths / base64 / data URI, or `-` to read stdin (single only).
+    #[arg(required = true)]
+    pub images: Vec<String>,
     /// Question about the image (default: detailed description in Chinese).
     #[arg(long, default_value = "请详细描述这张图片中的内容")]
     pub prompt: String,
@@ -65,7 +66,7 @@ pub struct VisionArgs {
     /// Continue the session for multi-image comparison and follow-up questions.
     #[arg(long)]
     pub continue_conversation: bool,
-    /// Explicitly reuse a session_id (takes precedence over --continue).
+    /// Explicitly reuse a session_id (takes precedence over --continue-conversation).
     #[arg(long)]
     pub session_id: Option<String>,
     /// Force streaming output (overrides TTY detection).
@@ -325,11 +326,17 @@ async fn cmd_vision(args: VisionArgs) -> Result<()> {
         );
     }
 
-    // 读取图片（路径 / base64 / data URI / stdin）
-    let image_data = match pipeline::read_image(&args.image) {
-        Ok(d) => d,
-        Err(e) => fail(mode, &e),
-    };
+    // 读取图片（路径 / base64 / data URI / stdin；stdin 仅限单图）
+    if args.images.len() > 1 && args.images.iter().any(|i| i == "-") {
+        fail(mode, "stdin (`-`) can only be used with a single image");
+    }
+    let mut images_data = Vec::with_capacity(args.images.len());
+    for image in &args.images {
+        match pipeline::read_image(image) {
+            Ok(d) => images_data.push(d),
+            Err(e) => fail(mode, &e),
+        }
+    }
 
     // 会话连续性（与 MCP handler 共用同一解析）
     let session_store = SessionStore::new();
@@ -340,7 +347,7 @@ async fn cmd_vision(args: VisionArgs) -> Result<()> {
     );
 
     let request = VisionRequest {
-        image_data,
+        images_data,
         prompt: args.prompt,
         thinking: args.thinking,
         session_id: reuse_session_id,
@@ -370,7 +377,7 @@ async fn cmd_vision(args: VisionArgs) -> Result<()> {
             match result {
                 Ok(output) => {
                     println!(
-                        "\n---\n[session_id: {}] (use --continue to keep chatting)",
+                        "\n---\n[session_id: {}] (use --continue-conversation to keep chatting)",
                         output.session_id
                     );
                 }
@@ -401,7 +408,7 @@ async fn cmd_vision(args: VisionArgs) -> Result<()> {
                     } else {
                         println!("{}", output.text);
                         println!(
-                            "\n---\n[session_id: {}] (use --continue to keep chatting)",
+                            "\n---\n[session_id: {}] (use --continue-conversation to keep chatting)",
                             output.session_id
                         );
                     }
@@ -691,7 +698,7 @@ mod tests {
         let Some(Command::Vision(args)) = cli.command else {
             panic!("expected vision subcommand");
         };
-        assert_eq!(args.image, "img.png");
+        assert_eq!(args.images, vec!["img.png".to_string()]);
         assert_eq!(args.prompt, "请详细描述这张图片中的内容");
         assert!(
             !args.thinking
@@ -734,7 +741,17 @@ mod tests {
         let Some(Command::Vision(args)) = cli.command else {
             panic!("expected vision subcommand");
         };
-        assert_eq!(args.image, "-", "`-` means read image from stdin");
+        assert_eq!(args.images, vec!["-".to_string()], "`-` means read image from stdin");
+    }
+
+    #[test]
+    fn vision_multiple_images_parse() {
+        let cli = Cli::try_parse_from(["visionary-server", "vision", "a.png", "b.png", "c.png"])
+            .expect("vision multiple images parses");
+        let Some(Command::Vision(args)) = cli.command else {
+            panic!("expected vision subcommand");
+        };
+        assert_eq!(args.images, vec!["a.png", "b.png", "c.png"]);
     }
 
     #[test]

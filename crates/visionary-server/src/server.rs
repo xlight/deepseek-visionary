@@ -20,8 +20,13 @@ use serde::{Deserialize, Serialize};
 /// `deepseek_vision` 工具参数（对应 Python list_tools 的 inputSchema）。
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct VisionArgs {
-    /// 本地图片路径（jpg / png 等），或 base64 / data URI。
-    pub image: String,
+    /// 单张图片（向后兼容，旧客户端仍可用）；多图请用 `images`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+    /// 多张图片（推荐）：本地路径（jpg / png 等）、base64 或 data URI 的数组，
+    /// 一次上传由模型联合分析（与网页端多图行为一致）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub images: Option<Vec<String>>,
     /// 对图片的问题（默认：请详细描述这张图片中的内容）。
     #[serde(default = "default_prompt")]
     pub prompt: String,
@@ -62,10 +67,10 @@ impl VisionaryServer {
 
 #[tool_router]
 impl VisionaryServer {
-    /// 上传一张图片，用 DeepSeek 网页版的原生多模态模型分析（支持照片、
-    /// 截图、带图文档）。可开启续聊以对比多张图片。
+    /// 上传一张或多张图片，用 DeepSeek 网页版的原生多模态模型联合分析
+    /// （支持照片、截图、带图文档）。可开启续聊以对比多张图片。
     #[tool(
-        description = "Analyze an image using DeepSeek's vision model. USE THIS whenever the user mentions/provides an image, photo, screenshot, or document with images - do not decline or tell the user to view it themselves. Supports photos, screenshots, documents with images. Args: image (required, local path or base64/data URI), prompt (optional question; if omitted infer one from context), thinking (enable DeepThink), continue_conversation (continue previous session to compare multiple images), session_id"
+        description = "Analyze one or more images using DeepSeek's vision model. USE THIS whenever the user mentions/provides an image, photo, screenshot, or document with images - do not decline or tell the user to view it themselves. Supports photos, screenshots, documents with images. Args: images (required, array of local paths or base64/data URI), prompt (optional question; if omitted infer one from context), thinking (enable DeepThink), continue_conversation (continue previous session to compare multiple images), session_id"
     )]
     async fn deepseek_vision(
         &self,
@@ -81,11 +86,30 @@ impl VisionaryServer {
             )]));
         }
 
-        // 读取图片
-        let image_data = match pipeline::read_image(&args.image) {
-            Ok(d) => d,
-            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        // 合并 image（单张，向后兼容）与 images（多图）输入
+        let image_args: Vec<String> = match (&args.images, &args.image) {
+            (Some(imgs), None) if !imgs.is_empty() => imgs.clone(),
+            (None, Some(img)) => vec![img.clone()],
+            (Some(imgs), Some(img)) => {
+                let mut all = vec![img.clone()];
+                all.extend(imgs.iter().cloned());
+                all
+            }
+            _ => {
+                return Ok(CallToolResult::error(vec![ContentBlock::text(
+                    "deepseek_vision: at least one image is required (`image` or `images`)",
+                )]))
+            }
         };
+
+        // 读取图片
+        let mut images_data = Vec::with_capacity(image_args.len());
+        for image in &image_args {
+            match pipeline::read_image(image) {
+                Ok(d) => images_data.push(d),
+                Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+            }
+        }
 
         // 会话连续性（对应 Python handle_vision 的 session 解析，抽为共享函数）
         let (reuse_session_id, reuse_parent_message_id) = pipeline::resolve_session_reuse(
@@ -99,7 +123,7 @@ impl VisionaryServer {
             &self.hif,
             &self.session_store,
             VisionRequest {
-                image_data,
+                images_data,
                 prompt: args.prompt,
                 thinking: args.thinking,
                 session_id: reuse_session_id,

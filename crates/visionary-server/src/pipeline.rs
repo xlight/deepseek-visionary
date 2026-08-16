@@ -10,7 +10,7 @@ use crate::fork;
 use crate::hif::HifAuth;
 use crate::session::{self, SessionStore};
 use crate::upload;
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use base64::Engine as _;
 use std::io::Read as _;
 
@@ -26,7 +26,8 @@ pub struct PipelineOutput {
 
 /// vision 流水线输入参数。
 pub struct VisionRequest {
-    pub image_data: Vec<u8>,
+    /// 多张图片字节（一次上传、fork、联合分析，与网页端多图行为一致）。
+    pub images_data: Vec<Vec<u8>>,
     pub prompt: String,
     pub thinking: bool,
     /// 显式复用的 session_id（对应工具参数 `session_id`）。
@@ -110,15 +111,27 @@ where
 {
     let client = ApiClient::new(config.clone())?;
 
-    // Step 1: 上传（OCR）+ 轮询 SUCCESS
-    tracing::info!("Step 1: uploading image...");
-    let file_info = upload::upload_and_wait(&client, request.image_data).await?;
-    tracing::info!("  uploaded: {} (OCR)", file_info.id);
+    if request.images_data.is_empty() {
+        return Err(anyhow!("vision request requires at least one image"));
+    }
 
-    // Step 2: fork 到 vision 模型
+    // Step 1: 上传所有图片（OCR）+ 轮询 SUCCESS
+    tracing::info!("Step 1: uploading {} image(s)...", request.images_data.len());
+    let mut file_infos = Vec::with_capacity(request.images_data.len());
+    for image_data in &request.images_data {
+        let file_info = upload::upload_and_wait(&client, image_data.clone()).await?;
+        tracing::info!("  uploaded: {} (OCR)", file_info.id);
+        file_infos.push(file_info);
+    }
+
+    // Step 2: 每张图 fork 到 vision 模型，收集 vision file id
     tracing::info!("Step 2: forking to vision model...");
-    let vision_file_id = fork::fork_to_vision(&client, &file_info.id).await?;
-    tracing::info!("  vision file: {vision_file_id}");
+    let mut vision_file_ids = Vec::with_capacity(file_infos.len());
+    for file_info in &file_infos {
+        let vision_file_id = fork::fork_to_vision(&client, &file_info.id).await?;
+        tracing::info!("  vision file: {vision_file_id}");
+        vision_file_ids.push(vision_file_id);
+    }
 
     // Step 3: 创建或复用会话
     let session_id = if let Some(sid) = &request.session_id {
@@ -131,13 +144,16 @@ where
         sid
     };
 
-    // Step 4+5: HIF 签名 + vision completion
-    tracing::info!("Step 4/5: vision completion...");
+    // Step 4+5: HIF 签名 + vision completion（多图一次送入 ref_file_ids）
+    tracing::info!(
+        "Step 4/5: vision completion ({} files)...",
+        vision_file_ids.len()
+    );
     let (text, new_parent_message_id) = completion::vision_completion(
         &client,
         hif,
         &session_id,
-        &vision_file_id,
+        &vision_file_ids,
         &request.prompt,
         request.thinking,
         request.parent_message_id.as_deref(),

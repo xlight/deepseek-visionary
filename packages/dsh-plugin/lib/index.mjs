@@ -208,13 +208,13 @@ function apply(ctx, config) {
         "## Vision (DeepSeek Visionary)",
         "",
         "You have native vision tools backed by DeepSeek's web vision model (no API key):",
-        "- `deepseek_vision` — analyze an image (local path / base64 / data URI)",
+        "- `deepseek_vision` — analyze one or more images (local path / base64 / data URI; use `images` for multiple)",
         "- `deepseek_vision_status` — check login state",
         "- `deepseek_vision_login` — browser auto-login",
         "- `deepseek_vision_logout` — clear saved credentials",
         "",
         "Prefer these native tools over invoking `visionary-server` through the shell: native tools run in the host process, so session continuation and login are not restricted by the bash sandbox.",
-        "The `image` path passed to `deepseek_vision` is read and uploaded to the DeepSeek service — only pass paths the user intends to share.",
+        "The `image`/`images` paths passed to `deepseek_vision` are read and uploaded to the DeepSeek service — only pass paths the user intends to share.",
       ].join("\n"),
     });
   }
@@ -228,16 +228,20 @@ function apply(ctx, config) {
     defineTool({
       name: "deepseek_vision",
       description:
-        "Analyze an image with DeepSeek's web vision model (local path / base64 / data URI). Use for screenshots, photos, or documents with images. Supports multi-turn conversation via continue_conversation / session_id.",
+        "Analyze one or more images with DeepSeek's web vision model (local path / base64 / data URI). Pass multiple images via `images` to have the model analyze them together in one call (like the DeepSeek website). Use for screenshots, photos, or documents with images. Supports multi-turn conversation via continue_conversation / session_id.",
       parameters: {
+        images: {
+          type: "array",
+          items: { type: "string" },
+          description: "One or more images: local file paths, base64, or data URIs. The model analyzes all of them together.",
+        },
         image: {
           type: "string",
-          required: true,
-          description: "Image: local file path, base64, or data URI.",
+          description: "Single image (local path, base64, or data URI) — convenience form of `images` with one entry.",
         },
         prompt: {
           type: "string",
-          description: "Question about the image (default: detailed description in Chinese).",
+          description: "Question about the image(s) (default: detailed description in Chinese).",
         },
         thinking: {
           type: "boolean",
@@ -245,7 +249,7 @@ function apply(ctx, config) {
         },
         continue_conversation: {
           type: "boolean",
-          description: "Continue the previous session (multi-image comparison).",
+          description: "Continue the previous session (multi-image comparison across turns).",
         },
         session_id: {
           type: "string",
@@ -259,13 +263,24 @@ function apply(ctx, config) {
       timeoutMs: config.visionTimeoutMs,
       async execute(args, exec) {
         const bin = requireBinary();
-        const { arg, cleanup } = await materializeImage(args.image);
+        const imageInputs = Array.isArray(args.images) && args.images.length > 0
+          ? args.images
+          : args.image
+            ? [args.image]
+            : [];
+        if (imageInputs.length === 0) {
+          throw new Error("deepseek_vision: at least one image is required (`images` or `image`)");
+        }
+        const materialized = [];
         try {
-          const cliArgs = ["vision", arg, "--json"];
+          for (const image of imageInputs) {
+            materialized.push(await materializeImage(image));
+          }
+          const cliArgs = ["vision", ...materialized.map((m) => m.arg), "--json"];
           if (args.prompt) cliArgs.push(`--prompt=${args.prompt}`);
           if (args.thinking) cliArgs.push("--thinking");
           if (args.session_id) cliArgs.push(`--session-id=${args.session_id}`);
-          else if (args.continue_conversation) cliArgs.push("--continue");
+          else if (args.continue_conversation) cliArgs.push("--continue-conversation");
 
           const r = await runCli(bin, cliArgs, {
             timeoutMs: config.visionTimeoutMs,
@@ -291,7 +306,7 @@ function apply(ctx, config) {
             `vision failed (exit ${r.code}): ${(r.stderr || r.stdout).trim() || "unknown error"}`
           );
         } finally {
-          if (cleanup) await cleanup();
+          for (const m of materialized) if (m.cleanup) await m.cleanup();
         }
       },
     })
