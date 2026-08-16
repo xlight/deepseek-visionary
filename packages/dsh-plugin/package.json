@@ -1,21 +1,27 @@
 {
   "name": "@xlight-oss/visionary-dsh",
-  "version": "0.5.0",
-  "description": "DeepSeek Visionary native plugin for DeepSeek Harness: deepseek_vision / status / login / logout native tools backed by the visionary-server CLI (DeepSeek web vision model, no API key).",
+  "version": "0.6.0",
+  "description": "DeepSeek Visionary native plugin for DeepSeek Harness: deepseek_vision / status / login / logout native tools plus the text-model image bridge, all backed by the visionary-server CLI (DeepSeek web vision model, no API key).",
   "type": "module",
   "main": "lib/index.mjs",
   "exports": {
     ".": {
       "default": "./lib/index.mjs"
     },
+    "./image-bridge": {
+      "default": "./lib/image-bridge/index.mjs"
+    },
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
   "files": [
-    "lib/index.mjs",
+    "lib",
     "cordis.patch.yml",
     "README.md"
   ],
+  "scripts": {
+    "test": "node --test"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -27,11 +33,17 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/dsh-tools": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-llm": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-attachment": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-settings": "^0.1.0-rc.6",
     "@deepseek-ai/schemastery": "^3.18.1"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/dsh-tools": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-llm": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-attachment": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-settings": "^0.1.0-rc.6",
     "@deepseek-ai/schemastery": "^3.18.1"
   },
   "repository": {
@@ -44,6 +56,7 @@
     "cordis",
     "vision",
     "image-analysis",
+    "image-bridge",
     "mcp",
     "plugin"
   ],

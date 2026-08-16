@@ -11,7 +11,7 @@ import {
   ImagePersistence,
   attachmentFilename,
   expandHome,
-} from "../lib/persistence.mjs";
+} from "../lib/image-bridge/persistence.mjs";
 
 const tmpRoots = [];
 async function tmpDir() {

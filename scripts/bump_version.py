@@ -16,12 +16,14 @@
     5. 更新 packages/dsh-plugin/package.json 的 version（DSH 原生插件包；
        发布 workflow dsh-plugin-release.yml 要求 tag == package.json
        == workspace Cargo.toml 一致）
-    6. 更新 server.json 的 version 与 5 个平台 mcpb 下载 URL（MCP Registry
+    6. 更新 packages/dsh-plugin/lib/index.mjs 的 COMPAT_MINOR 常量
+       （与 Rust 二进制 minor 锁步；verify 校验，漏改即 fail）
+    7. 更新 server.json 的 version 与 5 个平台 mcpb 下载 URL（MCP Registry
        元数据；fileSha256 是构建产物哈希，发布后运行
        `python3 scripts/update_server_json.py <version> v<version> dist/`
        用实际 .mcpb 计算）
-    7. 校验所有版本载体最终一致
-    8. 不带 --release 时只打印后续步骤；带 --release 时自动执行
+    8. 校验所有版本载体最终一致
+    9. 不带 --release 时只打印后续步骤；带 --release 时自动执行
        git add → commit → tag vX.Y.Z → push origin HEAD --tags
 
 目的:
@@ -136,6 +138,28 @@ def bump_plugin_json(new_version: str) -> None:
     print(f"updated {PLUGIN_JSON} -> {new_version}")
 
 
+# 插件源码中与 Rust 二进制 minor 锁步的兼容版本常量（不匹配时所有工具结果附带版本警告）
+PLUGIN_INDEX_MJS = "packages/dsh-plugin/lib/index.mjs"
+COMPAT_MINOR_RE = re.compile(r'const COMPAT_MINOR = "\d+\.\d+"')
+
+
+def bump_compat_minor(new_version: str) -> None:
+    """同步插件源码 COMPAT_MINOR 常量为 new_version 的 major.minor 前缀。"""
+    minor = ".".join(new_version.split(".")[:2])
+    with open(PLUGIN_INDEX_MJS, encoding="utf-8") as f:
+        text = f.read()
+
+    new_text, n = COMPAT_MINOR_RE.subn(
+        f'const COMPAT_MINOR = "{minor}"', text, count=1
+    )
+    if n != 1:
+        print(f"error: {PLUGIN_INDEX_MJS} 中未找到 COMPAT_MINOR 常量", file=sys.stderr)
+        sys.exit(1)
+    with open(PLUGIN_INDEX_MJS, "w", encoding="utf-8") as f:
+        f.write(new_text)
+    print(f"updated {PLUGIN_INDEX_MJS} [COMPAT_MINOR] -> {minor}")
+
+
 def bump_server_json(new_version: str) -> None:
     """MCP Registry 元数据：version + 5 平台下载 URL。
 
@@ -183,13 +207,20 @@ def verify_consistency(new_version: str) -> None:
     plugin = json.load(open(PLUGIN_JSON, encoding="utf-8"))
     checks.append((PLUGIN_JSON, plugin.get("version")))
 
+    index = open(PLUGIN_INDEX_MJS, encoding="utf-8").read()
+    m = COMPAT_MINOR_RE.search(index)
+    # COMPAT_MINOR 是 major.minor 前缀，与 new_version 的前两段比较
+    checks.append((f"{PLUGIN_INDEX_MJS} [COMPAT_MINOR]", m.group(0).split('"')[1] if m else None))
+
     server = json.load(open(SERVER_JSON, encoding="utf-8"))
     checks.append((SERVER_JSON, server.get("version")))
 
+    expected_minor = ".".join(new_version.split(".")[:2])
     ok = True
     for name, version in checks:
-        flag = "ok" if version == new_version else "MISMATCH"
-        if version != new_version:
+        expected = expected_minor if "COMPAT_MINOR" in name else new_version
+        flag = "ok" if version == expected else "MISMATCH"
+        if version != expected:
             ok = False
         print(f"  [{flag}] {name}: {version}")
     if not ok:
@@ -200,7 +231,11 @@ def verify_consistency(new_version: str) -> None:
 
 def git_release(new_version: str) -> None:
     """一键发布：add → commit → tag → push。"""
-    files = [CARGO_TOML, CARGO_LOCK, EXTENSION_TOML, PLUGIN_JSON, SERVER_JSON]
+    files = [
+        CARGO_TOML, CARGO_LOCK, EXTENSION_TOML, PLUGIN_JSON,
+        SERVER_JSON, PLUGIN_INDEX_MJS,
+        "packages/dsh-plugin/pnpm-lock.yaml",
+    ]
     tag = f"v{new_version}"
 
     subprocess.run(["git", "add", *files], check=True)
@@ -235,6 +270,7 @@ def main() -> None:
     bump_cargo_lock(new_version)
     bump_extension_toml(new_version)
     bump_plugin_json(new_version)
+    bump_compat_minor(new_version)
     bump_server_json(new_version)
     print()
     verify_consistency(new_version)
@@ -257,8 +293,8 @@ def main() -> None:
     else:
         print()
         print("完成。后续发布步骤：")
-        print(f"  1. 复核版本一致性输出（已校验全部 6 个版本条目）")
-        print(f"  2. git add Cargo.toml Cargo.lock {EXTENSION_TOML} {PLUGIN_JSON} {SERVER_JSON}")
+        print(f"  1. 复核版本一致性输出（已校验全部 7 个版本条目：Cargo.toml / Cargo.lock×2 / extension.toml / package.json / COMPAT_MINOR / server.json）")
+        print(f"  2. git add Cargo.toml Cargo.lock {EXTENSION_TOML} {PLUGIN_JSON} {SERVER_JSON} {PLUGIN_INDEX_MJS} packages/dsh-plugin/pnpm-lock.yaml")
         print(f"  3. git commit -m 'Bump version to {new_version}'")
         print(f"  4. git tag v{new_version} && git push origin main --tags")
         print("     （tag 必须指向本次 commit，确保 extension.toml 版本与 tag 一致）")

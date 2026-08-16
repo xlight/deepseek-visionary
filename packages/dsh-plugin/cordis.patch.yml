@@ -1,6 +1,10 @@
 # @xlight-oss/visionary-dsh bundle patch.
-# Registers the DeepSeek Visionary native tools into the DSH composition.
+# Registers both DSH plugin rows from the single package: the DeepSeek Visionary
+# native tools (main entry) and the text-model image bridge (subpath entry).
 # Installed via: dsh plugin --profile <name> add @xlight-oss/visionary-dsh
 - insert:
     - id: visionary-vision
       name: '@xlight-oss/visionary-dsh'
+
+    - id: visionary-image-bridge
+      name: '@xlight-oss/visionary-dsh/image-bridge'

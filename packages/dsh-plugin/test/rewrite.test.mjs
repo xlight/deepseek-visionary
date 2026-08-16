@@ -8,7 +8,7 @@ import {
   messagesHaveImage,
   renderGuide,
   rewriteMessages,
-} from "../lib/rewrite.mjs";
+} from "../lib/image-bridge/rewrite.mjs";
 
 const img = (id = "sha256:abc") => ({
   type: "image",

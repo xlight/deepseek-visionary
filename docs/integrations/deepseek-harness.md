@@ -4,7 +4,7 @@
 
 DSH 提供两条接入路径，共用同一二进制与同一份凭据（`~/.deepseek-visionary/config.json`），可并存：
 
-- **原生插件（推荐）**：`dsh plugin --profile web add @xlight-oss/visionary-dsh`——把 `deepseek_vision` 等注册为 DSH 原生工具（结构化 schema、宿主级权限，续聊/登录不受 bash 沙箱限制）
+- **原生插件（推荐）**：`dsh plugin --profile web add @xlight-oss/visionary-dsh`——把 `deepseek_vision` 等注册为 DSH 原生工具（结构化 schema、宿主级权限，续聊/登录不受 bash 沙箱限制），并随包启用文本模型图片桥接（纯文本模型粘贴图片自动放行 + 改写为文本引导）
 - **skill + CLI 轻量路线**：`visionary-server init dsh`——不配置 MCP，装好二进制 + 装好 skill 即可，模型经 shell 调 `visionary-server vision <image> --json`
 
 ## 接入方式一：原生插件（推荐）
@@ -19,7 +19,7 @@ dsh plugin --profile web add @xlight-oss/visionary-dsh
 dsh plugin --profile web add /path/to/packages/dsh-plugin
 ```
 
-`dsh plugin` 会经包内 `dsh.bundle.patch` 声明自动把 `visionary-vision` 插件行追加到 profile 组合——**无需手写任何配置**。重启 DSH 后注册 4 个原生工具：
+`dsh plugin` 会经包内 `dsh.bundle.patch` 声明自动把 `visionary-vision` 与 `visionary-image-bridge` 两个插件行追加到 profile 组合——**无需手写任何配置**。重启 DSH 后注册 4 个原生工具，同时启用文本模型图片桥接：
 
 | 工具 | 说明 |
 |------|------|
@@ -27,6 +27,8 @@ dsh plugin --profile web add /path/to/packages/dsh-plugin
 | `deepseek_vision_status` | 登录状态检查 |
 | `deepseek_vision_login` | 浏览器自动登录（阻塞，超时可配） |
 | `deepseek_vision_logout` | 清除保存的凭据 |
+
+> **图片桥接**：会话模型为纯文本模型（如 `deepseek-v4-flash`）时，粘贴的图片经桥接**放行 → 落盘 → 改写为文本引导**，agent 用 `deepseek_vision` 完成分析，模型只收到文本；VL 模型原生看图不受干扰。配置见插件包 [README](../../packages/dsh-plugin/README.md) 的「图片桥接」节（`settings.yaml` / 设置面板，热重载）。
 
 原生工具在 DSH **宿主进程**执行（不经 bash 沙箱），因此 `--continue-conversation` 续聊（写 `~/.deepseek-visionary/session.json`）与 `login`（起浏览器、写 config.json）不受 `workspace-write` 写限制。安装与配置详见插件包 [README](../../packages/dsh-plugin/README.md)。
 
@@ -97,7 +99,7 @@ DSH 的技能文件系统按以下根顺序发现技能（一级目录 `<root>/<
 
 ```bash
 # 插件路径：
-dsh --profile web --dump-config   # 应出现 @xlight-oss/visionary-dsh 层与 visionary-vision 插件行
+dsh --profile web --dump-config   # 应出现单个 @xlight-oss/visionary-dsh 层，含 visionary-vision 与 visionary-image-bridge 两个插件行
 # 重启 DSH 后问 agent "你能看图吗"，或直接手测工具调用
 
 # skill + CLI 路径：

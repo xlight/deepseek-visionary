@@ -1,0 +1,58 @@
+# 发布后自动回填 server.json 的 fileSha256（MCP Registry 元数据）
+#
+# 触发：GitHub Release published（cargo-dist 的 `gh release create` 一次性携带
+#       全部 assets 创建 release，故触发时 5 个 .mcpb 已就位）
+# 流程：下载 release 的 *.mcpb → update_server_json.py 计算哈希并更新
+#       server.json（version + identifier + fileSha256）→ commit 回 main
+#
+# 注意：
+#   - 仅 push 到 main（无 tag），不会触发 release.yml（push tags 才触发）
+#   - 会触发 ci.yml（push main）——其 version-consistency 只校验
+#     extension.toml == workspace，不校验 server.json，不会失败
+#   - GITHUB_TOKEN 默认对同仓库有 contents: write，无需 PAT
+
+name: Update server.json (MCP Registry)
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  update-server-json:
+    name: Backfill fileSha256 for ${{ github.event.release.tag_name }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download mcpb assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          mkdir -p dist
+          gh release download "$TAG" --pattern "*.mcpb" --dir dist --clobber
+          ls -la dist/
+
+      - name: Update server.json
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          VERSION="${TAG#v}"
+          python3 scripts/update_server_json.py "$VERSION" "$TAG" dist/
+
+      - name: Commit and push
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add server.json
+          if git diff --cached --quiet; then
+            echo "server.json unchanged, nothing to commit"
+            exit 0
+          fi
+          git commit -m "Update server.json fileSha256 for $TAG"
+          git push origin HEAD:main
