@@ -27,5 +27,5 @@
 
 - [x] 5.1 `cargo test` 全绿（含新单测）
 - [x] 5.2 `node --test` 全绿（含新单测）
-- [ ] 5.3 `bump_version.py 0.6.1 --release` 发版，监控 cargo-dist / dsh-plugin / update-server-json workflows
-- [ ] 5.4 发布后核对 server.json fileSha256 已回填 v0.6.1 真实哈希
+- [x] 5.3 `bump_version.py 0.6.1 --release` 发版，监控 cargo-dist / dsh-plugin / update-server-json workflows
+- [x] 5.4 发布后核对 server.json fileSha256 已回填 v0.6.1 真实哈希
