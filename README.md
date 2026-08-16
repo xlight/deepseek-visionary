@@ -1,9 +1,9 @@
 ![img](https://repository-images.githubusercontent.com/1328041729/ea178cac-4027-48a8-bc2f-48bc6ee723c9)
 # DeepSeek Visionary
 
-在任意支持 MCP 的 AI agent（Zed、OpenCode、Codex、Claude Code、Cursor、Claude Desktop）、DeepSeek Harness（DSH，原生插件或 skill + CLI）中使用 **DeepSeek 网页版的原生多模态视觉模型**，支持**浏览器自动登录**（无需手动复制 token）。
+**让 DeepSeek 网页版视觉模型，成为你所有 AI 助手的"眼睛"。** 在 Zed、OpenCode、Codex、Claude Code、Cursor、Claude Desktop 等任意支持 MCP 的 agent，以及 DeepSeek Harness（DSH，原生插件或 skill + CLI）中直接识图——浏览器自动登录，**无需 API key、无需手动复制 token**。
 
-这是 Python 版 `deepseek-vision-mcp` 的 Rust 全量重写：单原生二进制，多平台分发。DSH 用户另有原生插件包 `@xlight-oss/visionary-dsh`（`dsh plugin` 一键安装，无需 API key）。
+Python 版 `deepseek-vision-mcp` 的 **Rust 全量重写**：单原生二进制、多平台分发，一处安装处处可用。DSH 用户更可 `dsh plugin` 一键安装原生插件包 `@xlight-oss/visionary-dsh`——4 个原生视觉工具 + 文本模型图片桥接，**一包全齐**。
 
 ## 架构
 
@@ -14,7 +14,7 @@ graph TD
         AG -->|spawn 独立进程| SRV
     end
     subgraph DSH[DeepSeek Harness]
-        DP["@xlight-oss/visionary-dsh 插件<br/>deepseek_vision 等 4 个原生工具"]
+        DP["@xlight-oss/visionary-dsh 插件<br/>deepseek_vision 等 4 个原生工具<br/>+ 文本模型图片桥接"]
         DP -->|宿主进程 spawn| SRV
     end
     subgraph visionary-server 原生二进制
@@ -27,7 +27,7 @@ graph TD
 ```
 
 - **visionary-server**：单二进制，默认 CLI 模式（`vision` / `status` / `login` / `logout` / `skill` / `init` / `doctor`），`mcp-stdio` 子命令显式启动 MCP stdio 服务；实现完整 vision 流水线（PoW → 上传 → fork → HIF 签名 → SSE 流式 completion）与 CDP 自动登录
-- **@xlight-oss/visionary-dsh**：DSH 原生插件包（npm，纯 ESM 无构建），经 `ctx.tools` 注册 `deepseek_vision` 等 4 个原生工具，宿主进程内 spawn `visionary-server` 复用 Rust 管道（续聊/登录不受 bash 沙箱限制）
+- **@xlight-oss/visionary-dsh**：DSH 原生插件包（npm，纯 ESM 无构建，单包双插件行），经 `ctx.tools` 注册 `deepseek_vision` 等 4 个原生工具，宿主进程内 spawn `visionary-server` 复用 Rust 管道（续聊/登录不受 bash 沙箱限制）；内置文本模型图片桥接（纯文本模型会话粘贴图片自动放行 + 改写为文本引导）
 - **visionary-zed-ext**：Zed 扩展壳（仅 Zed 需要），按平台从 GitHub Releases 下载/缓存 visionary-server 并启动
 
 ## 安装
@@ -35,18 +35,21 @@ graph TD
 ### 1. 安装二进制
 
 ```bash
-# 一键脚本（macOS / Linux）
+# macOS / Linux 一键脚本
 curl -LsSf https://github.com/xlight/deepseek-visionary/releases/latest/download/visionary-server-installer.sh | sh
+
+# Windows（PowerShell 一键，自动绕过执行策略）
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://github.com/xlight/deepseek-visionary/releases/latest/download/visionary-server-installer.ps1 | iex"
 
 # 或 Homebrew
 brew install xlight/tap/visionary-server
 
-# 或 npm
+# 或 npm（全平台）
 npm install -g @xlight-oss/visionary-server
 ```
 
-> 也可以直接从 GitHub Releases 下载对应平台的 `visionary-server-<target-triple>` 裸二进制加入 PATH。
-> Windows 用户可使用 PowerShell 安装脚本。
+> 也可以直接从 GitHub Releases 下载对应平台的 `visionary-server-<target-triple>` 裸二进制加入 PATH（Windows 为 `.exe`，或 `.zip` 解压）。
+> Windows 安装脚本默认装到 `$HOME\.cargo\bin` 并自动写入 PATH（加 `-NoModifyPath` 可跳过）；首次运行若遇 SmartScreen 弹窗，点「更多信息 → 仍要运行」即可。
 
 ### 2. 快速开始（CLI + skill，推荐）
 
@@ -260,19 +263,25 @@ cd packages/dsh-plugin && pnpm install
 
 ## 发布
 
-版本号由 `scripts/bump_version.py` 统一管理（同步 Cargo.toml / Cargo.lock / extension.toml / packages/dsh-plugin/package.json / server.json 共 6 处并校验一致性）：
+版本号由 `scripts/bump_version.py` 统一管理（同步 Cargo.toml / Cargo.lock×2 / extension.toml / packages/dsh-plugin/package.json / packages/dsh-plugin/lib/index.mjs 的 `COMPAT_MINOR` / server.json 共 7 个版本条目并校验一致性）：
 
 ```bash
 # 只 bump + 校验 + 打印步骤
 python3 scripts/bump_version.py <new-version>
 
-# 一键发布：bump + commit + tag vX.Y.Z + push（触发 cargo-dist / Zed 同步 / npm 发布三个 workflow）
+# 一键发布：bump + commit + tag vX.Y.Z + push
+# （tag push 触发 cargo-dist 二进制发布 / Zed 扩展同步 / npm 发布三个 workflow）
 python3 scripts/bump_version.py <new-version> --release
 ```
 
-发布后从 GitHub Release 下载 5 平台 `.mcpb`，运行
-`python3 scripts/update_server_json.py <version> v<version> dist/` 更新
-`server.json` 的 `fileSha256`（MCP Registry 元数据）。
+发布完成后，`update-server-json` workflow（`workflow_run` 监听 Release 成功）自动下载 5 平台 `.mcpb`、运行
+`scripts/update_server_json.py` 并把 `server.json` 的 `fileSha256` 回填为实际产物哈希（MCP Registry 元数据，commit 回 main）。
+若该 workflow 未触发（如手动建 release），可手动兜底：
+
+```bash
+gh release download v<version> --pattern "*.mcpb" --dir dist --clobber
+python3 scripts/update_server_json.py <version> v<version> dist/
+```
 
 ## 平台支持
 
