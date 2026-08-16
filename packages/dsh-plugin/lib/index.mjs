@@ -25,7 +25,7 @@ const inject = ["tools", "systemPrompt"];
 
 // Keep in lockstep with the Rust binary's minor version: tools rely on the
 // CLI's `--json` output shape. Bump when the binary's contract changes.
-const COMPAT_MINOR = "0.4";
+const COMPAT_MINOR = "0.5";
 
 const Config = z.object({
   binaryPath: z

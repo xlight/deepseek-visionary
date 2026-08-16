@@ -89,7 +89,6 @@ pub async fn wait_for_success(
 
     let terminal_failures = [
         "FAILED",
-        "CONTENT_EMPTY",
         "CONTENT_FILTER",
         "CONTENT_TOO_LONG",
         "CANCELLED",
@@ -109,6 +108,15 @@ pub async fn wait_for_success(
         last_status = info.status.clone();
 
         if info.status == "SUCCESS" {
+            return Ok(info);
+        }
+        // CONTENT_EMPTY：上传文件本身已存储，只是 OCR 文本提取为空。
+        // 与网页端行为一致：继续 fork 到 vision 模型（vision 模型可直接读图），
+        // 不将 OCR 判空作为硬失败。
+        if info.status == "CONTENT_EMPTY" {
+            tracing::warn!(
+                "File {file_id} OCR extraction empty (CONTENT_EMPTY); proceeding to vision fork"
+            );
             return Ok(info);
         }
         if terminal_failures.contains(&info.status.as_str()) {

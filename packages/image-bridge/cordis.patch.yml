@@ -1,0 +1,7 @@
+# @xlight-oss/visionary-image-bridge bundle patch.
+# Registers the visionary image bridge (text-only model image admission +
+# llm/stream rewrite) into the DSH composition.
+# Installed via: dsh plugin --profile <name> add @xlight-oss/visionary-image-bridge
+- insert:
+    - id: visionary-image-bridge
+      name: '@xlight-oss/visionary-image-bridge'

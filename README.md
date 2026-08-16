@@ -127,6 +127,11 @@ dsh plugin --profile web add /path/to/packages/dsh-plugin
 
 `dsh plugin` 经包内 `dsh.bundle.patch` 声明自动注册 `visionary-vision` 插件行，重启 DSH 后 4 个原生工具出现在工具目录，模型可直接调用（无需手写任何配置）。验证：`dsh --profile web --dump-config` 应出现 `@xlight-oss/visionary-dsh` 层。详见 [packages/dsh-plugin/README.md](packages/dsh-plugin/README.md)。
 
+> **文本模型下粘贴图片被拒绝？** 安装图片桥接插件 `@xlight-oss/visionary-image-bridge`
+> （与 `deepseek_vision` 插件配合）：纯文本模型会话中粘贴的图片经桥接**放行 → 落盘 → 改写为文本引导**，
+> agent 用 `deepseek_vision` 完成分析，模型只收到文本；VL 模型原生看图不受干扰。
+> 安装/配置/隐私说明见 [packages/image-bridge/README.md](packages/image-bridge/README.md)。
+
 ### 5. 登录
 
 登录凭据保存在 `~/.deepseek-visionary/config.json`，CLI / MCP / DSH 插件三路共享；浏览器自动登录会打开窗口导航到 chat.deepseek.com，登录后自动抓取 token 并保存：
