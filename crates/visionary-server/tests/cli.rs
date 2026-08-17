@@ -262,3 +262,91 @@ fn skill_unknown_action_fails() {
         "unknown skill action should exit non-zero"
     );
 }
+
+#[test]
+fn ocr_unauthenticated_text_mode_exits_nonzero() {
+    // 隔离 HOME（无凭据）：ocr 未登录 → stderr 登录指引，退出非零。
+    let out = isolated_cmd()
+        .args(["ocr", "x.png", "--no-stream"])
+        .output()
+        .expect("run");
+    assert!(
+        !out.status.success(),
+        "unauthenticated ocr should exit non-zero"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("visionary-server login"),
+        "stderr should guide login, got: {stderr}"
+    );
+}
+
+#[test]
+fn ocr_unauthenticated_json_mode_exits_nonzero_with_error() {
+    // 隔离 HOME：ocr --json 未登录 → stdout 原子 {"error"}，退出非零（与 vision --json 形状一致）。
+    let out = isolated_cmd()
+        .args(["ocr", "x.png", "--json"])
+        .output()
+        .expect("run");
+    assert!(
+        !out.status.success(),
+        "unauthenticated ocr --json should exit non-zero"
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value =
+        serde_json::from_str(&stdout).expect("ocr --json error should be valid JSON");
+    assert!(
+        v["error"].is_string(),
+        "ocr --json error should have error field, got: {stdout}"
+    );
+}
+
+#[test]
+fn ocr_help_does_not_expose_model_type_and_uses_ocr_prompt() {
+    // ocr 子命令不暴露 --model-type（恒为 ocr），默认 prompt 为文字提取语义。
+    let out = isolated_cmd().arg("ocr").arg("--help").output().expect("run");
+    assert!(out.status.success(), "ocr --help should exit 0");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !stdout.contains("--model-type"),
+        "ocr --help must not expose --model-type, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("请原样输出图片中的文字内容"),
+        "ocr --help should show text-extraction default prompt, got: {stdout}"
+    );
+}
+
+#[test]
+fn vision_help_exposes_model_type() {
+    // vision 子命令暴露 --model-type（默认 vision）。
+    let out = isolated_cmd().arg("vision").arg("--help").output().expect("run");
+    assert!(out.status.success(), "vision --help should exit 0");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("--model-type"),
+        "vision --help should expose --model-type, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("vision") && stdout.contains("ocr"),
+        "vision --help should list vision|ocr values, got: {stdout}"
+    );
+}
+
+#[test]
+fn vision_invalid_model_type_fails() {
+    // --model-type 非法值（如服务端不支持的 "ocr"-typed header 之外的值）→ clap 拒绝退出非零。
+    let out = isolated_cmd()
+        .args(["vision", "x.png", "--model-type", "bogus", "--no-stream"])
+        .output()
+        .expect("run");
+    assert!(
+        !out.status.success(),
+        "invalid --model-type should exit non-zero"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("bogus"),
+        "stderr should mention the invalid value, got: {stderr}"
+    );
+}

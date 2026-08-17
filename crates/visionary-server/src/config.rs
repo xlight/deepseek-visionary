@@ -1,10 +1,12 @@
-//! 配置管理：环境变量 + `~/.deepseek-visionary/config.json`。
+//! 配置管理：环境变量 + `~/.deepseek-visionary/config.json`（凭据）+ `settings.json`（偏好）。
 //!
 //! 对照 Python 版 `config.py`，并落实 design.md 决策 6：
 //! - 键名对齐 Python：`user_token` / `smid_v2` / `cf_clearance`
 //! - 环境变量覆盖：`DEEPSEEK_USER_TOKEN` / `DEEPSEEK_SMIDV2` / `DEEPSEEK_CF_CLEARANCE`
 //! - 配置文件写入权限 0600
 //! - `RwLock` 保护 + 热重载原子替换（login 工具写入后无需重启）
+//! - 偏好配置（如 `model_type`）独立存放于 `settings.json`，不写入 config.json——
+//!   后者是凭据文件，`save_credentials` / logout 会整体覆盖（见 design D1）
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -26,6 +28,58 @@ fn data_dir() -> Result<PathBuf> {
 /// 配置文件路径：`~/.deepseek-visionary/config.json`。
 pub fn config_file() -> Result<PathBuf> {
     Ok(data_dir()?.join("config.json"))
+}
+
+/// 偏好配置文件路径：`~/.deepseek-visionary/settings.json`。
+///
+/// 独立于 config.json（凭据文件，login/logout 全量覆盖）；偏好配置放这里
+/// 不会被 login/logout 抹掉（design D1）。
+pub fn settings_file() -> Result<PathBuf> {
+    Ok(data_dir()?.join("settings.json"))
+}
+
+/// 偏好配置（settings.json 内容）。字段缺失即默认，容错容错读取。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct SettingsFile {
+    /// 上传管道：`None`/`"vision"` → vision 管道；`"ocr"` → OCR 管道。
+    #[serde(default)]
+    pub model_type: Option<String>,
+}
+
+/// modelType 合法值。`"ocr"` 上传时不携带 `x-model-type`（走服务端 OCR 管道）；
+/// `None`/`"vision"` 携带 `x-model-type: vision`。
+pub const MODEL_TYPE_VISION: &str = "vision";
+pub const MODEL_TYPE_OCR: &str = "ocr";
+
+/// 校验 modelType 值是否合法（仅 vision / ocr）。
+pub fn validate_model_type(value: &str) -> Result<()> {
+    if value == MODEL_TYPE_VISION || value == MODEL_TYPE_OCR {
+        Ok(())
+    } else {
+        anyhow::bail!(
+            "invalid model_type {value:?}: must be \"vision\" or \"ocr\" (the server rejects other values such as \"ocr\"-typed headers with HTTP 500)"
+        )
+    }
+}
+
+/// 读取 settings.json（不存在或损坏时返回 Ok(None)）。
+pub fn read_settings_file() -> Result<Option<SettingsFile>> {
+    let path = settings_file()?;
+    if !path.exists() {
+        return Ok(None);
+    }
+    let raw = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let settings =
+        serde_json::from_str(&raw).with_context(|| format!("parse {}", path.display()))?;
+    Ok(Some(settings))
+}
+
+/// 原子写入 settings.json（0600）。当前无写入调用方（modelType 经 env / 手动编辑
+/// settings.json / 插件面板生效），保留供未来 CLI 配置子命令使用。
+#[allow(dead_code)]
+pub fn write_settings_file(settings: &SettingsFile) -> Result<()> {
+    write_private_json(&settings_file()?, settings)
 }
 
 /// 会话文件路径：`~/.deepseek-visionary/session.json`（对应 Python `_get_session_file`）。
@@ -62,6 +116,9 @@ pub struct Config {
     pub max_retries: u32,
     pub app_version: String,
     pub client_locale: String,
+    /// 上传管道：`None`（默认 vision）或 `"ocr"`。
+    /// 优先级：CLI `--model-type` flag（cmd_vision 覆盖）> env > settings.json > 默认。
+    pub model_type: Option<String>,
 }
 
 impl Config {
@@ -89,6 +146,19 @@ impl Config {
                 .filter(|s| !s.is_empty())
                 .unwrap_or(file_creds.cf_clearance),
         };
+        // modelType 优先级：env `DEEPSEEK_VISIONARY_MODEL_TYPE` > settings.json `model_type` > 默认 None(vision)
+        let file_settings = read_settings_file()
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        let model_type: Option<String> =
+            match env::var("DEEPSEEK_VISIONARY_MODEL_TYPE").ok().filter(|s| !s.is_empty()) {
+                Some(v) => Some(v),
+                None => file_settings.model_type,
+            };
+        if let Some(mt) = &model_type {
+            validate_model_type(mt)?;
+        }
         Ok(Self {
             credentials: std::sync::Arc::new(RwLock::new(credentials)),
             base_url: env::var("DEEPSEEK_BASE_URL")
@@ -102,6 +172,7 @@ impl Config {
             max_retries: env_u64("DEEPSEEK_MAX_RETRIES", 3) as u32,
             app_version: "2.0.0".into(),
             client_locale: "zh_CN".into(),
+            model_type,
         })
     }
 
@@ -227,6 +298,39 @@ mod tests {
         assert_eq!(read.smid_v2, "smid");
         assert_eq!(read.cf_clearance, "cf");
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn settings_file_roundtrip_and_model_type_validation() {
+        let dir =
+            std::env::temp_dir().join(format!("visionary-settings-test-{}", std::process::id()));
+        let path = dir.join("settings.json");
+        let settings = SettingsFile {
+            model_type: Some("ocr".into()),
+        };
+        write_private_json(&path, &settings).expect("write should succeed");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let meta = fs::metadata(&path).expect("metadata");
+            assert_eq!(meta.permissions().mode() & 0o777, 0o600, "must be 0600");
+        }
+        let read: SettingsFile =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(read.model_type.as_deref(), Some("ocr"));
+        // 缺失字段容错
+        let empty: SettingsFile = serde_json::from_str("{}").unwrap();
+        assert_eq!(empty.model_type, None);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn validate_model_type_accepts_vision_and_ocr() {
+        assert!(validate_model_type("vision").is_ok());
+        assert!(validate_model_type("ocr").is_ok());
+        let err = validate_model_type("empty").unwrap_err();
+        assert!(err.to_string().contains("vision"), "unexpected: {err}");
+        assert!(err.to_string().contains("ocr"), "unexpected: {err}");
     }
 
     #[test]

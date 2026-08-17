@@ -155,10 +155,11 @@ where
             format!("{}/a/chat/s/{}", config.base_url, session_id),
         ),
         ("x-app-version".into(), config.app_version.clone()),
+        ("x-client-bundle-id".into(), "com.deepseek.chat".into()),
         ("x-client-locale".into(), config.client_locale.clone()),
         ("x-client-platform".into(), "web".into()),
         ("x-client-timezone-offset".into(), "28800".into()),
-        ("x-client-version".into(), config.app_version.clone()),
+        ("x-client-version".into(), "2.3.0".into()),
         ("x-ds-pow-response".into(), pow_header),
     ];
     headers.extend(hif_headers);

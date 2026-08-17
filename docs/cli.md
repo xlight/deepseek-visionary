@@ -7,6 +7,7 @@
 | 子命令 | 对应 MCP 工具 | 说明 |
 |--------|---------------|------|
 | `vision <image...>` | `deepseek_vision` | 分析一张或多张图片（完整 vision 流水线；多图一次上传联合分析） |
+| `ocr <image...>` | `deepseek_ocr` | 提取图片中的文字（等价 `vision --model-type ocr`，纯 OCR 管道） |
 | `status` | `deepseek_vision_status` | 轻量鉴权状态检查 |
 | `login` | `deepseek_vision_login` | 浏览器自动登录 |
 | `logout` | `deepseek_vision_logout` | 清除保存的凭据 |
@@ -18,7 +19,7 @@
 ## `vision` 参数
 
 ```
-visionary-server vision <image>... [--prompt <q>] [--thinking] [--continue-conversation] [--session-id <id>] [--stream|--no-stream] [--json]
+visionary-server vision <image>... [--prompt <q>] [--thinking] [--continue-conversation] [--session-id <id>] [--stream|--no-stream] [--model-type <vision|ocr>] [--json]
 ```
 
 - `image`：一个或多个本地路径 / base64 / data URI；多图一次上传、fork、联合分析（与网页端多图行为一致）。`-`（从 stdin 读取全部字节）仅限单图
@@ -27,6 +28,7 @@ visionary-server vision <image>... [--prompt <q>] [--thinking] [--continue-conve
 - `--continue-conversation`：续聊，复用上一次会话（可对比多张图片）
 - `--session-id`：显式复用指定会话（优先于 `--continue-conversation`）
 - `--stream` / `--no-stream`：强制流式 / 强制原子输出（覆盖 TTY 检测默认）
+- `--model-type`：上传管道模型类型（默认 `vision`；`ocr` 走纯文字提取管道，等价 `ocr` 子命令）
 - `--json`：原子 JSON 输出（禁用流式；与 `--stream` 互斥）
 
 ## 输出模式
@@ -59,6 +61,29 @@ visionary-server vision <image>... [--prompt <q>] [--thinking] [--continue-conve
 
 ```json
 { "error": "未登录：请先运行 `visionary-server login` 自动登录……" }
+```
+
+## `ocr` 子命令
+
+```text
+visionary-server ocr <image>... [--prompt <q>] [--thinking] [--continue-conversation] [--session-id <id>] [--stream|--no-stream] [--json]
+```
+
+`ocr` 是纯文字提取管道（等价 `vision --model-type ocr`，共享同一 handler），参数面对齐 `vision`，但不暴露 `--model-type`（恒为 ocr）。语义差异：
+
+- **默认 prompt**：`请原样输出图片中的文字内容`（`vision` 默认为详细描述；可用 `--prompt` 覆盖）
+- **图片无文字**（服务端 `CONTENT_EMPTY`）：退出非零并输出业务提示「图片中未提取到文字（服务端 OCR 提取为空）」（`--json` 时 `{"error": ...}`）；`vision --model-type ocr` 行为相同
+- **输出形状**：`--json` 与 `vision --json` 完全一致（`{"text", "session_id", "parent_message_id"}`）
+
+```bash
+# 提取截图/文档图片中的文字
+visionary-server ocr screenshot.png
+
+# 结构化提取
+visionary-server ocr scan.png --json
+
+# 与 vision 等价
+visionary-server vision scan.png --model-type ocr --json
 ```
 
 ## `status` 与 `--json`
@@ -126,6 +151,6 @@ visionary-server vision img.png --no-stream
 
 ## 与 MCP 工具的关系
 
-- 四个子命令与 MCP 工具共享同一核心实现（`pipeline.rs` / `login.rs` / `auth.rs`），无两套漂移代码
+- `vision` / `ocr` / `status` / `login` / `logout` 五个子命令与 MCP 工具共享同一核心实现（`pipeline.rs` / `login.rs` / `auth.rs`），无两套漂移代码
 - MCP 工具行为完全不变；CLI 是同一能力的另一访问入口
 - 日志统一走 stderr（serve 模式 stdout 是 MCP 协议通道，CLI 子命令 stdout 只输出结果）

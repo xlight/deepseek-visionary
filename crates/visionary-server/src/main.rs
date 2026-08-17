@@ -12,7 +12,6 @@ mod cli;
 mod client;
 mod completion;
 mod config;
-mod fork;
 mod hif;
 mod login;
 mod onboarding;

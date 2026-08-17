@@ -14,7 +14,7 @@ graph TD
         AG -->|spawn 独立进程| SRV
     end
     subgraph DSH[DeepSeek Harness]
-        DP["@xlight-oss/visionary-dsh 插件<br/>deepseek_vision 等 4 个原生工具<br/>+ 文本模型图片桥接"]
+        DP["@xlight-oss/visionary-dsh 插件<br/>deepseek_vision 等 5 个原生工具<br/>+ 文本模型图片桥接"]
         DP -->|宿主进程 spawn| SRV
     end
     subgraph visionary-server 原生二进制
@@ -27,7 +27,7 @@ graph TD
 ```
 
 - **visionary-server**：单二进制，默认 CLI 模式（`vision` / `status` / `login` / `logout` / `skill` / `init` / `doctor`），`mcp-stdio` 子命令显式启动 MCP stdio 服务；实现完整 vision 流水线（PoW → 上传 → fork → HIF 签名 → SSE 流式 completion）与 CDP 自动登录
-- **@xlight-oss/visionary-dsh**：DSH 原生插件包（npm，纯 ESM 无构建，单包双插件行），经 `ctx.tools` 注册 `deepseek_vision` 等 4 个原生工具，宿主进程内 spawn `visionary-server` 复用 Rust 管道（续聊/登录不受 bash 沙箱限制）；内置文本模型图片桥接（纯文本模型会话粘贴图片自动放行 + 改写为文本引导）
+- **@xlight-oss/visionary-dsh**：DSH 原生插件包（npm，纯 ESM 无构建，单包双插件行），经 `ctx.tools` 注册 `deepseek_vision` / `deepseek_ocr` 等 5 个原生工具，宿主进程内 spawn `visionary-server` 复用 Rust 管道（续聊/登录不受 bash 沙箱限制）；内置文本模型图片桥接（纯文本模型会话粘贴图片自动放行 + 改写为文本引导）
 - **visionary-zed-ext**：Zed 扩展壳（仅 Zed 需要），按平台从 GitHub Releases 下载/缓存 visionary-server 并启动
 
 ## 安装
@@ -109,7 +109,7 @@ visionary-server init opencode --dry-run
 | Claude Desktop | [claude-desktop.md](docs/integrations/claude-desktop.md) | `visionary-server init claude-desktop` |
 | DeepSeek Harness | [deepseek-harness.md](docs/integrations/deepseek-harness.md) | 原生插件 `dsh plugin --profile web add @xlight-oss/visionary-dsh`（推荐）或 `visionary-server init dsh`（skill + CLI 轻量接入） |
 
-> **DeepSeek Harness 原生插件**：DSH 用户还可安装 npm 插件包 `@xlight-oss/visionary-dsh`，把 `deepseek_vision` / `deepseek_vision_status` / `deepseek_vision_login` / `deepseek_vision_logout` 注册为 DSH 原生工具（结构化 schema、宿主级执行，续聊/登录不受 bash 沙箱限制），安装详见 [packages/dsh-plugin/README.md](packages/dsh-plugin/README.md)。
+> **DeepSeek Harness 原生插件**：DSH 用户还可安装 npm 插件包 `@xlight-oss/visionary-dsh`，把 `deepseek_vision` / `deepseek_ocr` / `deepseek_vision_status` / `deepseek_vision_login` / `deepseek_vision_logout` 注册为 DSH 原生工具（结构化 schema、宿主级执行，续聊/登录不受 bash 沙箱限制），安装详见 [packages/dsh-plugin/README.md](packages/dsh-plugin/README.md)。
 
 > 新兴通道：Microsoft Agent Package Manager 用户可直接
 > `apm install --mcp io.github.xlight/deepseek-visionary`（复用 MCP Registry 标识）。
@@ -129,7 +129,7 @@ dsh plugin --profile web add @xlight-oss/visionary-dsh
 dsh plugin --profile web add /path/to/packages/dsh-plugin
 ```
 
-`dsh plugin` 经包内 `dsh.bundle.patch` 声明自动注册 `visionary-vision` 与 `visionary-image-bridge` 两个插件行，重启 DSH 后 4 个原生工具出现在工具目录，桥接同时生效（模型可直接调用，无需手写任何配置）。验证：`dsh --profile web --dump-config` 应出现单个 `@xlight-oss/visionary-dsh` 层。详见 [packages/dsh-plugin/README.md](packages/dsh-plugin/README.md)。
+`dsh plugin` 经包内 `dsh.bundle.patch` 声明自动注册 `visionary-vision` 与 `visionary-image-bridge` 两个插件行，重启 DSH 后 5 个原生工具出现在工具目录，桥接同时生效（模型可直接调用，无需手写任何配置）。验证：`dsh --profile web --dump-config` 应出现单个 `@xlight-oss/visionary-dsh` 层。详见 [packages/dsh-plugin/README.md](packages/dsh-plugin/README.md)。
 
 > **文本模型下粘贴图片被拒绝？** 本插件已内置图片桥接（`visionary-image-bridge` 插件行，无需额外安装）：
 > 纯文本模型会话中粘贴的图片经桥接**放行 → 落盘 → 改写为文本引导**，
@@ -170,7 +170,8 @@ dsh plugin --profile web add /path/to/packages/dsh-plugin
 | `visionary-server`（无参数） | 输出 help 用法信息并退出码 2（不进入任何模式） |
 | `visionary-server --version` | 输出版本号 |
 | `visionary-server mcp-stdio` | 显式启动 MCP stdio 服务（MCP 模式入口，所有 agent 配置均以此启动） |
-| `visionary-server vision <image>...` | 用视觉模型分析一张或多张图片（CLI 版 `deepseek_vision`）。`image` 支持路径 / base64 / data URI / `-`（stdin，仅单图）；多图一次上传联合分析（与网页端多图行为一致）；`--prompt` / `--thinking` / `--continue-conversation` / `--session-id` / `--json` / `--stream` / `--no-stream` |
+| `visionary-server vision <image>...` | 用视觉模型分析一张或多张图片（CLI 版 `deepseek_vision`）。`image` 支持路径 / base64 / data URI / `-`（stdin，仅单图）；多图一次上传联合分析（与网页端多图行为一致）；`--prompt` / `--thinking` / `--continue-conversation` / `--session-id` / `--json` / `--stream` / `--no-stream` / `--model-type`（`vision` 或 `ocr`，默认 vision） |
+| `visionary-server ocr <image>...` | 用纯 OCR 管道原样提取图片中的文字（CLI 版 `deepseek_ocr`，等价 `vision --model-type ocr`）。参数面对齐 `vision`（无 `--model-type`，恒为 ocr）；默认提示词为文字提取语义；无文字图片输出业务提示并退出非零 |
 | `visionary-server status` | 轻量鉴权状态检查（CLI 版 `deepseek_vision_status`），`--json` 输出结构化状态 |
 | `visionary-server login` | 浏览器自动登录（CLI 版 `deepseek_vision_login`） |
 | `visionary-server logout` | 清除保存的凭据（CLI 版 `deepseek_vision_logout`） |
@@ -222,13 +223,16 @@ visionary-server skill install
 | 工具 | 说明 |
 |------|------|
 | `deepseek_vision` | 上传一张或多张图片（路径 / base64 / data URI）并用 DeepSeek 视觉模型分析；多图经 `images` 数组一次上传、模型联合分析（与网页端多图行为一致）。参数：`images`（多图）/ `image`（单图，向后兼容，二选一）、`prompt`、`thinking`、`continue_conversation`、`session_id` |
+| `deepseek_ocr` | 用纯 OCR 管道原样提取图片中的文字（等价 CLI `visionary-server ocr`）。定位于**文字提取**而非理解：截图 / 文档 / 代码 / 表格 / 标识。参数面与 `deepseek_vision` 完全一致；图片无文字时以错误提示返回「图片中未提取到文字」 |
 | `deepseek_vision_status` | 检查登录状态与 token 有效性（含真实校验探针） |
 | `deepseek_vision_login` | 浏览器自动登录并抓取凭据（阻塞，超时可配） |
 | `deepseek_vision_logout` | 清除保存的凭据 |
 
+> **质量提示**：OCR 结果来自服务端文本提取管道，对清晰截图/文档效果好；放大模糊、手写或复杂版式时结果可能不完整。需要结合上下文理解内容（翻译、总结版式）时用 `deepseek_vision`，`deepseek_ocr` 只负责拿原文。
+
 ### 会话续聊
 
-`deepseek_vision` 支持多轮对话：
+`deepseek_vision`（及 `deepseek_ocr`）支持多轮对话：
 
 - `continue_conversation=true`：复用上一次会话，可对比多张图片
 - `session_id`：显式切换到指定会话线程
@@ -243,6 +247,7 @@ visionary-server skill install
 | `DEEPSEEK_SMIDV2` / `DEEPSEEK_CF_CLEARANCE` | 覆盖对应 cookie（可选） |
 | `DEEPSEEK_BASE_URL` | API 基地址（默认 `https://chat.deepseek.com`） |
 | `DEEPSEEK_LOGIN_TIMEOUT` | 登录等待超时秒数（默认 600） |
+| `DEEPSEEK_VISIONARY_MODEL_TYPE` | 默认上传管道模型类型（`vision` 或 `ocr`，默认 `vision`；CLI `--model-type` 优先于该变量） |
 | `DEEPSEEK_VISIONARY_BIN` | DSH 插件解析二进制路径（`Config.binaryPath` → 此变量 → PATH） |
 
 ## 开发

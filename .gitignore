@@ -12,3 +12,5 @@ mcp-login.log
 # Node 插件包（packages/dsh-plugin）
 node_modules/
 .pnpm-store/
+.opencode/
+openspec/

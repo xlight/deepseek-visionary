@@ -1,7 +1,8 @@
 //! MCP stdio 服务层（对应 Python 版 `server.py::create_app`）。
 //!
-//! 基于 rmcp 2.2 的 `#[tool_router]` / `#[tool_handler]` 宏实现 4 个工具：
+//! 基于 rmcp 2.2 的 `#[tool_router]` / `#[tool_handler]` 宏实现 5 个工具：
 //! - `deepseek_vision`：上传图片并分析（完整 vision 流水线）
+//! - `deepseek_ocr`：上传图片并提取文字（OCR 管道，等价 `visionary-server ocr`）
 //! - `deepseek_vision_status`：鉴权与服务健康检查
 //! - `deepseek_vision_login`：浏览器自动登录（任务 5.4 接线）
 //! - `deepseek_vision_logout`：清除凭据（任务 5.5 接线）
@@ -76,6 +77,31 @@ impl VisionaryServer {
         &self,
         Parameters(args): Parameters<VisionArgs>,
     ) -> Result<CallToolResult, McpError> {
+        self.analyze_images(args, None).await
+    }
+
+    /// 从图片中提取文字（OCR 管道，等价 `visionary-server ocr <image>`）。
+    #[tool(
+        description = "Extract text from one or more images using DeepSeek's OCR pipeline (upload without x-model-type, completion extracts the text verbatim). USE THIS when the user wants the text/content of an image, screenshot, or document - not an interpretation. Same session/continuation semantics as deepseek_vision. Args: images (required, array of local paths or base64/data URI), prompt (optional instruction; defaults to verbatim text extraction), thinking (enable DeepThink), continue_conversation / session_id"
+    )]
+    async fn deepseek_ocr(
+        &self,
+        Parameters(args): Parameters<VisionArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.analyze_images(args, Some(crate::config::MODEL_TYPE_OCR.to_string()))
+            .await
+    }
+
+    /// `deepseek_vision` / `deepseek_ocr` 共享 handler（task 2.4）。
+    ///
+    /// `forced_model_type`：`None` → 跟随 `config.model_type`（默认 vision，可经
+    /// settings 面板 / env / settings.json 配置）；`Some("ocr")` → 恒走 OCR 管道
+    /// （`deepseek_ocr` 工具面，无 modelType 参数面）。
+    async fn analyze_images(
+        &self,
+        args: VisionArgs,
+        forced_model_type: Option<String>,
+    ) -> Result<CallToolResult, McpError> {
         if !self.config.is_authenticated() {
             return Ok(CallToolResult::error(vec![ContentBlock::text(
                 "DeepSeek token not configured.\n\n\
@@ -97,7 +123,7 @@ impl VisionaryServer {
             }
             _ => {
                 return Ok(CallToolResult::error(vec![ContentBlock::text(
-                    "deepseek_vision: at least one image is required (`image` or `images`)",
+                    "deepseek_vision / deepseek_ocr: at least one image is required (`image` or `images`)",
                 )]))
             }
         };
@@ -118,6 +144,9 @@ impl VisionaryServer {
             args.continue_conversation,
         );
 
+        // modelType：forced（ocr 工具恒 ocr）> config.model_type（MCP stdio 同样可配置）
+        let model_type = forced_model_type.or_else(|| self.config.model_type.clone());
+
         match pipeline::run_vision_pipeline::<fn(&str)>(
             &self.config,
             &self.hif,
@@ -128,6 +157,7 @@ impl VisionaryServer {
                 thinking: args.thinking,
                 session_id: reuse_session_id,
                 parent_message_id: reuse_parent_message_id,
+                model_type,
             },
             None, // MCP 工具不流式，仅收集完整结果（fn 指针满足 Send 约束）
         )
@@ -268,6 +298,9 @@ impl ServerHandler for VisionaryServer {
                  question, defaults to detailed description - infer one from context if omitted), \
                  thinking (optional; DeepThink), continue_conversation / session_id (optional; \
                  compare multiple images).\n\
+                 \n\
+                 Use `deepseek_ocr` when the user wants the raw text extracted from an image \
+                 (text extraction, not interpretation), e.g. screenshots of documents or code.\n\
                  On login error, call `deepseek_vision_login` first, then retry.",
             )
     }

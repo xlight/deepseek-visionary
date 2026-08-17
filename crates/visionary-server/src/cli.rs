@@ -41,6 +41,8 @@ pub enum Command {
     Init(InitArgs),
     /// Analyze an image with DeepSeek's vision model (CLI counterpart of deepseek_vision).
     Vision(VisionArgs),
+    /// Extract text from an image via the OCR pipeline (CLI counterpart of deepseek_ocr).
+    Ocr(OcrArgs),
     /// Lightweight auth status check (CLI counterpart of deepseek_vision_status).
     Status(StatusArgs),
     /// Browser auto-login (CLI counterpart of deepseek_vision_login).
@@ -78,6 +80,74 @@ pub struct VisionArgs {
     /// Atomic JSON output (disables streaming).
     #[arg(long, conflicts_with = "stream")]
     pub json: bool,
+    /// Upload pipeline: vision (default, full multimodal understanding) | ocr (text extraction).
+    #[arg(long, value_enum, default_value = "vision")]
+    pub model_type: ModelType,
+}
+
+/// modelType 合法值（clap ValueEnum）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum ModelType {
+    /// 完整多模态图像理解（携带 x-model-type: vision）。
+    Vision,
+    /// OCR 文本提取（不携带 x-model-type，走服务端 OCR 管道）。
+    Ocr,
+}
+
+impl ModelType {
+    /// 与 `config::MODEL_TYPE_*` 常量对齐的字符串表示。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ModelType::Vision => crate::config::MODEL_TYPE_VISION,
+            ModelType::Ocr => crate::config::MODEL_TYPE_OCR,
+        }
+    }
+}
+
+/// `ocr` 子命令参数：与 `vision` 对齐，但不暴露 `--model-type`（恒为 ocr），
+/// 默认 prompt 为文字提取语义。
+#[derive(Debug, Args)]
+pub struct OcrArgs {
+    /// One or more images: local paths / base64 / data URI, or `-` to read stdin (single only).
+    #[arg(required = true)]
+    pub images: Vec<String>,
+    /// Instruction for text extraction (default: output the text in the image verbatim).
+    #[arg(long, default_value = "请原样输出图片中的文字内容")]
+    pub prompt: String,
+    /// Enable DeepThink deep reasoning.
+    #[arg(long)]
+    pub thinking: bool,
+    /// Continue the session for follow-up questions.
+    #[arg(long)]
+    pub continue_conversation: bool,
+    /// Explicitly reuse a session_id (takes precedence over --continue-conversation).
+    #[arg(long)]
+    pub session_id: Option<String>,
+    /// Force streaming output (overrides TTY detection).
+    #[arg(long, conflicts_with = "no_stream")]
+    pub stream: bool,
+    /// Force atomic output (overrides TTY detection).
+    #[arg(long, conflicts_with = "stream")]
+    pub no_stream: bool,
+    /// Atomic JSON output (disables streaming).
+    #[arg(long, conflicts_with = "stream")]
+    pub json: bool,
+}
+
+impl From<OcrArgs> for VisionArgs {
+    fn from(a: OcrArgs) -> Self {
+        VisionArgs {
+            images: a.images,
+            prompt: a.prompt,
+            thinking: a.thinking,
+            continue_conversation: a.continue_conversation,
+            session_id: a.session_id,
+            stream: a.stream,
+            no_stream: a.no_stream,
+            json: a.json,
+            model_type: ModelType::Ocr,
+        }
+    }
 }
 
 /// `status` 子命令参数。
@@ -132,7 +202,8 @@ pub async fn run() -> Result<()> {
         Some(Command::McpStdio) => serve().await,
         Some(Command::Doctor) => cmd_doctor().await,
         Some(Command::Init(args)) => crate::onboarding::cmd_init(args),
-        Some(Command::Vision(args)) => cmd_vision(args).await,
+        Some(Command::Vision(args)) => cmd_vision(args, ModelType::Vision).await,
+        Some(Command::Ocr(args)) => cmd_vision(args.into(), ModelType::Ocr).await,
         Some(Command::Status(args)) => cmd_status(args).await,
         Some(Command::Login) => cmd_login().await,
         Some(Command::Logout) => cmd_logout().await,
@@ -304,7 +375,7 @@ fn resolve_output_mode(
 }
 
 /// `vision`：CLI 方式运行完整 vision 流水线（design 决策 3/4/6）。
-async fn cmd_vision(args: VisionArgs) -> Result<()> {
+async fn cmd_vision(args: VisionArgs, forced: ModelType) -> Result<()> {
     let mode = match resolve_output_mode(
         std::io::stdout().is_terminal(),
         args.stream,
@@ -325,6 +396,16 @@ async fn cmd_vision(args: VisionArgs) -> Result<()> {
             "Not logged in: run `visionary-server login` to auto-login, or set the DEEPSEEK_USER_TOKEN environment variable.",
         );
     }
+
+    // modelType 优先级：子命令强制（ocr）> 命令行 --model-type > 配置默认。
+    // `ocr` 子命令恒为 Ocr；`vision` 子命令用 --model-type 或配置。
+    let model_type = if forced == ModelType::Ocr {
+        Some(ModelType::Ocr.as_str().to_string())
+    } else if args.model_type == ModelType::Ocr {
+        Some(ModelType::Ocr.as_str().to_string())
+    } else {
+        config.model_type.clone()
+    };
 
     // 读取图片（路径 / base64 / data URI / stdin；stdin 仅限单图）
     if args.images.len() > 1 && args.images.iter().any(|i| i == "-") {
@@ -352,6 +433,7 @@ async fn cmd_vision(args: VisionArgs) -> Result<()> {
         thinking: args.thinking,
         session_id: reuse_session_id,
         parent_message_id: reuse_parent_message_id,
+        model_type,
     };
     let hif = HifAuth::new(config.clone());
 
@@ -894,5 +976,64 @@ mod tests {
     fn output_mode_conflicts_rejected() {
         assert!(resolve_output_mode(true, true, true, false).is_err());
         assert!(resolve_output_mode(true, true, false, true).is_err());
+    }
+
+    // ---- modelType / ocr 子命令等价（task 3.3）----
+
+    #[test]
+    fn vision_model_type_ocr_parses() {
+        let cli =
+            Cli::try_parse_from(["visionary-server", "vision", "img.png", "--model-type", "ocr"])
+                .expect("vision --model-type ocr parses");
+        let Some(Command::Vision(args)) = cli.command else {
+            panic!("expected vision subcommand");
+        };
+        assert_eq!(args.model_type, ModelType::Ocr);
+        // 与 ocr 子命令共享 handler：等价于 forced=Ocr + 无 --model-type 面
+        let ocr = Cli::try_parse_from(["visionary-server", "ocr", "img.png"])
+            .expect("ocr parses");
+        let Some(Command::Ocr(ocr_args)) = ocr.command else {
+            panic!("expected ocr subcommand");
+        };
+        let mapped: VisionArgs = ocr_args.into();
+        assert_eq!(mapped.model_type, args.model_type, "must share the ocr pipeline");
+        assert_eq!(mapped.images, args.images);
+    }
+
+    #[test]
+    fn vision_invalid_model_type_rejected() {
+        // 非法 modelType 由 clap ValueEnum 拒绝（退出码 2，stderr 提到非法值）
+        let err = Cli::try_parse_from(["visionary-server", "vision", "x.png", "--model-type", "bogus"])
+            .expect_err("invalid --model-type must be rejected");
+        assert_eq!(err.kind(), clap::error::ErrorKind::InvalidValue);
+        assert!(err.to_string().contains("bogus"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn ocr_args_preserve_vision_flag_surface() {
+        // ocr 子命令参数面对齐 vision（除 --model-type 外），From<OcrArgs> 完整映射
+        let cli = Cli::try_parse_from([
+            "visionary-server",
+            "ocr",
+            "a.png",
+            "b.png",
+            "--prompt",
+            "只提取文字",
+            "--thinking",
+            "--continue-conversation",
+            "--session-id",
+            "s1",
+            "--json",
+        ])
+        .expect("ocr all flags parse");
+        let Some(Command::Ocr(args)) = cli.command else {
+            panic!("expected ocr subcommand");
+        };
+        let mapped: VisionArgs = args.into();
+        assert_eq!(mapped.images, vec!["a.png", "b.png"]);
+        assert_eq!(mapped.prompt, "只提取文字");
+        assert!(mapped.thinking && mapped.continue_conversation && mapped.json);
+        assert_eq!(mapped.session_id.as_deref(), Some("s1"));
+        assert_eq!(mapped.model_type, ModelType::Ocr);
     }
 }

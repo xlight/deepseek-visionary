@@ -26,17 +26,24 @@ pub struct FileInfo {
 }
 
 /// 上传文件并等待处理完成。
-pub async fn upload_and_wait(client: &ApiClient, image_data: Vec<u8>) -> Result<FileInfo> {
+///
+/// `model_type`：`None`/`"vision"` → 携带 `x-model-type: vision`（vision 管道）；
+/// `"ocr"` → 不携带（走服务端 OCR 文本提取管道，文字不足时服务端返回 CONTENT_EMPTY）。
+pub async fn upload_and_wait(
+    client: &ApiClient,
+    image_data: Vec<u8>,
+    model_type: Option<&str>,
+) -> Result<FileInfo> {
+    // 网页端在 x-file-size 中发送【原始文件字节数】（压缩前），
+    // 视觉上传管线按 x-model-type 路由视觉处理（缺失时服务端判定 CONTENT_EMPTY）。
+    let original_size = image_data.len();
     let image_data = maybe_compress(&image_data)?;
 
     // 上传前 PoW（对应 Python `_get_pow_challenge` + `solve_challenge`）
     let challenge = create_pow_challenge(client, "/api/v0/file/upload_file").await?;
     let pow_header = pow::PoWSolver::solve_challenge(&challenge)?;
 
-    let headers = vec![
-        ("x-ds-pow-response".into(), pow_header),
-        ("Accept".into(), "application/json".into()),
-    ];
+    let headers = build_upload_headers(&pow_header, original_size, model_type);
 
     let envelope = client
         .post_multipart(
@@ -58,6 +65,31 @@ pub async fn upload_and_wait(client: &ApiClient, image_data: Vec<u8>) -> Result<
 
     // 轮询直到 SUCCESS
     wait_for_success(client, &file_info.id, None).await
+}
+
+/// 构造上传请求头（纯函数，便于测试）。与 DeepSeek 网页端契约对齐（v0.6.2 起，
+/// 见 GitHub issue #2）：
+/// - `x-model-type: vision`：关键。缺失时上传仅做 OCR 提取（status=CONTENT_EMPTY），
+///   不进入视觉处理管线；携带后上传直接产出视觉可用文件，无需再 fork。
+///   modelType 为 `"ocr"` 时**不携带**该头（显式走服务端 OCR 文本提取管道）。
+/// - `x-file-size`：原始文件字节数（压缩前）
+/// - `x-thinking-enabled: 1`：允许思考模式
+pub fn build_upload_headers(
+    pow_header: &str,
+    original_size: usize,
+    model_type: Option<&str>,
+) -> Vec<(String, String)> {
+    let is_ocr = model_type == Some(crate::config::MODEL_TYPE_OCR);
+    let mut headers = vec![
+        ("x-ds-pow-response".into(), pow_header.to_string()),
+        ("Accept".into(), "application/json".into()),
+        ("x-file-size".into(), original_size.to_string()),
+        ("x-thinking-enabled".into(), "1".into()),
+    ];
+    if !is_ocr {
+        headers.push(("x-model-type".into(), "vision".into()));
+    }
+    headers
 }
 
 /// 获取并返回 PoW challenge（对应 Python `_get_pow_challenge`）。
@@ -105,12 +137,12 @@ pub async fn wait_for_success(
         if info.status == "SUCCESS" {
             return Ok(info);
         }
-        // CONTENT_EMPTY：上传文件本身已存储，只是 OCR 文本提取为空。
-        // 与网页端行为一致：继续 fork 到 vision 模型（vision 模型可直接读图），
-        // 不将 OCR 判空作为硬失败。
+        // CONTENT_EMPTY：上传文件本身已存储，但服务端未产出可用内容。
+        // 正常流程下带 `x-model-type: vision` 不会触发（上传即视觉可用）；此处为
+        // 服务端行为漂移的兜底——不硬失败，放行让后续 completion 自然报错传播。
         if info.status == "CONTENT_EMPTY" {
             tracing::warn!(
-                "File {file_id} OCR extraction empty (CONTENT_EMPTY); proceeding to vision fork"
+                "File {file_id} OCR extraction empty (CONTENT_EMPTY); proceeding with upload file id"
             );
             return Ok(info);
         }
@@ -275,5 +307,39 @@ mod tests {
             .write_to(&mut buf, image::ImageFormat::Png)
             .unwrap();
         buf.into_inner()
+    }
+
+    fn header_map(headers: &[(String, String)]) -> std::collections::HashMap<&str, &str> {
+        headers
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect()
+    }
+
+    #[test]
+    fn upload_vision_sends_model_type() {
+        // vision（None 或显式 "vision"）必须携带 `x-model-type: vision`。
+        for mt in [None, Some("vision")] {
+            let headers = build_upload_headers("pow", 1234, mt);
+            let map = header_map(&headers);
+            assert_eq!(map.get("x-model-type"), Some(&"vision"), "mt={mt:?}");
+            assert_eq!(map.get("x-file-size"), Some(&"1234"));
+            assert_eq!(map.get("x-thinking-enabled"), Some(&"1"));
+            assert_eq!(map.get("x-ds-pow-response"), Some(&"pow"));
+        }
+    }
+
+    #[test]
+    fn upload_ocr_omits_model_type() {
+        // ocr 不携带 `x-model-type`（走服务端 OCR 文本提取管道）。
+        let headers = build_upload_headers("pow", 99, Some("ocr"));
+        let map = header_map(&headers);
+        assert!(
+            !map.contains_key("x-model-type"),
+            "ocr must not send x-model-type: {map:?}"
+        );
+        // 其余头保持现状（x-file-size 为原始字节数）
+        assert_eq!(map.get("x-file-size"), Some(&"99"));
+        assert_eq!(map.get("x-thinking-enabled"), Some(&"1"));
     }
 }
