@@ -22,6 +22,9 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: read
+
 jobs:
   update-zed-extension:
     name: Bump Zed Extension Version
