@@ -30,7 +30,7 @@ wasmtime.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 rmcp = { version = "3.1", features = ["server", "transport-io", "schemars"] }
-base64 = "0.22"
+base64 = "0.23"
 futures-util = "0.3"
 bytes = "1"
 chromiumoxide = "0.9"
