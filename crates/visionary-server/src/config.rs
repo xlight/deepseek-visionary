@@ -147,15 +147,14 @@ impl Config {
                 .unwrap_or(file_creds.cf_clearance),
         };
         // modelType 优先级：env `DEEPSEEK_VISIONARY_MODEL_TYPE` > settings.json `model_type` > 默认 None(vision)
-        let file_settings = read_settings_file()
+        let file_settings = read_settings_file().ok().flatten().unwrap_or_default();
+        let model_type: Option<String> = match env::var("DEEPSEEK_VISIONARY_MODEL_TYPE")
             .ok()
-            .flatten()
-            .unwrap_or_default();
-        let model_type: Option<String> =
-            match env::var("DEEPSEEK_VISIONARY_MODEL_TYPE").ok().filter(|s| !s.is_empty()) {
-                Some(v) => Some(v),
-                None => file_settings.model_type,
-            };
+            .filter(|s| !s.is_empty())
+        {
+            Some(v) => Some(v),
+            None => file_settings.model_type,
+        };
         if let Some(mt) = &model_type {
             validate_model_type(mt)?;
         }
@@ -315,8 +314,7 @@ mod tests {
             let meta = fs::metadata(&path).expect("metadata");
             assert_eq!(meta.permissions().mode() & 0o777, 0o600, "must be 0600");
         }
-        let read: SettingsFile =
-            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        let read: SettingsFile = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(read.model_type.as_deref(), Some("ocr"));
         // 缺失字段容错
         let empty: SettingsFile = serde_json::from_str("{}").unwrap();

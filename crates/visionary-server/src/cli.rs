@@ -982,29 +982,42 @@ mod tests {
 
     #[test]
     fn vision_model_type_ocr_parses() {
-        let cli =
-            Cli::try_parse_from(["visionary-server", "vision", "img.png", "--model-type", "ocr"])
-                .expect("vision --model-type ocr parses");
+        let cli = Cli::try_parse_from([
+            "visionary-server",
+            "vision",
+            "img.png",
+            "--model-type",
+            "ocr",
+        ])
+        .expect("vision --model-type ocr parses");
         let Some(Command::Vision(args)) = cli.command else {
             panic!("expected vision subcommand");
         };
         assert_eq!(args.model_type, ModelType::Ocr);
         // 与 ocr 子命令共享 handler：等价于 forced=Ocr + 无 --model-type 面
-        let ocr = Cli::try_parse_from(["visionary-server", "ocr", "img.png"])
-            .expect("ocr parses");
+        let ocr = Cli::try_parse_from(["visionary-server", "ocr", "img.png"]).expect("ocr parses");
         let Some(Command::Ocr(ocr_args)) = ocr.command else {
             panic!("expected ocr subcommand");
         };
         let mapped: VisionArgs = ocr_args.into();
-        assert_eq!(mapped.model_type, args.model_type, "must share the ocr pipeline");
+        assert_eq!(
+            mapped.model_type, args.model_type,
+            "must share the ocr pipeline"
+        );
         assert_eq!(mapped.images, args.images);
     }
 
     #[test]
     fn vision_invalid_model_type_rejected() {
         // 非法 modelType 由 clap ValueEnum 拒绝（退出码 2，stderr 提到非法值）
-        let err = Cli::try_parse_from(["visionary-server", "vision", "x.png", "--model-type", "bogus"])
-            .expect_err("invalid --model-type must be rejected");
+        let err = Cli::try_parse_from([
+            "visionary-server",
+            "vision",
+            "x.png",
+            "--model-type",
+            "bogus",
+        ])
+        .expect_err("invalid --model-type must be rejected");
         assert_eq!(err.kind(), clap::error::ErrorKind::InvalidValue);
         assert!(err.to_string().contains("bogus"), "unexpected: {err}");
     }

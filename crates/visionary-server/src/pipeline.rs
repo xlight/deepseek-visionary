@@ -254,6 +254,9 @@ mod tests {
             resolve_prompt(VISION_DEFAULT_PROMPT.to_string(), false),
             VISION_DEFAULT_PROMPT
         );
-        assert_eq!(resolve_prompt("自定义问题".to_string(), false), "自定义问题");
+        assert_eq!(
+            resolve_prompt("自定义问题".to_string(), false),
+            "自定义问题"
+        );
     }
 }

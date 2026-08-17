@@ -304,7 +304,11 @@ fn ocr_unauthenticated_json_mode_exits_nonzero_with_error() {
 #[test]
 fn ocr_help_does_not_expose_model_type_and_uses_ocr_prompt() {
     // ocr 子命令不暴露 --model-type（恒为 ocr），默认 prompt 为文字提取语义。
-    let out = isolated_cmd().arg("ocr").arg("--help").output().expect("run");
+    let out = isolated_cmd()
+        .arg("ocr")
+        .arg("--help")
+        .output()
+        .expect("run");
     assert!(out.status.success(), "ocr --help should exit 0");
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
@@ -320,7 +324,11 @@ fn ocr_help_does_not_expose_model_type_and_uses_ocr_prompt() {
 #[test]
 fn vision_help_exposes_model_type() {
     // vision 子命令暴露 --model-type（默认 vision）。
-    let out = isolated_cmd().arg("vision").arg("--help").output().expect("run");
+    let out = isolated_cmd()
+        .arg("vision")
+        .arg("--help")
+        .output()
+        .expect("run");
     assert!(out.status.success(), "vision --help should exit 0");
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
