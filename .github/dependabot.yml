@@ -1,0 +1,52 @@
+# .github/dependabot.yml
+version: 2
+updates:
+  # Rust workspace（根 Cargo.toml / Cargo.lock）
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "rust"
+    commit-message:
+      prefix: "cargo"
+    groups:
+      # 把同一 crate 的 minor/patch 升级合并成一个 PR，减少噪音
+      rust-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # DSH 插件（pnpm），package.json + pnpm-lock.yaml 在子目录
+  - package-ecosystem: "npm"
+    directory: "/packages/dsh-plugin"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "npm"
+    commit-message:
+      prefix: "npm"
+    groups:
+      npm-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # GitHub Actions workflow 里的 action 版本
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"
