@@ -29,7 +29,7 @@ const SETTINGS_NAMESPACE = settingsNamespace("visionary-vision");
 
 // Keep in lockstep with the Rust binary's minor version: tools rely on the
 // CLI's `--json` output shape. Bump when the binary's contract changes.
-const COMPAT_MINOR = "0.6";
+const COMPAT_MINOR = "0.7";
 
 const Config = z.object({
   binaryPath: z

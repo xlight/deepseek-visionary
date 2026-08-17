@@ -2,15 +2,13 @@
 
 ## Purpose
 定义 `visionary-server` 的 CLI 子命令面：`vision` / `status` / `login` / `logout` 四个子命令，以命令行方式覆盖与 MCP 工具等价的核心能力，支持流式输出与 `--json` 结构化输出，供终端交互与脚本/agent 消费。
-
 ## Requirements
-
 ### Requirement: vision 子命令
-`visionary-server` SHALL 提供 `vision` 子命令，以 CLI 方式运行完整 vision 流水线（上传 → fork → HIF 签名 → completion）。参数 SHALL 对齐 `deepseek_vision` 工具：`image` 位置参数（支持本地路径 / base64 / data URI / `-` 读 stdin）、`--prompt`、`--thinking`、`--continue`、`--session-id`，另含 CLI 专属的 `--stream` / `--no-stream` / `--json`（见输出模式与 `--json` 需求）。`--session-id` 的优先级 SHALL 高于 `--continue`（与 MCP 工具一致）。未配置 token 时 SHALL 输出登录指引并退出非零。
+`visionary-server` SHALL 提供 `vision` 子命令，以 CLI 方式运行 vision 流水线（上传 → completion，fork 已从服务端移除；上传携带 `x-model-type: vision` 直接完成多模态图像理解）。参数 SHALL 对齐 `deepseek_vision` 工具：`image` 位置参数（支持本地路径 / base64 / data URI / `-` 读 stdin）、`--prompt`、`--thinking`、`--continue`、`--session-id`、`--model-type <vision|ocr>`（默认 vision），另含 CLI 专属的 `--stream` / `--no-stream` / `--json`（见输出模式与 `--json` 需求）。`--session-id` 的优先级 SHALL 高于 `--continue`（与 MCP 工具一致）。未配置 token 时 SHALL 输出登录指引并退出非零。
 
 #### Scenario: 分析本地图片
 - **WHEN** 用户执行 `visionary-server vision /path/to/image.png`
-- **THEN** 程序运行完整流水线，将视觉模型的回答输出到 stdout，退出码为 0
+- **THEN** 程序运行完整流水线（vision 管道），将视觉模型的回答输出到 stdout，退出码为 0
 
 #### Scenario: 自定义问题与 DeepThink
 - **WHEN** 用户执行 `visionary-server vision img.png --prompt "图中有什么？" --thinking`
@@ -35,6 +33,10 @@
 #### Scenario: 显式切换会话
 - **WHEN** 用户执行 `visionary-server vision img.png --session-id <id>`
 - **THEN** 程序在该会话下发起新消息（无本地记录时仅复用 session_id），输出会话提示
+
+#### Scenario: 指定 ocr 管道
+- **WHEN** 用户执行 `visionary-server vision img.png --model-type ocr`
+- **THEN** 程序走 OCR 管道（上传不携带 `x-model-type`）并返回提取的文字内容
 
 ### Requirement: vision 输出模式（TTY 感知）
 `vision` 子命令的输出模式 SHALL 取决于 stdout 是否为 TTY 与显式开关：stdout 为 TTY 时 SHALL 流式打印 completion text 到 stdout（收到内容增量即打印，而非等待完整结果）；stdout 非 TTY 时 SHALL 原子输出完整文本。`--stream` SHALL 强制流式，`--no-stream` SHALL 强制原子输出，两者 SHALL 覆盖 TTY 检测默认。`--stream` 与 `--no-stream` 同时指定 SHALL 报错退出非零。进度日志 SHALL 走 stderr 不污染 stdout；输出结束后 SHALL 打印会话提示（`[session_id: xxx]`）。
@@ -152,3 +154,19 @@ skill 的安装逻辑 SHALL 抽为可复用函数（输入目标技能根目录�
 #### Scenario: init dsh 复用 skill 安装逻辑
 - **WHEN** 用户执行 `visionary-server init dsh`
 - **THEN** 程序经与 `skill install` 相同的安装函数将内嵌 SKILL.md 写入 `$DSH_HOME/skills/visionary-cli/SKILL.md` 与 `~/.agents/skills/visionary-cli/SKILL.md`，两处文件内容与内嵌一致
+
+### Requirement: ocr 子命令
+`visionary-server` SHALL 提供 `ocr` 子命令，以 CLI 方式运行 OCR 文本提取（等价于 `vision --model-type ocr`），参数面 SHALL 对齐 `vision` 子命令（`image` 位置参数、`--prompt`、`--thinking`、`--continue`、`--session-id`、`--stream` / `--no-stream` / `--json`）。未配置 token 时 SHALL 输出登录指引并退出非零。
+
+#### Scenario: 提取文档文字
+- **WHEN** 用户执行 `visionary-server ocr /path/to/doc.png`
+- **THEN** 程序运行 OCR 管道，将提取的文字输出到 stdout，退出码为 0
+
+#### Scenario: 无文字图片
+- **WHEN** 用户执行 `visionary-server ocr img.png` 且图片文字不足（服务端返回 `CONTENT_EMPTY`）
+- **THEN** 程序输出"图片中未提取到文字"提示，退出码非零
+
+#### Scenario: JSON 输出
+- **WHEN** 用户执行 `visionary-server ocr img.png --json`
+- **THEN** 程序输出原子 JSON（`{"text", "session_id", "parent_message_id"}`），与 `vision --json` 形状一致
+

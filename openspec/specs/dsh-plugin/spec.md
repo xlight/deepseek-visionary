@@ -2,9 +2,7 @@
 
 ## Purpose
 定义 DeepSeek Visionary 的 DeepSeek Harness 原生插件包（npm 分发，纯 ESM 无构建）：经 `dsh.bundle.patch` 自注册的 Cordis bundle，向 `ctx.tools` 注册 `deepseek_vision` 等原生工具，工具通过 spawn `visionary-server` CLI（vision/status 经 `--json` 原子输出；login/logout 按子命令参数面透出文本）复用 Rust 视觉管道，提供结构化参数 schema 与宿主级权限（不经 bash 沙箱）。
-
 ## Requirements
-
 ### Requirement: 插件包结构与安装
 插件包 SHALL 是一个标准 DSH bundle，满足以下结构要求：
 
@@ -25,23 +23,29 @@
 - **THEN** 出现 `@xlight-oss/visionary-dsh` 的 bundle 层，含 `visionary-vision` 插件行，无需用户编辑 cordis.patch.yml
 
 ### Requirement: 原生工具面
-插件 SHALL 经 `ctx.tools.register(defineTool(...))` 注册 4 个原生工具，命名与 MCP 工具一致（`deepseek_vision` / `deepseek_vision_status` / `deepseek_vision_login` / `deepseek_vision_logout`），参数 schema 与对应 MCP 工具对齐：
+插件 SHALL 经 `ctx.tools.register(defineTool(...))` 注册 5 个原生工具，命名与 MCP 工具一致（`deepseek_vision` / `deepseek_ocr` / `deepseek_vision_status` / `deepseek_vision_login` / `deepseek_vision_logout`），参数 schema 与对应 MCP 工具对齐：
 
 - `deepseek_vision`：`image`（必填，本地路径 / base64 / data URI）、`prompt`、`thinking`、`continue_conversation`、`session_id`
+- `deepseek_ocr`：`image`（必填，本地路径 / base64 / data URI）、`prompt`、`thinking`、`continue_conversation`、`session_id`（OCR 文本提取，等价 `visionary-server ocr <image>`）
 - `deepseek_vision_status`：无参数，输出登录状态
 - `deepseek_vision_login`：浏览器自动登录（阻塞等待，超时可配置）
 - `deepseek_vision_logout`：清除保存的凭据
 
 工具 SHALL 按各子命令的真实参数面 spawn `visionary-server`：
 - `deepseek_vision` SHALL spawn `visionary-server vision <image> --json` 并解析原子 JSON，返回 `{"text", "session_id", "parent_message_id"}` 的文本投影并在结果中携带会话信息
+- `deepseek_ocr` SHALL spawn `visionary-server ocr <image> --json` 并解析原子 JSON，返回相同形状
 - `deepseek_vision_status` SHALL spawn `visionary-server status --json` 并解析原子 JSON
-- `deepseek_vision_login` / `deepseek_vision_logout` SHALL spawn `visionary-server login` / `visionary-server logout`（**不带** `--json`——这两个子命令无该参数），直接透出文本输出；`login` 的阻塞时长由 `timeoutMs`（决策 10）兜底
+- `deepseek_vision_login` / `deepseek_vision_logout` SHALL spawn `visionary-server login` / `visionary-server logout`（**不带** `--json`——这两个子命令无该参数），直接透出文本输出；`login` 的阻塞时长由 `timeoutMs` 兜底
 
 选项传参 SHALL 一律使用等号形式（`--prompt=<value>` / `--session-id=<value>`），不用空格分隔——CLI（clap）将 `-` 开头的空格形式值当作 flag 拒绝。
 
 #### Scenario: 识图
 - **WHEN** 模型调用 `deepseek_vision` 传入图片路径与问题
 - **THEN** 插件 spawn `visionary-server vision <image> --json --prompt=<q>`（等号传参），返回视觉模型回答文本与 session_id，工具调用成功
+
+#### Scenario: OCR 提取文字
+- **WHEN** 模型调用 `deepseek_ocr` 传入图片路径
+- **THEN** 插件 spawn `visionary-server ocr <image> --json`（等号传参），返回提取的文字文本与 session_id，工具调用成功
 
 #### Scenario: 状态检查
 - **WHEN** 模型调用 `deepseek_vision_status`
@@ -114,12 +118,35 @@
 - **THEN** 插件启动浏览器自动登录并写入 `~/.deepseek-visionary/config.json`，不受 bash 沙箱写限制
 
 ### Requirement: 系统提示整合
-插件 SHALL 通过 `ctx.systemPrompt.section`（如可用）注入简短引导，说明 4 个原生工具的存在与使用场景（图片 / 截图 / 文档识图时优先调用 `deepseek_vision`），引导文本 SHALL 保持精简（不重复工具 schema 描述）。若用户环境同时装有 `visionary-cli` skill（如经 `init dsh` 安装），引导文本 SHALL 说明优先使用原生工具而非经 shell 调用 CLI（原生工具在宿主进程执行，会话续聊与登录不受 bash 沙箱限制）。
+插件 SHALL 通过 `ctx.systemPrompt.section`（如可用）注入简短引导，说明 5 个原生工具的存在与使用场景（图片 / 截图 / 文档识图时优先调用 `deepseek_vision`；纯文字提取场景调用 `deepseek_ocr`），引导文本 SHALL 保持精简（不重复工具 schema 描述）。若用户环境同时装有 `visionary-cli` skill（如经 `init dsh` 安装），引导文本 SHALL 说明优先使用原生工具而非经 shell 调用 CLI（原生工具在宿主进程执行，会话续聊与登录不受 bash 沙箱限制）。
 
 #### Scenario: 模型感知视觉能力
 - **WHEN** 插件已加载且 DSH 会话开始
-- **THEN** 系统提示包含视觉工具引导段落，模型在用户提供图片时倾向调用 `deepseek_vision` 而非猜测
+- **THEN** 系统提示包含视觉/OCR 工具引导段落，模型在用户提供图片时倾向调用 `deepseek_vision` 或 `deepseek_ocr` 而非猜测
 
 #### Scenario: 并存时优先原生工具
 - **WHEN** 用户同时装有 `visionary-cli` skill 与插件（原生工具）
-- **THEN** 系统提示引导模型优先调用原生 `deepseek_vision` 工具，而非经 bash 执行 `visionary-server vision`
+- **THEN** 系统提示引导模型优先调用原生 `deepseek_vision` / `deepseek_ocr` 工具，而非经 bash 执行 `visionary-server`
+
+### Requirement: 设置面板上传路径配置
+插件 SHALL 在 DSH settings 面板提供 `modelType` 配置项（`vision` 默认 | `ocr`），覆盖 CLI 默认值，修改后 SHALL 即时生效（热重载），作用于 `deepseek_vision` 工具的上传管道。
+
+#### Scenario: 设置面板切换上传管道
+- **WHEN** 用户在 DSH 设置面板将 modelType 改为 ocr 后调用 `deepseek_vision`
+- **THEN** `deepseek_vision` 走 OCR 管道（spawn `visionary-server vision <image> --json --model-type=ocr`），无需重启 DSH
+
+### Requirement: 桥接配置面板扩展
+插件 SHALL 在 DSH settings 面板的桥接配置区提供新增配置项：`scope`（`text-only` 默认 | `also-vl`）、`mode`（`agentic` 默认 | `deterministic`），并提供触发"清理已落盘副本"的操作（`cleanPasted` 触发器字段，切换后清理并自动复位，见 design D4）。修改后 SHALL 即时生效（热重载）。
+
+#### Scenario: 桥接范围切换
+- **WHEN** 用户在设置面板将桥接 scope 改为 also-vl
+- **THEN** 桥接开始对 VL 模型同样改写图片（此前 VL 模型原生看图不干预）
+
+#### Scenario: 桥接模式切换
+- **WHEN** 用户在设置面板将桥接 mode 改为 deterministic
+- **THEN** 桥接自行调用分析并将结果文本注入（不再仅依赖模型自主调用工具）
+
+#### Scenario: 手动清理落盘副本
+- **WHEN** 用户触发设置面板"清理已落盘副本"（切换 `cleanPasted` 触发器）
+- **THEN** 桥接清理 `pastedDir` 下副本（按配置保留策略或全部），并报告清理数量；附件库对象不受影响
+
