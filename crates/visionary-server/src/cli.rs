@@ -399,9 +399,7 @@ async fn cmd_vision(args: VisionArgs, forced: ModelType) -> Result<()> {
 
     // modelType 优先级：子命令强制（ocr）> 命令行 --model-type > 配置默认。
     // `ocr` 子命令恒为 Ocr；`vision` 子命令用 --model-type 或配置。
-    let model_type = if forced == ModelType::Ocr {
-        Some(ModelType::Ocr.as_str().to_string())
-    } else if args.model_type == ModelType::Ocr {
+    let model_type = if forced == ModelType::Ocr || args.model_type == ModelType::Ocr {
         Some(ModelType::Ocr.as_str().to_string())
     } else {
         config.model_type.clone()
