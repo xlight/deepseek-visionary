@@ -11,6 +11,10 @@
     "./image-bridge": {
       "default": "./lib/image-bridge/index.mjs"
     },
+    "./settings-card": {
+      "default": "./lib/settings-card/index.mjs"
+    },
+    "./settings-card/package.json": "./lib/settings-card/package.json",
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },

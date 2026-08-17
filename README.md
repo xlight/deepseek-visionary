@@ -134,7 +134,7 @@ dsh plugin --profile web add /path/to/packages/dsh-plugin
 > **文本模型下粘贴图片被拒绝？** 本插件已内置图片桥接（`visionary-image-bridge` 插件行，无需额外安装）：
 > 纯文本模型会话中粘贴的图片经桥接**放行 → 落盘 → 改写为文本引导**，
 > agent 用 `deepseek_vision` 完成分析，模型只收到文本；VL 模型原生看图不受干扰。
-> 配置/隐私说明见 [packages/dsh-plugin/README.md](packages/dsh-plugin/README.md) 的「图片桥接」节。
+> 配置/隐私说明见 [packages/dsh-plugin/README.md](packages/dsh-plugin/README.md) 的「工具」与「图片桥接」节（设置面板 → 左侧导航 → **Visionary**，`visionary-vision:` / `visionary-image-bridge:` settings 命名空间，热重载）。
 
 ### 5. 登录
 

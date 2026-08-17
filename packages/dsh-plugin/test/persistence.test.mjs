@@ -167,6 +167,44 @@ test("lazyCleanup: retainHours <= 0 keeps everything", async () => {
   assert.equal((await fs.readdir(pastedDir)).length, 1);
 });
 
+// ----------------------------------------------- manual cleanup (change task 5.4)
+
+test("cleanup({ all }): removes every pasted copy and syncs cache entries", async () => {
+  const pastedDir = await tmpDir();
+  const { p, state } = makePersistence({ pastedDir, retainHours: 168 });
+  await p.persist(ref("sha256:one"));
+  await p.persist(ref("sha256:two"));
+  assert.ok(p.resolveCached("sha256:one"));
+  assert.ok(p.resolveCached("sha256:two"));
+
+  const removed = await p.cleanup({ all: true });
+  assert.equal(removed, 2);
+  assert.equal((await fs.readdir(pastedDir)).length, 0);
+  assert.equal(p.resolveCached("sha256:one"), null); // dropped with the file
+  assert.equal(p.resolveCached("sha256:two"), null);
+});
+
+test("cleanup() default: only expired copies removed (retainHours semantics)", async () => {
+  const pastedDir = await tmpDir();
+  const { p, state } = makePersistence({ pastedDir, retainHours: 1 });
+  await p.persist(ref("sha256:stale"));
+  await p.persist(ref("sha256:fresh"));
+  const past = new Date(Date.now() - 10 * 3_600_000);
+  await fs.utimes(path.join(pastedDir, "sha256_stale.png"), past, past);
+
+  const removed = await p.cleanup(); // 默认按 retainHours，不清新鲜文件
+  assert.equal(removed, 1);
+  assert.deepEqual((await fs.readdir(pastedDir)).sort(), ["sha256_fresh.png"]);
+  assert.equal(p.resolveCached("sha256:stale"), null);
+  assert.ok(p.resolveCached("sha256:fresh"));
+});
+
+test("cleanup({ all }): missing dir is a non-event (returns 0)", async () => {
+  const pastedDir = path.join(os.tmpdir(), "vib-test-never-created", String(Date.now()));
+  const { p } = makePersistence({ pastedDir });
+  assert.equal(await p.cleanup({ all: true }), 0);
+});
+
 test("DEFAULT_MAX_CACHE_ENTRIES is 512", () => {
   assert.equal(DEFAULT_MAX_CACHE_ENTRIES, 512);
 });

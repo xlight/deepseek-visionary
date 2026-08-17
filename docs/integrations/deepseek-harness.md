@@ -19,16 +19,17 @@ dsh plugin --profile web add @xlight-oss/visionary-dsh
 dsh plugin --profile web add /path/to/packages/dsh-plugin
 ```
 
-`dsh plugin` 会经包内 `dsh.bundle.patch` 声明自动把 `visionary-vision` 与 `visionary-image-bridge` 两个插件行追加到 profile 组合——**无需手写任何配置**。重启 DSH 后注册 4 个原生工具，同时启用文本模型图片桥接：
+`dsh plugin` 会经包内 `dsh.bundle.patch` 声明自动把 `visionary-vision` 与 `visionary-image-bridge` 两个插件行追加到 profile 组合——**无需手写任何配置**。重启 DSH 后注册 5 个原生工具，同时启用文本模型图片桥接：
 
 | 工具 | 说明 |
 |------|------|
 | `deepseek_vision` | 识图（路径 / base64 / data URI），支持 `prompt` / `thinking` / `continue_conversation` / `session_id` 多轮续聊 |
+| `deepseek_ocr` | 纯文字提取（截图 / 文档 / 代码 / 表格中的原文，非理解式分析） |
 | `deepseek_vision_status` | 登录状态检查 |
 | `deepseek_vision_login` | 浏览器自动登录（阻塞，超时可配） |
 | `deepseek_vision_logout` | 清除保存的凭据 |
 
-> **图片桥接**：会话模型为纯文本模型（如 `deepseek-v4-flash`）时，粘贴的图片经桥接**放行 → 落盘 → 改写为文本引导**，agent 用 `deepseek_vision` 完成分析，模型只收到文本；VL 模型原生看图不受干扰。配置见插件包 [README](../../packages/dsh-plugin/README.md) 的「图片桥接」节（`settings.yaml` / 设置面板，热重载）。
+> **图片桥接**：会话模型为纯文本模型（如 `deepseek-v4-flash`）时，粘贴的图片经桥接**放行 → 落盘 → 改写为文本引导**，agent 用 `deepseek_vision` 完成分析，模型只收到文本；VL 模型原生看图不受干扰。配置见插件包 [README](../../packages/dsh-plugin/README.md) 的「工具」与「图片桥接」节（`settings.yaml` / 设置面板：左侧导航 → **Visionary**，热重载；`visionary-vision: modelType: ocr` 可让 `deepseek_vision` 走 OCR 管道）。
 
 原生工具在 DSH **宿主进程**执行（不经 bash 沙箱），因此 `--continue-conversation` 续聊（写 `~/.deepseek-visionary/session.json`）与 `login`（起浏览器、写 config.json）不受 `workspace-write` 写限制。安装与配置详见插件包 [README](../../packages/dsh-plugin/README.md)。
 

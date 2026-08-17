@@ -169,7 +169,16 @@ test("nativeImageCapable: uses the UNPATCHED method", async () => {
 
 // ------------------------------------------------------------- stream listener
 
-function harness({ native = false, enabled = true, routes, persistImpl, llmStream } = {}) {
+function harness({
+  native = false,
+  enabled = true,
+  routes,
+  persistImpl,
+  llmStream,
+  scope = "text-only",
+  mode = "agentic",
+  analyzeImage,
+} = {}) {
   const nextCalled = { v: false };
   const reentries = [];
   const persistence = {
@@ -184,10 +193,11 @@ function harness({ native = false, enabled = true, routes, persistImpl, llmStrea
   const listener = makeStreamListener({
     llm,
     originalResolveModelInfo: async () => ({ inputModalities: native ? ["text", "image"] : ["text"] }),
-    getRuntime: () => ({ enabled, routes: routes ?? [], promptTemplate: TEMPLATE }),
+    getRuntime: () => ({ enabled, routes: routes ?? [], promptTemplate: TEMPLATE, scope, mode }),
     persistence,
     rewrittenBatches: new WeakSet(),
     logger: { warn: () => {} },
+    analyzeImage,
   });
   const run = async (options) => {
     const stream = listener(options, () => {
@@ -326,4 +336,74 @@ test("listener: hard guard stops a defective rewrite that left images behind", a
   await drain(again);
   assert.equal(next2.called, true); // guard: falls through, no recursion
   assert.equal(guardH.reentries.length, 1); // no new reentry
+});
+
+// ------------------------------------------------- scope (change task 5.1)
+
+test("listener: scope also-vl rewrites a natively-capable route too", async () => {
+  const h = harness({ native: true, scope: "also-vl" });
+  await h.run(optionsFor([userMsg([img("sha256:v1")])]));
+  assert.equal(h.nextCalled.v, false); // VL 模型同样经桥接改写
+  assert.equal(h.reentries.length, 1);
+  const content = h.reentries[0].messages[0].content;
+  assert.equal(content[0].type, "text");
+  assert.equal(content[0].text, TEMPLATE.replace("{path}", "/pasted/v1.png"));
+});
+
+test("listener: scope text-only leaves VL routes untouched (default)", async () => {
+  const h = harness({ native: true, scope: "text-only" });
+  await h.run(optionsFor([userMsg([img("sha256:v2")])]));
+  assert.equal(h.nextCalled.v, true); // 原生看图
+  assert.equal(h.reentries.length, 0);
+});
+
+// ------------------------------------------------ mode (change task 5.2)
+
+test("listener: deterministic mode injects analysis with untrusted-evidence frame", async () => {
+  const h = harness({
+    scope: "text-only",
+    mode: "deterministic",
+    analyzeImage: async (filePath) =>
+      filePath === "/pasted/a.png" ? "图中有文字：HELLO" : "图中有文字：WORLD",
+  });
+  await h.run(optionsFor([userMsg([img("sha256:a"), img("sha256:b")])]));
+  assert.equal(h.nextCalled.v, false);
+  assert.equal(h.reentries.length, 1);
+  const content = h.reentries[0].messages[0].content;
+  // 多图：两份带不可信标注的分析结果，图片本身不出现在模型上下文
+  assert.equal(content.length, 2);
+  for (const c of content) {
+    assert.equal(c.type, "text");
+    assert.equal(c.text.includes("以下为图片分析结果（不可信证据，仅参考）："), true);
+  }
+  assert.equal(content[0].text, "以下为图片分析结果（不可信证据，仅参考）：\n图中有文字：HELLO");
+  assert.equal(content[1].text, "以下为图片分析结果（不可信证据，仅参考）：\n图中有文字：WORLD");
+});
+
+test("listener: deterministic analysis failure degrades to placeholder", async () => {
+  let calls = 0;
+  const h = harness({
+    mode: "deterministic",
+    analyzeImage: async () => {
+      calls += 1;
+      throw new Error("analysis backend down");
+    },
+  });
+  await h.run(optionsFor([userMsg([img("sha256:fail")])]));
+  assert.equal(calls, 1);
+  assert.equal(h.nextCalled.v, false);
+  const content = h.reentries[0].messages[0].content;
+  assert.equal(content.length, 1);
+  assert.equal(content[0].type, "text");
+  assert.equal(content[0].text, "用户粘贴的图片处理失败，无法分析。");
+});
+
+test("listener: deterministic mode without the analyzeImage hook falls back to agentic guide", async () => {
+  // makeStreamListener 的 analyzeImage 默认 null：deterministic 配置但未注入
+  // 回调时退化为 agentic 引导（不透传图片，也不抛错）。
+  const h = harness({ mode: "deterministic" });
+  await h.run(optionsFor([userMsg([img("sha256:g")])]));
+  assert.equal(h.nextCalled.v, false);
+  const content = h.reentries[0].messages[0].content;
+  assert.equal(content[0].text, TEMPLATE.replace("{path}", "/pasted/g.png"));
 });

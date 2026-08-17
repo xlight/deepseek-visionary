@@ -6,6 +6,7 @@
 
 import {
   messagesHaveImage,
+  renderAnalysis,
   renderGuide,
   rewriteMessages,
 } from "./rewrite.mjs";
@@ -112,12 +113,13 @@ export async function nativeImageCapable(originalResolveModelInfo, provider, mod
 export function makeStreamListener({
   llm,                       // ctx.llm — reentry target for the rewritten request
   originalResolveModelInfo,  // unpatched resolveModelInfo (capability sensing)
-  getRuntime,                // () => { enabled, routes, promptTemplate }
+  getRuntime,                // () => { enabled, routes, promptTemplate, scope, mode }
   persistence,               // ImagePersistence (persist(block.attachment, signal) -> path)
   rewrittenBatches,          // WeakSet — hard recursion guard (task 3.4)
   logger,                    // ctx.logger (optional)
   routeMatch = matchesRoute,
   placeholder = "用户粘贴的图片处理失败，无法分析。",
+  analyzeImage = null,       // deterministic-mode hook: (filePath, signal) -> analysis text
 }) {
   return (options, next) => {
     if (!options || !options.messages || !options.provider) return next();
@@ -134,20 +136,35 @@ export function makeStreamListener({
         options.model,
         options.signal,
       );
-      if (native) {
+      // scope：text-only（默认）VL 模型原生看图不干预；also-vl 时 VL 模型同样经桥接改写。
+      const scope = runtime.scope === "also-vl" ? "also-vl" : "text-only";
+      if (native && scope !== "also-vl") {
         // VL model: view images natively, never rewrite.
         yield* next();
         return;
       }
       const resolveGuide = async (block, signal) => {
+        let filePath;
         try {
-          const filePath = await persistence.persist(block.attachment, signal);
-          return renderGuide(runtime.promptTemplate, filePath);
+          filePath = await persistence.persist(block.attachment, signal);
         } catch (err) {
           if (signal?.aborted) throw err; // never mask cancellation
           logger?.warn?.(`[visionary-image-bridge] image persistence failed: ${err?.message ?? err}`);
           return placeholder;
         }
+        // deterministic：桥接自行调用分析并注入带不可信标注的结果文本；失败降级占位。
+        if (runtime.mode === "deterministic" && analyzeImage) {
+          try {
+            return renderAnalysis(await analyzeImage(filePath, signal));
+          } catch (err) {
+            if (signal?.aborted) throw err; // never mask cancellation
+            logger?.warn?.(
+              `[visionary-image-bridge] deterministic analysis failed: ${err?.message ?? err}`
+            );
+            return placeholder;
+          }
+        }
+        return renderGuide(runtime.promptTemplate, filePath);
       };
       let rewritten;
       try {

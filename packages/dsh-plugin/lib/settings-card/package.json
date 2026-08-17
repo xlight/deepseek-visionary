@@ -1,0 +1,36 @@
+{
+  "name": "@xlight-oss/visionary-dsh/settings-card",
+  "version": "0.6.1",
+  "private": true,
+  "description": "Client-side settings card for the visionary-dsh host plugins: Vision Tools (visionary-vision) + Image Bridge (visionary-image-bridge), web profile",
+  "type": "module",
+  "main": "index.mjs",
+  "exports": {
+    ".": {
+      "default": "./index.mjs"
+    },
+    "./client": {
+      "default": "./client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
+    }
+  },
+  "files": [
+    "index.mjs",
+    "client.js"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "react": "^18.2.0"
+  },
+  "license": "MIT"
+}

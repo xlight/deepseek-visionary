@@ -58,6 +58,50 @@ export function attachmentFilename(ref) {
   return `${safeId}.${ext}`;
 }
 
+/**
+ * Delete pasted copies in the bridge directory.
+ *
+ * `all` removes every file (manual trigger); otherwise only files whose mtime
+ * is older than `retainHours` (TTL). Returns the number of removed files.
+ * Missing/empty directories and unreadable dirs are non-events. Standalone so
+ * the settings-trigger cleanup (design: 手动清理) reuses the same scanning
+ * semantics as the lazy TTL cleanup.
+ */
+export async function cleanupPastedDir(dir, { retainHours = null, all = false } = {}, logger) {
+  const target = expandHome(dir);
+  try {
+    await fs.access(target);
+  } catch {
+    return 0; // nothing persisted yet
+  }
+  const retainHoursNum = Number(retainHours);
+  const cutoff =
+    all || !Number.isFinite(retainHoursNum) || retainHoursNum <= 0
+      ? null
+      : Date.now() - retainHoursNum * 3_600_000;
+  let removed = 0;
+  try {
+    const entries = await fs.readdir(target, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      const full = path.join(target, entry.name);
+      try {
+        const stat = await fs.stat(full);
+        if (cutoff === null || stat.mtimeMs < cutoff) {
+          await fs.rm(full, { force: true });
+          removed += 1;
+        }
+      } catch {
+        // raced or unreadable; leave it for a later pass
+      }
+    }
+  } catch (err) {
+    logger?.warn?.(`[visionary-image-bridge] cleanup scan failed: ${err?.message ?? err}`);
+    return removed;
+  }
+  return removed;
+}
+
 export class ImagePersistence {
   /**
    * @param attachments - image attachment store exposing readImage(ref, signal)
@@ -161,37 +205,35 @@ export class ImagePersistence {
   async lazyCleanup() {
     const retainHours = Number(this.getRetainHours());
     if (!Number.isFinite(retainHours) || retainHours <= 0) return;
-    const cutoff = Date.now() - retainHours * 3_600_000;
+    await cleanupPastedDir(this.dir, { retainHours }, this.logger);
+    await this.dropStaleCache();
+  }
+
+  /**
+   * Manual cleanup (settings trigger): remove every pasted copy (or, with a
+   * positive retainHours, only the expired ones) and drop cache entries for
+   * files that are gone. Returns the number of removed files.
+   */
+  async cleanup({ all = false } = {}) {
+    const removed = await cleanupPastedDir(
+      this.dir,
+      { retainHours: this.getRetainHours(), all },
+      this.logger,
+    );
+    await this.dropStaleCache();
+    return removed;
+  }
+
+  /** Drop cache entries whose file no longer exists on disk. */
+  async dropStaleCache() {
     const dir = this.dir;
-    try {
-      await fs.access(dir);
-    } catch {
-      return; // nothing persisted yet
-    }
-    try {
-      const entries = await fs.readdir(dir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (!entry.isFile()) continue;
-        const full = path.join(dir, entry.name);
-        try {
-          const stat = await fs.stat(full);
-          if (stat.mtimeMs < cutoff) await fs.rm(full, { force: true });
-        } catch {
-          // raced or unreadable; leave it for a later pass
-        }
-      }
-    } catch (err) {
-      this.logger?.warn?.(`[visionary-image-bridge] cleanup scan failed: ${err?.message ?? err}`);
-      return;
-    }
     for (const [id, target] of [...this.cache]) {
       if (path.dirname(target) !== dir) {
         this.cache.delete(id);
         continue;
       }
       try {
-        const stat = await fs.stat(target);
-        if (stat.mtimeMs < cutoff) this.cache.delete(id);
+        await fs.access(target);
       } catch {
         this.cache.delete(id); // file already gone
       }
