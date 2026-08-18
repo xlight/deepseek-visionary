@@ -444,17 +444,25 @@ fn write_cursor(home: &Path, dry_run: bool) -> Result<()> {
 }
 
 /// Codex config.toml 的 `[mcp_servers.deepseek-visionary]` 段文本。
+///
+/// 用 `Table` 的 Display（文档式渲染）而非 `Value` 的 Display（值式渲染，
+/// 会输出 inline table，段头下跟裸 `{...}` 不是合法 TOML）。
 fn codex_section_toml() -> String {
-    let mut table = toml::map::Map::new();
-    table.insert(
+    let mut entry = toml::Table::new();
+    entry.insert(
         "command".into(),
         toml::Value::String("visionary-server".into()),
     );
-    table.insert(
+    entry.insert(
         "args".into(),
         toml::Value::Array(vec![toml::Value::String("mcp-stdio".into())]),
     );
-    format!("[mcp_servers.{SERVER_NAME}]\n{}", toml::Value::Table(table))
+
+    let mut servers = toml::Table::new();
+    servers.insert(SERVER_NAME.into(), toml::Value::Table(entry));
+    let mut root = toml::Table::new();
+    root.insert("mcp_servers".into(), toml::Value::Table(servers));
+    root.to_string()
 }
 
 // --- 通用写入工具 ---
@@ -520,8 +528,9 @@ fn write_toml_section(path: &Path, section: &str) -> Result<()> {
     let mut content = if path.exists() {
         let raw =
             std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
-        // 严格校验：现有内容必须是合法 TOML
-        raw.parse::<toml::Value>().with_context(|| {
+        // 严格校验：现有内容必须是合法 TOML 文档
+        // （`Table` 而非 `Value`：toml 0.9 起 `FromStr for Value` 只解析单值，不解析文档）
+        raw.parse::<toml::Table>().with_context(|| {
             format!(
                 "parse failed (not overwritten): {} is not valid TOML. Fix it manually and retry.",
                 path.display()
@@ -721,6 +730,33 @@ mod tests {
         assert!(
             content.contains("model = \"gpt-5\""),
             "preserve existing toml"
+        );
+        // 回解析：写出的内容必须是合法 TOML 文档（子串断言拦不住 inline table）
+        let doc = content
+            .parse::<toml::Table>()
+            .unwrap_or_else(|e| panic!("written toml must be valid: {e}\n{content}"));
+        // 结构断言：Codex 真实读取的键路径必须存在且类型正确
+        let entry = doc["mcp_servers"][SERVER_NAME]
+            .as_table()
+            .expect("mcp_servers.<name> must be a table");
+        assert_eq!(entry["command"].as_str(), Some("visionary-server"));
+        assert_eq!(
+            entry["args"].as_array().map(|a| a.len()),
+            Some(1),
+            "args must be a 1-element array"
+        );
+        assert_eq!(entry["args"][0].as_str(), Some("mcp-stdio"));
+
+        // 幂等：再写一次仍然合法，且不重复段
+        write_toml_section(&path, &section).unwrap();
+        let again = std::fs::read_to_string(&path).unwrap();
+        again
+            .parse::<toml::Table>()
+            .unwrap_or_else(|e| panic!("second write must stay valid: {e}\n{again}"));
+        assert_eq!(
+            again.matches("[mcp_servers.deepseek-visionary]").count(),
+            1,
+            "section must not be duplicated, got: {again}"
         );
         let _ = std::fs::remove_dir_all(&home);
     }
