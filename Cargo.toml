@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/visionary-server", "crates/visionary-zed-ext"]
 
 [workspace.package]
-version = "0.7.0"
+version = "0.7.1"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/xlight/deepseek-visionary"

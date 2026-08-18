@@ -1,6 +1,6 @@
 {
   "name": "@xlight-oss/visionary-dsh",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "DeepSeek Visionary native plugin for DeepSeek Harness: deepseek_vision / status / login / logout native tools plus the text-model image bridge, all backed by the visionary-server CLI (DeepSeek web vision model, no API key).",
   "type": "module",
   "main": "lib/index.mjs",
