@@ -16,10 +16,29 @@ use futures_util::StreamExt;
 use reqwest::StatusCode;
 use std::time::Duration;
 
+/// 自定义序列化：`parent_message_id` 存储为字符串，发送时若为纯数字则发 JSON 整数。
+///
+/// DeepSeek 后端要求 `parent_message_id` 为整数（sums001/Deepseek-API、aiodeepseek 逆向证据）。
+/// 提取端把 SSE 整数 id 转字符串存储（便于 session.json 持久化），发送端在此转回整数。
+/// 非数字字符串回退发字符串（真实 SSE 不会触发，保留兜底）。
+fn serialize_parent_message_id<S>(v: &Option<String>, s: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    match v {
+        None => s.serialize_none(),
+        Some(str) => match str.parse::<i64>() {
+            Ok(i) => s.serialize_i64(i),
+            Err(_) => s.serialize_str(str),
+        },
+    }
+}
+
 /// completion 请求的 body（对应 Python `_vision_completion` 的 `body`）。
 #[derive(Debug, serde::Serialize)]
 pub struct CompletionBody {
     pub chat_session_id: String,
+    #[serde(serialize_with = "serialize_parent_message_id")]
     pub parent_message_id: Option<String>,
     pub model_type: String,
     pub prompt: String,
@@ -188,6 +207,16 @@ where
     parse_sse(&mut stream, on_token).await
 }
 
+/// 从 JSON value 提取 message_id，兼容字符串与整数。
+///
+/// DeepSeek 网页端 SSE 的 `response_message_id` / `v.response.message_id` 是整数，
+/// 但保留 `as_str()` 兼容性以防后端未来变回字符串。
+fn extract_id(v: &serde_json::Value) -> Option<String> {
+    v.as_str()
+        .map(String::from)
+        .or_else(|| v.as_i64().map(|i| i.to_string()))
+}
+
 /// 逐行解析 SSE 流（对应 Python `_vision_completion` 的循环体）。
 ///
 /// `on_token` 为可选流式回调：解析到 `v` 字符串或 `type=text` 增量时
@@ -235,19 +264,19 @@ where
                 // 提取 message_id（对应 Python 的多级查找）
                 let msg_id = event
                     .get("response_message_id")
-                    .and_then(|v| v.as_str())
+                    .and_then(extract_id)
                     .or_else(|| {
                         event
                             .get("v")
                             .and_then(|v| v.get("response"))
                             .and_then(|r| r.get("message_id"))
-                            .and_then(|v| v.as_str())
+                            .and_then(extract_id)
                     })
                     .or_else(|| {
                         event
                             .get("message_id")
-                            .and_then(|v| v.as_str())
-                            .or_else(|| event.get("msg_id").and_then(|v| v.as_str()))
+                            .and_then(extract_id)
+                            .or_else(|| event.get("msg_id").and_then(extract_id))
                     });
                 if let Some(id) = msg_id {
                     new_parent_message_id = Some(id.to_string());
@@ -307,10 +336,11 @@ mod tests {
     /// 模拟 SSE 流验证解析逻辑。
     #[tokio::test]
     async fn parse_sse_extracts_text_and_message_id() {
+        // 真实契约：首帧整数 response_message_id + 快照帧 + 路径追加帧。
         let sse = concat!(
-            "data: {\"v\":\"你好\",\"response_message_id\":\"m1\"}\n\n",
-            "data: {\"v\":\"，世界\"}\n\n",
-            "data: {\"type\":\"text\",\"text\":\"!\"}\n\n",
+            "data: {\"request_message_id\":1,\"response_message_id\":2,\"model_type\":\"vision\"}\n\n",
+            "data: {\"v\":{\"response\":{\"message_id\":2,\"fragments\":[{\"type\":\"RESPONSE\",\"content\":\"你好\"}]}}}\n\n",
+            "data: {\"p\":\"response/fragments/-1/content\",\"o\":\"APPEND\",\"v\":\"，世界\"}\n\n",
             "data: [DONE]\n\n"
         );
         let stream = futures_util::stream::iter(vec![Ok::<_, reqwest::Error>(bytes::Bytes::from(
@@ -320,8 +350,8 @@ mod tests {
             dyn futures_util::Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Unpin,
         > = Box::new(stream);
         let (text, parent_id) = parse_sse(&mut boxed, None::<fn(&str)>).await.unwrap();
-        assert_eq!(text, "你好，世界!");
-        assert_eq!(parent_id.as_deref(), Some("m1"));
+        assert_eq!(text, "，世界");
+        assert_eq!(parent_id.as_deref(), Some("2"));
     }
 
     #[tokio::test]
@@ -340,10 +370,12 @@ mod tests {
     #[tokio::test]
     async fn parse_sse_streams_tokens_via_callback() {
         // 流式分支：回调逐块触发且顺序一致，收集结果与无回调时一致。
+        // 真实契约：首帧整数 + 快照帧 + 两个路径追加帧（分别带 "你" "好"）。
         let sse = concat!(
-            "data: {\"v\":\"你\",\"response_message_id\":\"m1\"}\n\n",
-            "data: {\"v\":\"好\"}\n\n",
-            "data: {\"type\":\"text\",\"text\":\"！\"}\n\n",
+            "data: {\"request_message_id\":1,\"response_message_id\":2,\"model_type\":\"vision\"}\n\n",
+            "data: {\"v\":{\"response\":{\"message_id\":2,\"fragments\":[{\"type\":\"RESPONSE\",\"content\":\"\"}]}}}\n\n",
+            "data: {\"p\":\"response/fragments/-1/content\",\"o\":\"APPEND\",\"v\":\"你\"}\n\n",
+            "data: {\"p\":\"response/fragments/-1/content\",\"o\":\"APPEND\",\"v\":\"好\"}\n\n",
             "data: [DONE]\n\n"
         );
         let stream = futures_util::stream::iter(vec![Ok::<_, reqwest::Error>(bytes::Bytes::from(
@@ -358,13 +390,80 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            streamed, "你好！",
+            streamed, "你好",
             "callback should receive all deltas in order"
         );
         assert_eq!(
-            text, "你好！",
+            text, "你好",
             "collected result should equal streamed content"
         );
-        assert_eq!(parent_id.as_deref(), Some("m1"));
+        assert_eq!(parent_id.as_deref(), Some("2"));
+    }
+
+    #[test]
+    fn serialize_parent_message_id_numeric_string_as_integer() {
+        // Some("2") → JSON 整数 2（非字符串 "2"）
+        let body = CompletionBody {
+            chat_session_id: "s1".into(),
+            parent_message_id: Some("2".into()),
+            model_type: "vision".into(),
+            prompt: "p".into(),
+            ref_file_ids: vec![],
+            thinking_enabled: false,
+            search_enabled: false,
+            action: None,
+            preempt: false,
+        };
+        let json = serde_json::to_string(&body).unwrap();
+        assert!(
+            json.contains("\"parent_message_id\":2"),
+            "numeric string should serialize as integer: {json}"
+        );
+        assert!(
+            !json.contains("\"parent_message_id\":\"2\""),
+            "must not be string: {json}"
+        );
+    }
+
+    #[test]
+    fn serialize_parent_message_id_non_numeric_string_as_string() {
+        // Some("abc") → JSON 字符串 "abc"（回退）
+        let body = CompletionBody {
+            chat_session_id: "s1".into(),
+            parent_message_id: Some("abc".into()),
+            model_type: "vision".into(),
+            prompt: "p".into(),
+            ref_file_ids: vec![],
+            thinking_enabled: false,
+            search_enabled: false,
+            action: None,
+            preempt: false,
+        };
+        let json = serde_json::to_string(&body).unwrap();
+        assert!(
+            json.contains("\"parent_message_id\":\"abc\""),
+            "non-numeric string should serialize as string: {json}"
+        );
+    }
+
+    #[test]
+    fn serialize_parent_message_id_none_as_null() {
+        // None → JSON null
+        let body = CompletionBody {
+            chat_session_id: "s1".into(),
+            parent_message_id: None,
+            model_type: "vision".into(),
+            prompt: "p".into(),
+            ref_file_ids: vec![],
+            thinking_enabled: false,
+            search_enabled: false,
+            action: None,
+            preempt: false,
+        };
+        let json = serde_json::to_string(&body).unwrap();
+        assert!(
+            json.contains("\"parent_message_id\":null"),
+            "None should serialize as null: {json}"
+        );
     }
 }
