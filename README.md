@@ -3,7 +3,7 @@
 
 **让 DeepSeek 网页版视觉模型，成为你所有 AI 助手的"眼睛"。** 在 Zed、OpenCode、Codex、Claude Code、Cursor、Claude Desktop 等任意支持 MCP 的 agent，以及 DeepSeek Harness（DSH，原生插件或 skill + CLI）中直接识图——浏览器自动登录，**无需 API key、无需手动复制 token**。
 
-Python 版 `deepseek-vision-mcp` 的 **Rust 全量重写**：单原生二进制、多平台分发，一处安装处处可用。DSH 用户更可 `dsh plugin` 一键安装原生插件包 `@xlight-oss/visionary-dsh`——4 个原生视觉工具 + 文本模型图片桥接，**一包全齐**。
+Python 版 `deepseek-vision-mcp` 的 **Rust 全量重写**：单原生二进制、多平台分发，一处安装处处可用。DSH 用户更可 `dsh plugin` 一键安装原生插件包 `@xlight-oss/visionary-dsh`——5 个原生工具 + 文本模型图片桥接，**一包全齐**。
 
 ## 架构
 
@@ -18,7 +18,7 @@ graph TD
         DP -->|宿主进程 spawn| SRV
     end
     subgraph visionary-server 原生二进制
-        SRV["CLI + MCP stdio 服务<br/>vision / status / login / logout / skill / init / doctor<br/>mcp-stdio CLI"]
+        SRV["CLI + MCP stdio 服务<br/>vision / ocr / status / login / logout / skill / init / doctor<br/>mcp-stdio CLI"]
         CFG["~/.deepseek-visionary/config.json<br/>token + smidV2 + cf_clearance + 会话"]
         SRV --> CFG
     end
@@ -26,7 +26,7 @@ graph TD
     SRV -->|CDP 启动 + 监听| BRO["Chrome 系浏览器<br/>仅登录时出现"]
 ```
 
-- **visionary-server**：单二进制，默认 CLI 模式（`vision` / `status` / `login` / `logout` / `skill` / `init` / `doctor`），`mcp-stdio` 子命令显式启动 MCP stdio 服务；实现完整 vision 流水线（PoW → 上传 → fork → HIF 签名 → SSE 流式 completion）与 CDP 自动登录
+- **visionary-server**：单二进制，默认 CLI 模式（`vision` / `ocr` / `status` / `login` / `logout` / `skill` / `init` / `doctor`），`mcp-stdio` 子命令显式启动 MCP stdio 服务；实现完整 vision / OCR 流水线（PoW → 上传 → fork → HIF 签名 → SSE 流式 completion）与 CDP 自动登录
 - **@xlight-oss/visionary-dsh**：DSH 原生插件包（npm，纯 ESM 无构建，单包双插件行），经 `ctx.tools` 注册 `deepseek_vision` / `deepseek_ocr` 等 5 个原生工具，宿主进程内 spawn `visionary-server` 复用 Rust 管道（续聊/登录不受 bash 沙箱限制）；内置文本模型图片桥接（纯文本模型会话粘贴图片自动放行 + 改写为文本引导）
 - **visionary-zed-ext**：Zed 扩展壳（仅 Zed 需要），按平台从 GitHub Releases 下载/缓存 visionary-server 并启动
 
@@ -129,7 +129,7 @@ dsh plugin --profile web add @xlight-oss/visionary-dsh
 dsh plugin --profile web add /path/to/packages/dsh-plugin
 ```
 
-`dsh plugin` 经包内 `dsh.bundle.patch` 声明自动注册 `visionary-vision`、`visionary-image-bridge` 两个插件行，重启 DSH 后 5 个原生工具出现在工具目录，桥接同时生效（模型可直接调用，无需手写任何配置）；浏览器设置卡片（设置 → 插件 → Plugin configuration 的两张 Visionary 卡片）由包自身 `dsh.client` 声明、随主行下发，不额外占插件行。验证：`dsh --profile web --dump-config` 应出现单个 `@xlight-oss/visionary-dsh` 层。要求 **DSH ≥ 0.1.5-rc.1**。详见 [packages/dsh-plugin/README.md](packages/dsh-plugin/README.md)。
+`dsh plugin` 经包内 `dsh.bundle.patch` 声明自动注册 `visionary-vision`、`visionary-image-bridge` 两个插件行，重启 DSH 后 5 个原生工具出现在工具目录，桥接同时生效（模型可直接调用，无需手写任何配置）；浏览器设置卡片（设置 → 插件 → Plugin configuration 的两张 Visionary 卡片）由包自身 `dsh.client` 声明、随主行下发，不额外占插件行。验证：`dsh --profile web --dump-config` 应出现单个 `@xlight-oss/visionary-dsh` 层。要求 **DSH ≥ 0.1.5-rc.1**（更早的 DSH 请固定 `@xlight-oss/visionary-dsh@0.7.2`）。详见 [packages/dsh-plugin/README.md](packages/dsh-plugin/README.md)。
 
 > **文本模型下粘贴图片被拒绝？** 本插件已内置图片桥接（`visionary-image-bridge` 插件行，无需额外安装）：
 > 纯文本模型会话中粘贴的图片经桥接**放行 → 落盘 → 改写为文本引导**，
