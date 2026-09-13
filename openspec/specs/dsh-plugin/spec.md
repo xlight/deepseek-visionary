@@ -82,17 +82,17 @@
 - **THEN** 插件收到 `exec.signal` 中止信号并 kill 子进程，无残留进程
 
 ### Requirement: 二进制解析与错误处理
-插件 SHALL 按以下优先级解析 `visionary-server` 二进制：`Config.binaryPath`（显式配置）→ `DEEPSEEK_VISIONARY_BIN` 环境变量 → PATH 查找。解析失败或二进制缺失时，工具调用 SHALL 返回清晰错误（含安装指引），不崩溃。
+插件 SHALL 按以下优先级解析 `visionary-server` 二进制：`Config.binaryPath`（显式配置）→ `DEEPSEEK_VISIONARY_BIN` 环境变量 → PATH 查找。win32 下 PATH 扫描 `.exe` 失败时，SHALL 继续解析 npm 全局安装生成的 `.cmd` / `.ps1` shim 定位 exe 真身（见「Windows npm 全局安装场景下自动定位二进制真身」）。二进制路径解析 SHALL 在每次工具调用时重新执行，不复用 `apply()` 时的解析结果（见「二进制解析即时生效（懒解析）」）。解析失败或二进制缺失时，工具调用 SHALL 返回清晰错误（含平台对应的安装指引，见「错误提示平台化」），不崩溃。
 
 未登录时 `deepseek_vision` SHALL 返回登录指引（提示调用 `deepseek_vision_login` 或注入 `DEEPSEEK_USER_TOKEN`）。`vision` 失败（非零退出码）时 SHALL 透出 `{"error"}` 中的信息；`login` 超时（`Config.loginTimeoutSeconds`，默认读取 `DEEPSEEK_LOGIN_TIMEOUT` env、未设置时 600 秒）SHALL 返回超时错误。
 
 工具 SHALL 以 CLI 的 stdout JSON 内容为准解析结果，而非以退出码为准：`status --json` 在 token 无效时仍输出完整 JSON 且以非零退出，插件 SHALL 解析该 JSON 并向模型展示真实状态（非零退出仅作状态提示，不视为调用失败）；`vision --json` 失败时以退出码非零 + `{"error"}` 判定失败。
 
-插件 SHALL 在 apply 时探测 `visionary-server --version` 并记录版本号（探测失败按二进制缺失处理，不阻断插件加载）。二进制版本与插件声明的兼容版本不匹配时，工具结果 SHALL 附带版本警告（不阻断调用），提示用户升级二进制或插件。
+插件 SHALL 在 apply 时探测 `visionary-server --version` 并记录版本号（探测失败按二进制缺失处理，不阻断插件加载）。版本探测 SHALL 仍只在 `apply()` 时执行一次——「二进制解析即时生效（懒解析）」仅适用于二进制**路径**解析，不改变版本探测时机。二进制版本与插件声明的兼容版本不匹配时，工具结果 SHALL 附带版本警告（不阻断调用），提示用户升级二进制或插件。
 
 #### Scenario: 二进制缺失
 - **WHEN** 插件已安装但 `visionary-server` 不在 PATH、未配置 `binaryPath` 且未设置 `DEEPSEEK_VISIONARY_BIN`
-- **THEN** 工具调用返回错误信息（含 install.sh / brew / npm 安装指引），DSH 进程不受影响
+- **THEN** 工具调用返回错误信息（含平台对应的安装指引，Windows 下为 npm 指引，见「错误提示平台化」），DSH 进程不受影响
 
 #### Scenario: 版本不匹配警告
 - **WHEN** 插件探测到二进制版本与插件声明的兼容版本不一致
@@ -105,6 +105,31 @@
 #### Scenario: status 未登录仍返回状态 JSON
 - **WHEN** 模型调用 `deepseek_vision_status` 且 token 未配置或无效（CLI 以非零退出但 stdout 为完整 JSON）
 - **THEN** 插件解析 stdout JSON 并返回 authenticated: false / token_valid: false 的真实状态与登录指引，不因退出码非零而丢弃结果
+
+### Requirement: Windows npm 全局安装场景下自动定位二进制真身
+`npm install -g @xlight-oss/visionary-server` 在 Windows 的 PATH 中只生成 `.cmd` / `.ps1` shim（node 包装），真实 exe 位于包内 `node_modules/.bin_real/`。插件的二进制解析 SHALL 在 PATH 扫描 `.exe` 失败后，解析 shim 定位 exe 真身并 spawn 真身（保持 stdout 管道与 kill 链路完好）。
+
+#### Scenario: npm 全局安装后插件可用
+- **WHEN** Windows 上 `npm install -g @xlight-oss/visionary-server` 完成（PATH 只有 shim），未配置 `binaryPath` / `DEEPSEEK_VISIONARY_BIN`，调用 `deepseek_vision`
+- **THEN** 插件从 `visionary-server.cmd` / `.ps1` shim 解析出 `node_modules\.bin_real\visionary-server.exe` 真身并执行，返回分析结果
+
+#### Scenario: shim 缺失或格式异常时回退友好错误
+- **WHEN** 无法从 PATH 找到 `.exe` 或可解析的 shim
+- **THEN** 工具返回平台化的安装指引错误（win32 给出 npm / binaryPath 指引），不崩溃
+
+### Requirement: 二进制解析即时生效（懒解析）
+插件 SHALL 在每次工具调用时重新解析二进制路径（而非 `apply()` 时缓存一次），使用户修改 PATH 或设置 `DEEPSEEK_VISIONARY_BIN` 后无需重启 DSH 即生效。
+
+#### Scenario: 设置环境变量后立即生效
+- **WHEN** 工具首次调用因找不到二进制而失败，随后用户设置 `DEEPSEEK_VISIONARY_BIN` 指向有效 exe，再次调用同一工具
+- **THEN** 第二次调用成功，无需重启 DSH
+
+### Requirement: 错误提示平台化
+二进制缺失的提示信息 SHALL 按平台给出对应安装命令：win32 给 npm 全局安装 / binaryPath 指引；其他平台给 curl / brew / npm 命令。
+
+#### Scenario: Windows 用户看到 Windows 安装指引
+- **WHEN** win32 平台二进制缺失
+- **THEN** 提示包含 `npm install -g @xlight-oss/visionary-server`、`Config.binaryPath`、`DEEPSEEK_VISIONARY_BIN` 指引，不含 Unix 专属命令
 
 ### Requirement: 宿主级执行与会话语义
 插件工具 SHALL 在 DSH 宿主进程内 spawn 子进程执行（不经 bash 沙箱），因此对 `~/.deepseek-visionary/` 的写入（`config.json`、`session.json`）与浏览器启动不受 DSH 文件沙箱（`workspace-write`）限制。`deepseek_vision` 的 `continue_conversation` / `session_id` 续聊语义 SHALL 与 MCP/CLI 一致：复用 `~/.deepseek-visionary/session.json` 持久化会话。
