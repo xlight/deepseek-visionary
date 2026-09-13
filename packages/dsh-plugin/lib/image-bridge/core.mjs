@@ -35,11 +35,11 @@ export function matchesRoute(provider, model, routes) {
  * untouched.
  *
  * The ORIGINAL method reference is kept separate from the patch so capability
- * sensing (`nativeImageCapable`) and the imageRouting consultation are never
- * poisoned by it — the patch is strictly an admission-release lever, and
- * without this separation every bridge route would read as "natively image
- * capable" and the rewrite would never run (images would hit the pi-ai second
- * gate and fail with UNSUPPORTED_CONTENT).
+ * sensing (`nativeImageCapable`) is never poisoned by it — the patch is
+ * strictly an admission-release lever, and without this separation every
+ * bridge route would read as "natively image capable" and the rewrite would
+ * never run (images would hit the pi-ai second gate and fail with
+ * UNSUPPORTED_CONTENT).
  *
  * Lifecycle: `install()` registers the patch and returns a disposer restoring
  * the original (re-assign, guarded so it never clobbers a later patch by
@@ -47,8 +47,23 @@ export function matchesRoute(provider, model, routes) {
  * unload/HMR reload always restores the original — otherwise a leftover patch
  * would be captured as the "original" by the next apply and poison capability
  * sensing forever.
+ *
+ * Feature detection (design D7): a host whose llm service has no
+ * `resolveModelInfo` cannot be bridged at all. Instead of throwing inside
+ * `apply` (which would kill the whole plugin row), the patch reports
+ * `available: false` and the caller skips the bridge.
  */
-export function makeModelInfoPatch({ llm, isEnabled, routeMatch = matchesRoute }) {
+export function makeModelInfoPatch({ llm, isEnabled, routeMatch = matchesRoute, logger }) {
+  if (typeof llm?.resolveModelInfo !== "function") {
+    logger?.warn?.(
+      "[visionary-image-bridge] ctx.llm.resolveModelInfo is not a function on this host; image bridging stays disabled"
+    );
+    return {
+      available: false,
+      original: undefined,
+      install: () => () => {},
+    };
+  }
   const original = llm.resolveModelInfo.bind(llm);
   const patched = async (provider, model, signal) => {
     const info = await original(provider, model, signal);
@@ -59,6 +74,7 @@ export function makeModelInfoPatch({ llm, isEnabled, routeMatch = matchesRoute }
     return { ...info, inputModalities: [...info.inputModalities, "image"] };
   };
   return {
+    available: true,
     /** The unpatched method, for capability sensing and consultations. */
     original,
     /** Install the patch; returns the disposer that restores the original. */

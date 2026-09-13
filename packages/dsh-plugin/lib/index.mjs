@@ -14,7 +14,6 @@
 
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import z from "@deepseek-ai/schemastery";
-import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
 import { spawn } from "node:child_process";
 import { statSync, readFileSync } from "node:fs";
 import { promises as fs } from "node:fs";
@@ -24,8 +23,12 @@ import path from "node:path";
 const name = "visionary-vision";
 const inject = ["tools", "systemPrompt"];
 
-/** Settings namespace（面板 / settings.yaml 双入口，规范：dsh-plugin 设置面板上传路径配置）。 */
-const SETTINGS_NAMESPACE = settingsNamespace("visionary-vision");
+/**
+ * Settings namespace（面板 / settings.yaml 双入口，规范：dsh-plugin 设置面板上传路径配置）。
+ * 字面量字符串：DSH 自 0.1.2-alpha.2 起以编译期字面量类型校验命名空间，
+ * 旧的 `settingsNamespace()` 运行时 helper 已不存在（`/^[a-z][a-z0-9-]*$/`）。
+ */
+const SETTINGS_NAMESPACE = "visionary-vision";
 
 // Keep in lockstep with the Rust binary's minor version: tools rely on the
 // CLI's `--json` output shape. Bump when the binary's contract changes.
@@ -297,13 +300,27 @@ function apply(ctx, config) {
   // 而不是冻结的 config —— 设置面板切换 modelType（vision|ocr）无需重启 DSH。
   let runtime = { ...config };
   let source = () => config;
-  installSettingsSection(ctx, SETTINGS_NAMESPACE, Config, config, {
-    setSource: (thunk) => {
-      source = thunk;
-    },
-    onChange: () => {
-      runtime = { ...source() };
-    },
+  // settings 服务可选：inject(["settings"], …) 在 provider 就绪（或之后出现）时
+  // 才注册命名空间，provider 脱离时 installSection 会把 source 回退到 entry，
+  // 因此「无 settings 服务」表现为按组合 entry 配置运行，而不是插件行报错。
+  ctx.inject(["settings"], (settingsCtx) => {
+    const settings = settingsCtx.settings;
+    if (typeof settings?.installSection !== "function") {
+      // 契约不符（早于 0.1.2-alpha.2 的宿主）：降级为 entry 配置并明确提示，
+      // 不让整行插件在加载期死掉。
+      ctx.logger?.warn?.(
+        "[visionary-vision] the mounted settings service has no installSection(); keeping the composition entry config"
+      );
+      return;
+    }
+    settings.installSection(ctx, SETTINGS_NAMESPACE, Config, config, {
+      setSource: (thunk) => {
+        source = thunk;
+      },
+      onChange: () => {
+        runtime = { ...source() };
+      },
+    });
   });
 
   const loginSeconds = (() => {

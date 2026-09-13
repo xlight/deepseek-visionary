@@ -17,20 +17,18 @@
 //      fires and the model only ever receives text. The rewrite acts on the
 //      request snapshot only — session logs / UI transcript keep the original
 //      images.
-//   3. forward compat — provides `ctx.imageRouting` (the community
-//      consultation contract) ONLY when the host does not already provide it;
-//      when the host provides it natively, the resolveModelInfo patch is not
-//      installed and the native hook handles admission.
+//   3. settings — the bridge config lives in its own namespace
+//      (`visionary-image-bridge`) via `installSection` + the native card.
 //
 // The bridge never changes the `deepseek_vision` tool contract, never touches
 // session logs, and with `enabled: false` restores the host's original
 // behavior (text-only models reject images again).
 //
 // Design source: openspec/changes/visionary-image-bridge (D2 admission patch,
-// D3 persistence, D4 llm/stream rewrite, D5 imageRouting, D6 settings, D7 TTL).
+// D3 persistence, D4 llm/stream rewrite, D6 settings, D7 TTL);
+// openspec/changes/adapt-dsh-0-1-5 (D2 installSection, D7 bridge route).
 
 import z from "@deepseek-ai/schemastery";
-import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
 import { ImagePersistence } from "./persistence.mjs";
 import { makeModelInfoPatch, makeStreamListener, matchesRoute } from "./core.mjs";
 // Same-package internal reuse (exported from the tools plugin row): the
@@ -53,8 +51,10 @@ export const DEFAULT_PROMPT_TEMPLATE = [
 /** Degradation placeholder when an image cannot be read or persisted. */
 export const IMAGE_PLACEHOLDER = "用户粘贴的图片处理失败，无法分析。";
 
-/** Settings namespace (panel section key in $DSH_HOME/settings.yaml). */
-export const SETTINGS_NAMESPACE = settingsNamespace("visionary-image-bridge");
+/** Settings namespace (panel card key + `$DSH_HOME/settings.yaml` section).
+ * Literal string: DSH validates namespaces as literal types since
+ * 0.1.2-alpha.2 and no longer ships the `settingsNamespace()` helper. */
+export const SETTINGS_NAMESPACE = "visionary-image-bridge";
 
 export const Config = z.object({
   enabled: z.boolean().default(true).description(
@@ -124,39 +124,20 @@ export function apply(ctx, config) {
     logger: ctx.logger,
   });
 
-  // Forward compat (design D5): when the host natively provides imageRouting,
-  // it handles admission — we neither register a duplicate service (cordis
-  // throws on that, failing the plugin row) nor install the resolveModelInfo
-  // patch. The llm/stream rewrite stays in both shapes: it self-adapts via the
-  // per-request native capability check.
-  const hostProvidesImageRouting = ctx.get("imageRouting") !== undefined;
-
+  // Admission release (design D2 of the original change; route decision in
+  // adapt-dsh-0-1-5 D7): the web host's gate hardcodes
+  // MODEL_DOES_NOT_SUPPORT_IMAGES and reads only `llm.resolveModelInfo`, with
+  // no waterfall to hook. The bridge therefore releases admission by wrapping
+  // that one read, then rewrites image blocks to text at `llm/stream`. The
+  // community alternative (registering a synthetic provider route that
+  // advertises `image`) cannot take over an existing provider id and forces
+  // the user to re-select a wrapped model, so it is not used here.
   const patch = makeModelInfoPatch({
     llm: ctx.llm,
     isEnabled: () => runtime.enabled,
     routeMatch: (provider, model) => matchesRoute(provider, model, runtime.routes),
+    logger: ctx.logger,
   });
-
-  if (!hostProvidesImageRouting) {
-    // Admission release + restore-on-unload (design D2). The disposer restores
-    // the original method, so an HMR reload never captures the leftover patch
-    // as the "original" and poisons capability sensing.
-    ctx.effect(patch.install, "visionary-image-bridge: resolveModelInfo patch");
-
-    // Community-shaped consultation (design D5): the web host calls
-    // resolveFallback(agent, current) when the selected model rejects image
-    // input and routes the request through the returned selection. This bridge
-    // never switches models — returning `current` means "keep this route, the
-    // bridge admits and rewrites images at the stream boundary".
-    ctx.provide("imageRouting", {
-      resolveFallback: async (_agent, current) => {
-        if (!runtime.enabled) return undefined;
-        if (!current) return undefined;
-        if (!matchesRoute(current.provider, current.model, runtime.routes)) return undefined;
-        return current;
-      },
-    });
-  }
 
   const rewrittenBatches = new WeakSet();
 
@@ -185,58 +166,83 @@ export function apply(ctx, config) {
     );
   };
 
-  // The unified rewrite point (design D4): every model request passes this
-  // waterfall, so one listener covers user pastes, read_image tool results,
-  // any tool-result image, and replay. prepend: true puts it outside the host
-  // llm-invariant; global: true makes it fire for the root event scope like
-  // the official dsh-session-title listener.
-  ctx.on(
-    "llm/stream",
-    makeStreamListener({
-      llm: ctx.llm,
-      originalResolveModelInfo: patch.original,
-      getRuntime: () => runtime,
-      persistence,
-      rewrittenBatches,
-      logger: ctx.logger,
-      analyzeImage,
-    }),
-    { global: true, prepend: true },
-  );
+  if (!patch.available) {
+    // Feature detection (task 2.6): a host without the readable method cannot
+    // be bridged. Keep the plugin row alive with the bridge disabled instead
+    // of throwing out of `apply`; the patch already logged the reason.
+    ctx.logger?.warn?.(
+      "[visionary-image-bridge] bridging disabled: the host llm service exposes no resolveModelInfo()"
+    );
+  } else {
+    // Restore-on-unload (design D2): the disposer restores the original method,
+    // so an HMR reload never captures the leftover patch as the "original" and
+    // poisons capability sensing.
+    ctx.effect(patch.install, "visionary-image-bridge: resolveModelInfo patch");
+
+    // The unified rewrite point (design D4): every model request passes this
+    // waterfall, so one listener covers user pastes, read_image tool results,
+    // any tool-result image, and replay. prepend: true puts it outside the host
+    // llm-invariant; global: true makes it fire for the root event scope like
+    // the official dsh-session-title listener.
+    ctx.on(
+      "llm/stream",
+      makeStreamListener({
+        llm: ctx.llm,
+        originalResolveModelInfo: patch.original,
+        getRuntime: () => runtime,
+        persistence,
+        rewrittenBatches,
+        logger: ctx.logger,
+        analyzeImage,
+      }),
+      { global: true, prepend: true },
+    );
+  }
 
   // Settings section (design D6): settings panel + settings.yaml, hot reload.
-  installSettingsSection(ctx, SETTINGS_NAMESPACE, Config, config, {
-    setSource: (thunk) => {
-      source = thunk;
-    },
-    onChange: () => {
-      const next = { ...source() };
-      // cleanPasted 是一次性触发器：切为 true 即触发清理，并把运行态复位为
-      // false（不再视为常态配置），再回写 settings 文档复位持久化值，避免
-      // 每次启动/切换都重复全量清理（design：打开一次触发一次）。
-      const triggered = next.cleanPasted === true;
-      if (triggered) next.cleanPasted = false;
-      runtime = next;
-      validateConfig(runtime); // belt-and-braces; validate hook already rejects bad writes
-      if (triggered) {
-        persistence
-          .cleanup({ all: true })
-          .then((removed) => {
-            ctx.logger.info(`[visionary-image-bridge] cleaned ${removed} pasted file(s)`);
-          })
-          .catch((err) => {
-            ctx.logger.warn(`[visionary-image-bridge] cleanPasted cleanup failed: ${err?.message ?? err}`);
-          });
-        const settings = ctx.get?.("settings");
-        if (settings && typeof settings.update === "function") {
-          settings.update(SETTINGS_NAMESPACE, { cleanPasted: false }).catch(() => {
-            // best-effort reset; runtime is already flipped, panel stays truthful
-          });
+  // The service is optional: inject waits for it, and installSection falls back
+  // to the composition entry when the provider detaches (adapt-dsh-0-1-5 D2).
+  ctx.inject(["settings"], (settingsCtx) => {
+    const settings = settingsCtx.settings;
+    if (typeof settings?.installSection !== "function") {
+      ctx.logger?.warn?.(
+        "[visionary-image-bridge] the mounted settings service has no installSection(); keeping the composition entry config"
+      );
+      return;
+    }
+    settings.installSection(ctx, SETTINGS_NAMESPACE, Config, config, {
+      setSource: (thunk) => {
+        source = thunk;
+      },
+      onChange: () => {
+        const next = { ...source() };
+        // cleanPasted 是一次性触发器：切为 true 即触发清理，并把运行态复位为
+        // false（不再视为常态配置），再回写 settings 文档复位持久化值，避免
+        // 每次启动/切换都重复全量清理（design：打开一次触发一次）。
+        const triggered = next.cleanPasted === true;
+        if (triggered) next.cleanPasted = false;
+        runtime = next;
+        validateConfig(runtime); // belt-and-braces; validate hook already rejects bad writes
+        if (triggered) {
+          persistence
+            .cleanup({ all: true })
+            .then((removed) => {
+              ctx.logger.info(`[visionary-image-bridge] cleaned ${removed} pasted file(s)`);
+            })
+            .catch((err) => {
+              ctx.logger.warn(`[visionary-image-bridge] cleanPasted cleanup failed: ${err?.message ?? err}`);
+            });
+          const settingsService = ctx.get?.("settings");
+          if (settingsService && typeof settingsService.update === "function") {
+            settingsService.update(SETTINGS_NAMESPACE, { cleanPasted: false }).catch(() => {
+              // best-effort reset; runtime is already flipped, panel stays truthful
+            });
+          }
         }
-      }
-      ctx.logger.info("[visionary-image-bridge] configuration updated");
-    },
-    validate: validateConfig,
+        ctx.logger.info("[visionary-image-bridge] configuration updated");
+      },
+      validate: validateConfig,
+    });
   });
 
   // Lazy TTL cleanup at startup (design D7); later cleanups run after persists.

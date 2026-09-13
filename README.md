@@ -129,12 +129,12 @@ dsh plugin --profile web add @xlight-oss/visionary-dsh
 dsh plugin --profile web add /path/to/packages/dsh-plugin
 ```
 
-`dsh plugin` 经包内 `dsh.bundle.patch` 声明自动注册 `visionary-vision` 与 `visionary-image-bridge` 两个插件行，重启 DSH 后 5 个原生工具出现在工具目录，桥接同时生效（模型可直接调用，无需手写任何配置）。验证：`dsh --profile web --dump-config` 应出现单个 `@xlight-oss/visionary-dsh` 层。详见 [packages/dsh-plugin/README.md](packages/dsh-plugin/README.md)。
+`dsh plugin` 经包内 `dsh.bundle.patch` 声明自动注册 `visionary-vision`、`visionary-image-bridge` 两个插件行，重启 DSH 后 5 个原生工具出现在工具目录，桥接同时生效（模型可直接调用，无需手写任何配置）；浏览器设置卡片（设置 → 插件 → Plugin configuration 的两张 Visionary 卡片）由包自身 `dsh.client` 声明、随主行下发，不额外占插件行。验证：`dsh --profile web --dump-config` 应出现单个 `@xlight-oss/visionary-dsh` 层。要求 **DSH ≥ 0.1.5-rc.1**。详见 [packages/dsh-plugin/README.md](packages/dsh-plugin/README.md)。
 
 > **文本模型下粘贴图片被拒绝？** 本插件已内置图片桥接（`visionary-image-bridge` 插件行，无需额外安装）：
 > 纯文本模型会话中粘贴的图片经桥接**放行 → 落盘 → 改写为文本引导**，
 > agent 用 `deepseek_vision` 完成分析，模型只收到文本；VL 模型原生看图不受干扰。
-> 配置/隐私说明见 [packages/dsh-plugin/README.md](packages/dsh-plugin/README.md) 的「工具」与「图片桥接」节（设置面板 → 左侧导航 → **Visionary**，`visionary-vision:` / `visionary-image-bridge:` settings 命名空间，热重载）。
+> 配置/隐私说明见 [packages/dsh-plugin/README.md](packages/dsh-plugin/README.md) 的「工具」与「图片桥接」节（设置面板 **设置 → 插件 → Plugin configuration** 下的两张 Visionary 卡片，对应 `visionary-vision:` / `visionary-image-bridge:` settings 命名空间，热重载）。
 
 ### 5. 登录
 

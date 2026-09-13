@@ -29,7 +29,7 @@ dsh plugin --profile web add /path/to/packages/dsh-plugin
 | `deepseek_vision_login` | 浏览器自动登录（阻塞，超时可配） |
 | `deepseek_vision_logout` | 清除保存的凭据 |
 
-> **图片桥接**：会话模型为纯文本模型（如 `deepseek-v4-flash`）时，粘贴的图片经桥接**放行 → 落盘 → 改写为文本引导**，agent 用 `deepseek_vision` 完成分析，模型只收到文本；VL 模型原生看图不受干扰。配置见插件包 [README](../../packages/dsh-plugin/README.md) 的「工具」与「图片桥接」节（`settings.yaml` / 设置面板：左侧导航 → **Visionary**，热重载；`visionary-vision: modelType: ocr` 可让 `deepseek_vision` 走 OCR 管道）。
+> **图片桥接**：会话模型为纯文本模型（如 `deepseek-v4-flash`）时，粘贴的图片经桥接**放行 → 落盘 → 改写为文本引导**，agent 用 `deepseek_vision` 完成分析，模型只收到文本；VL 模型原生看图不受干扰。配置见插件包 [README](../../packages/dsh-plugin/README.md) 的「工具」与「图片桥接」节（`settings.yaml` / 设置面板：**设置 → 插件 → Plugin configuration** 下的两张 Visionary 卡片，热重载；`visionary-vision: modelType: ocr` 可让 `deepseek_vision` 走 OCR 管道）。插件要求 **DSH ≥ 0.1.5-rc.1**。
 
 原生工具在 DSH **宿主进程**执行（不经 bash 沙箱），因此 `--continue-conversation` 续聊（写 `~/.deepseek-visionary/session.json`）与 `login`（起浏览器、写 config.json）不受 `workspace-write` 写限制。安装与配置详见插件包 [README](../../packages/dsh-plugin/README.md)。
 
@@ -100,8 +100,8 @@ DSH 的技能文件系统按以下根顺序发现技能（一级目录 `<root>/<
 
 ```bash
 # 插件路径：
-dsh --profile web --dump-config   # 应出现单个 @xlight-oss/visionary-dsh 层，含 visionary-vision 与 visionary-image-bridge 两个插件行
-# 重启 DSH 后问 agent "你能看图吗"，或直接手测工具调用
+dsh --profile web --dump-config   # 应出现单个 @xlight-oss/visionary-dsh 层，含 visionary-vision / visionary-image-bridge 两个行
+# 重启 DSH 后问 agent "你能看图吗"，或直接手测工具调用；设置 → 插件 → Plugin configuration 应出现两张 Visionary 卡片
 
 # skill + CLI 路径：
 # 1) 二进制与 skill 就位

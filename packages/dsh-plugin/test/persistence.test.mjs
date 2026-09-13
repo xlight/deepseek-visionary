@@ -69,8 +69,11 @@ test("persist: writes bytes with 0600 file in 0700 dir, returns absolute path", 
   const target = await p.persist(ref());
   assert.ok(target.startsWith(pastedDir));
   assert.equal(await fs.readFile(target, "utf8"), "\u0001\u0002\u0003");
-  assert.equal((await fs.stat(target)).mode & 0o777, 0o600);
-  assert.equal((await fs.stat(pastedDir)).mode & 0o777, 0o700);
+  if (process.platform !== "win32") {
+    // POSIX permission bits; Windows has no equivalent, so CI (Linux) owns them.
+    assert.equal((await fs.stat(target)).mode & 0o777, 0o600);
+    assert.equal((await fs.stat(pastedDir)).mode & 0o777, 0o700);
+  }
   assert.ok((await fs.readdir(pastedDir)).includes("sha256_abc.png"));
 });
 

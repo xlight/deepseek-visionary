@@ -13,4 +13,4 @@ mcp-login.log
 node_modules/
 .pnpm-store/
 .opencode/
-openspec/
+openspec/changes/archive/

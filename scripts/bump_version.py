@@ -270,6 +270,7 @@ def main() -> None:
     bump_cargo_lock(new_version)
     bump_extension_toml(new_version)
     bump_plugin_json(new_version)
+
     bump_compat_minor(new_version)
     bump_server_json(new_version)
     print()

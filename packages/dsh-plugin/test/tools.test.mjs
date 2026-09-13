@@ -16,6 +16,13 @@ import { spawnSync } from "node:child_process";
 const plugin = await import("../lib/index.mjs");
 const { apply, buildImageCliArgs } = plugin;
 
+// The recorder fixture is an extensionless POSIX shebang script; Windows cannot
+// spawn that shape (ENOENT), and the real binary there is a `visionary-server.exe`.
+// The spawn assertions still run on the Linux CI job.
+const SPAWN_SKIP = process.platform === "win32"
+  ? "extensionless shebang fixture — spawn assertions run on the Linux CI job"
+  : false;
+
 /** Install a tiny executable that records argv and prints a vision JSON. */
 async function makeRecorderBinary(recordPath) {
   const bin = path.join(await fs.mkdtemp(path.join(os.tmpdir(), "vs-tool-bin-")), "visionary-server");
@@ -48,18 +55,11 @@ async function bootApply({ modelType = "vision", binaryPath = "" } = {}) {
 }
 
 /** Fake settings service holder: lets a test simulate a settings-panel write by
- * replacing the resolved value and firing the scope watcher (which is exactly
- * what installSettingsSection's onChange hook listens to). */
+ * replacing the resolved value and firing the installed section's onChange hook
+ * (which is exactly what `installSection`'s hooks wire up). */
 function makeSettingsHarness(initial) {
-  const hook = { setSource: null, onChange: null };
+  const hooks = { setSource: null, onChange: null };
   const state = { value: initial };
-  const scope = {
-    get: () => state.value,
-    watch: (cb) => {
-      hook.onChange = cb;
-      return () => {};
-    },
-  };
   const harness = {
     ctx: {
       tools: { register: () => {} },
@@ -68,19 +68,24 @@ function makeSettingsHarness(initial) {
       effect: () => () => {},
       inject: (deps, fn) => {
         if (deps.includes("settings")) {
-          const sctx = {
-            settings: { register: () => scope },
-            effect: () => () => {},
+          const settings = {
+            installSection: (_owner, _ns, _schema, _entry, sectionHooks) => {
+              hooks.setSource = sectionHooks.setSource;
+              hooks.onChange = sectionHooks.onChange;
+              // mimic the provider: bind the source, then fire onChange once
+              sectionHooks.setSource(() => state.value);
+              sectionHooks.onChange();
+            },
           };
-          fn(sctx);
+          fn({ settings, effect: () => () => {} });
         }
         return () => {};
       },
     },
-    /** Simulate a settings write: swap the resolved value and fire the watcher. */
+    /** Simulate a settings write: swap the resolved value and fire onChange. */
     write(next) {
       state.value = next;
-      hook.onChange();
+      hooks.onChange();
     },
   };
   return harness;
@@ -146,7 +151,7 @@ test("apply: registers 5 native tools incl. deepseek_ocr with the vision schema"
   }
 });
 
-test("deepseek_ocr: spawns `ocr <image> --json` and returns extraction text", async () => {
+test("deepseek_ocr: spawns `ocr <image> --json` and returns extraction text", { skip: SPAWN_SKIP }, async () => {
   const record = path.join(os.tmpdir(), `vs-tool-record-${Date.now()}.json`);
   const bin = await makeRecorderBinary(record);
   try {
@@ -163,7 +168,7 @@ test("deepseek_ocr: spawns `ocr <image> --json` and returns extraction text", as
   }
 });
 
-test("deepseek_vision: modelType=ocr config appends --model-type=ocr at spawn", async () => {
+test("deepseek_vision: modelType=ocr config appends --model-type=ocr at spawn", { skip: SPAWN_SKIP }, async () => {
   const record = path.join(os.tmpdir(), `vs-tool-record-${Date.now()}.json`);
   const bin = await makeRecorderBinary(record);
   try {
@@ -178,7 +183,7 @@ test("deepseek_vision: modelType=ocr config appends --model-type=ocr at spawn", 
   }
 });
 
-test("deepseek_vision: default modelType spawns without --model-type", async () => {
+test("deepseek_vision: default modelType spawns without --model-type", { skip: SPAWN_SKIP }, async () => {
   const record = path.join(os.tmpdir(), `vs-tool-record-${Date.now()}.json`);
   const bin = await makeRecorderBinary(record);
   try {
@@ -193,7 +198,7 @@ test("deepseek_vision: default modelType spawns without --model-type", async () 
   }
 });
 
-test("deepseek_vision: settings write to modelType=ocr hot-reloads without re-apply", async () => {
+test("deepseek_vision: settings write to modelType=ocr hot-reloads without re-apply", { skip: SPAWN_SKIP }, async () => {
   const record = path.join(os.tmpdir(), `vs-tool-record-${Date.now()}.json`);
   const bin = await makeRecorderBinary(record);
   const harness = makeSettingsHarness({
@@ -211,7 +216,7 @@ test("deepseek_vision: settings write to modelType=ocr hot-reloads without re-ap
     // 初始 vision：spawn 不带 --model-type
     await vision.execute({ image: "vision.png" }, { signal: undefined });
     assert.deepEqual(JSON.parse(await fs.readFile(record, "utf8")), ["vision", "vision.png", "--json"]);
-    // 模拟设置面板写入 modelType=ocr（installSettingsSection onChange 热重载）
+    // 模拟设置面板写入 modelType=ocr（installSection onChange 热重载）
     harness.write({ binaryPath: bin, modelType: "ocr", visionTimeoutMs: 60000, statusTimeoutMs: 60000 });
     await vision.execute({ image: "ocr.png" }, { signal: undefined });
     const argv = JSON.parse(await fs.readFile(record, "utf8"));
