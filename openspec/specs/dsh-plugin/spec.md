@@ -2,7 +2,9 @@
 
 ## Purpose
 定义 DeepSeek Visionary 的 DeepSeek Harness 原生插件包（npm 分发，纯 ESM 无构建）：经 `dsh.bundle.patch` 自注册的 Cordis bundle，向 `ctx.tools` 注册 `deepseek_vision` 等原生工具，工具通过 spawn `visionary-server` CLI（vision/status 经 `--json` 原子输出；login/logout 按子命令参数面透出文本）复用 Rust 视觉管道，提供结构化参数 schema 与宿主级权限（不经 bash 沙箱）。
+
 ## Requirements
+
 ### Requirement: 插件包结构与安装
 插件包 SHALL 是一个标准 DSH bundle，满足以下结构要求：
 
@@ -224,3 +226,15 @@
 #### Scenario: 手动清理落盘副本
 - **WHEN** 用户触发卡片上的"清理已落盘副本"（切换 `cleanPasted` 触发器）
 - **THEN** 桥接清理 `pastedDir` 下副本（按配置保留策略或全部），并报告清理数量；附件库对象不受影响
+
+### Requirement: 仪表盘段注册
+
+插件包 SHALL 在 bundle 详情页注册一个聚合仪表盘段，经 `plugins.bundle.config` 槽（`key` = `@xlight-oss/visionary-dsh`）渲染。仪表盘段的 host 半 SHALL 由一个 cordis Service（`VisionaryDashboard`）提供数据与动作，经 cordis Remote 暴露给 client。client 半 SHALL 经 `ctx.slots.inject("plugins.bundle.config", …)` 注册，`whileServed` 门控（至少一个 entry 在位时渲染）。`cordis.patch.yml` SHALL 包含 dashboard Service 的 entry 行（或挂进现有 vision entry 的 `apply`，由 design 决定）。现有 `plugins.item` 两卡与 host 工具/桥接逻辑 SHALL NOT 改动。
+
+#### Scenario: 仪表盘段与两卡共存
+- **WHEN** 用户打开 `@xlight-oss/visionary-dsh` bundle 详情页
+- **THEN** 页面同时展示：仪表盘段（`plugins.bundle.config`，在 entry 之上）与两张 `plugins.item` 卡（vision / bridge，在 entry 行）
+
+#### Scenario: dashboard Service 经 RPC 暴露
+- **WHEN** host 起了 dashboard entry
+- **THEN** cordis Remote `visionaryDashboard` 可用，client 经 `ctx.remote.visionaryDashboard` 调用 `getStatus()` / `reprobeBinary()` / `relogin()` / `cleanPasted()` / `selfCheck()`

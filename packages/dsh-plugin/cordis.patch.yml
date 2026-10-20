@@ -1,11 +1,12 @@
 # @xlight-oss/visionary-dsh bundle patch.
 # Registers two DSH plugin rows from the single package: the DeepSeek Visionary
 # native tools (main entry) and the text-model image bridge (subpath entry).
-# The browser half (Settings → Plugins → Plugin configuration cards) is declared
-# by this package's own `dsh.client` + `exports["./client"]`, so it needs no row
-# of its own: dsh-client-modules discovers the bundle from the main row's bare
-# package specifier. A subpath row name (e.g. `.../settings-card`) would be
-# rejected by exactPackageSpecifier and silently serve nothing.
+# The browser half (Plugins panel → @xlight-oss/visionary-dsh bundle detail →
+# inline plugins.bundle.config section) is declared by this package's own `dsh.client` +
+# `exports["./client"]`, so it needs no row of its own: dsh-client-modules
+# discovers the bundle from the main row's bare package specifier. A subpath
+# row name (e.g. `.../settings-card`) would be rejected by
+# exactPackageSpecifier and silently serve nothing.
 # Installed via: dsh plugin --profile <name> add @xlight-oss/visionary-dsh
 - insert:
     - id: visionary-vision
@@ -13,3 +14,9 @@
 
     - id: visionary-image-bridge
       name: '@xlight-oss/visionary-dsh/image-bridge'
+
+    - id: visionary-dashboard
+      name: '@xlight-oss/visionary-dsh/dashboard'
+      config:
+        visionEntryId: visionary-vision
+        bridgeEntryId: visionary-image-bridge

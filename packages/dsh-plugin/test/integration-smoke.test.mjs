@@ -1,15 +1,20 @@
 // Integration smoke test: applies the real plugin rows against a real cordis
-// Context with fake llm/attachments services and, when enabled, a real
-// SettingsProvider subclass. Verifies the full host wiring:
+// Context with fake llm/attachments/services and 0.2.0 volatile-config
+// semantics. Verifies the full host wiring:
 //
-//   - admission patch releases the bridge route only, and is restored on dispose
+//   - the admission patch releases the bridge routes only, restored on dispose
 //   - llm/stream veto + reentry rewrites an image into a persisted path guide
+//   - volatile config updates take effect without re-apply (live refs)
+//   - `cleanPasted` fires on loader/volatile-update and resets itself
+//   - both rows call settings.configure({ auto: false }) when served
 //   - a host llm without `resolveModelInfo` degrades instead of killing the row
-//   - both settings namespaces are served and written through the native
-//     settings service (no plugin-owned HTTP route anywhere)
-//   - a settings write hot-reloads the plugin runtime; invalid writes are
-//     rejected by the section's validate hook; stale revisions conflict
-//   - the plugin rows also load with no settings provider at all (entry config)
+//   - the plugin rows load with no settings service at all (entry config)
+//   - no plugin-owned webServer route anywhere; the browser bundle stays
+//     discoverable through the bare-specifier Loader row
+//
+// The entry-level `ctx.plugin(...)` path validates the raw config through the
+// plugin schema, so writes are simulated at the volatile-ref level by calling
+// `apply` directly with refs (as the Loader would deliver them).
 //
 // Requires a node_modules install (pnpm install in this package). Skips cleanly
 // when the packages are not resolvable, so `node --test` works everywhere.
@@ -23,15 +28,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
-let cordis, dshSettings, bridgePlugin, visionPlugin;
+let cordis, bridgePlugin, visionPlugin;
 try {
   cordis = require("@deepseek-ai/cordis");
-  dshSettings = require("@deepseek-ai/dsh-settings");
   bridgePlugin = await import("../lib/image-bridge/index.mjs");
   visionPlugin = await import("../lib/index.mjs");
 } catch {
   cordis = null;
-  dshSettings = null;
   bridgePlugin = null;
   visionPlugin = null;
 }
@@ -64,53 +67,62 @@ async function waitFor(predicate, timeoutMs = 2000) {
   }
 }
 
-/** In-memory SettingsProvider stub: the base class owns the resolution/commit
- * machinery; we only need load/persist/writable. */
-class MemorySettingsProvider extends dshSettings.SettingsProvider {
-  constructor(ctx, doc = {}) {
-    super(ctx);
-    this.doc = doc;
-  }
-  get writable() { return true; }
-  get documentPath() { return undefined; }
-  async load() { return this.doc; }
-  async persist(ns, section) { this.doc = { ...this.doc, [ns]: section }; }
+// 0.2.0 volatile semantics: fields arrive as live refs updated in place by the
+// loader (Symbol.for("cosmokit.volatile.write")). `volatileConfig` builds them
+// the way the Loader would; `.set(field, value)` simulates a settings write.
+const VOLATILE_WRITE = Symbol.for("cosmokit.volatile.write");
+function volatileRef(initial) {
+  let current = initial;
+  return Object.freeze({ get: () => current, [VOLATILE_WRITE]: (next) => { current = next; } });
+}
+function volatileConfig(values) {
+  const refs = {};
+  for (const [key, value] of Object.entries(values)) refs[key] = volatileRef(value);
+  return {
+    config: refs,
+    set: (field, value) => { refs[field][VOLATILE_WRITE](value); },
+  };
 }
 
-/** Build a real cordis ctx with fake llm/attachments + apply the bridge row. */
-async function boot({ routes = [{ provider: "pi-ai", model: "deepseek-v4-flash" }], llm = undefined } = {}) {
+const bridgeValues = (pastedDir, routes = []) => ({ enabled: true, routes, pastedDir, promptTemplate: TEMPLATE, retainHours: 168, cleanPasted: false });
+const visionValues = () => ({ binaryPath: "", modelType: "vision", visionTimeoutMs: 60000, statusTimeoutMs: 60000 });
+
+/** Real cordis ctx with fake llm/attachments (+ optional settings/webServer). */
+function harnessCtx({ settings, webServerRoutes, tools = undefined, systemPrompt = true } = {}) {
   const ctx = new cordis.Context();
   const reentries = [];
-  const pastedDir = await fs.mkdtemp(path.join(os.tmpdir(), "vib-smoke-"));
   const originalResolveModelInfo = async (provider, model) => ({
     provider,
     id: model,
     name: model,
     inputModalities: ["text"],
   });
-  const llmService = llm ?? {
+  ctx.provide("llm", {
     resolveModelInfo: originalResolveModelInfo,
     stream: async function* (opts) {
       reentries.push(opts);
       yield { type: "finish", reason: { kind: "stop" } };
     },
-  };
-  ctx.provide("llm", llmService);
-  ctx.provide("attachments", {
-    readImage: async (ref) => ({ ref, data: new Uint8Array([1, 2, 3]) }),
   });
-  await ctx.plugin(bridgePlugin, {
-    enabled: true,
-    routes,
-    pastedDir,
-    promptTemplate: TEMPLATE,
-    retainHours: 168,
-  });
-  return { ctx, llm: llmService, reentries, pastedDir, originalResolveModelInfo };
+  ctx.provide("attachments", { readImage: async (ref) => ({ ref, data: new Uint8Array([1, 2, 3]) }) });
+  if (settings) ctx.provide("settings", settings);
+  if (webServerRoutes) ctx.provide("webServer", { register: (route) => webServerRoutes.push(route) });
+  if (tools) ctx.provide("tools", tools);
+  if (systemPrompt) ctx.provide("systemPrompt", { section: () => {} });
+  return { ctx, reentries, originalResolveModelInfo };
 }
 
+const fireStream = (ctx, reentries, messages = [userMsg([img("sha256:abc")])]) => ctx.waterfall(ctx.get("llm"), "llm/stream", {
+  provider: "pi-ai",
+  model: "deepseek-v4-flash",
+  sessionId: "sess-1",
+  messages,
+}, () => (async function* () { yield { type: "finish", reason: { kind: "stop" } }; })());
+
 test("integration: admission patch releases the bridge route only", { skip }, async () => {
-  const { ctx, originalResolveModelInfo, pastedDir } = await boot();
+  const { ctx, originalResolveModelInfo } = harnessCtx();
+  const pastedDir = await fs.mkdtemp(path.join(os.tmpdir(), "vib-smoke-"));
+  await ctx.plugin(bridgePlugin, bridgeValues(pastedDir, [{ provider: "pi-ai", model: "deepseek-v4-flash" }]));
   const bridged = await ctx.llm.resolveModelInfo("pi-ai", "deepseek-v4-flash");
   assert.deepEqual(bridged.inputModalities, ["text", "image"]); // released
   const other = await ctx.llm.resolveModelInfo("other", "model");
@@ -121,19 +133,10 @@ test("integration: admission patch releases the bridge route only", { skip }, as
 });
 
 test("integration: llm/stream veto + reentry writes the file and rewrites to text", { skip }, async () => {
-  const { ctx, reentries, pastedDir } = await boot();
-  const options = {
-    provider: "pi-ai",
-    model: "deepseek-v4-flash",
-    sessionId: "sess-1",
-    messages: [userMsg([text("问题?"), img("sha256:abc")])],
-  };
-  const stream = ctx.waterfall(ctx.get("llm"), "llm/stream", options, () =>
-    (async function* () {
-      yield { type: "finish", reason: { kind: "stop" } };
-    })(),
-  );
-  await drain(stream);
+  const { ctx, reentries } = harnessCtx();
+  const pastedDir = await fs.mkdtemp(path.join(os.tmpdir(), "vib-smoke-"));
+  await ctx.plugin(bridgePlugin, bridgeValues(pastedDir));
+  await drain(await fireStream(ctx, reentries, [userMsg([text("问题?"), img("sha256:abc")])]));
   assert.equal(reentries.length, 1); // exactly one reentry
   const reentered = reentries[0];
   assert.equal(reentered.sessionId, "sess-1");
@@ -141,8 +144,6 @@ test("integration: llm/stream veto + reentry writes the file and rewrites to tex
   assert.equal(reentered.messages[0].content[1].type, "text"); // image -> guide
   assert.ok(reentered.messages[0].content[1].text.includes(pastedDir));
   assert.ok(reentered.messages[0].content[1].text.includes("sha256_abc.png"));
-  // file persisted with 0600 in a 0700 dir (POSIX modes; Windows has no such
-  // permission bits, so the assertion only runs where the contract is real)
   const target = path.join(pastedDir, "sha256_abc.png");
   assert.deepEqual(new Uint8Array(await fs.readFile(target)), new Uint8Array([1, 2, 3]));
   if (process.platform !== "win32") {
@@ -152,14 +153,10 @@ test("integration: llm/stream veto + reentry writes the file and rewrites to tex
   await fs.rm(pastedDir, { recursive: true, force: true });
 });
 
-test("integration: fiber disposal restores the original method (task 2.2)", { skip }, async () => {
-  const ctx = new cordis.Context();
-  const originalResolveModelInfo = async () => ({ inputModalities: ["text"] });
-  const llm = { resolveModelInfo: originalResolveModelInfo, stream: async function* () {} };
-  ctx.provide("llm", llm);
-  ctx.provide("attachments", { readImage: async () => ({ data: new Uint8Array() }) });
+test("integration: fiber disposal restores the original method", { skip }, async () => {
+  const { ctx } = harnessCtx();
   const pastedDir = await fs.mkdtemp(path.join(os.tmpdir(), "vib-dispose-"));
-  const fiber = ctx.plugin(bridgePlugin, { enabled: true, routes: [], pastedDir, retainHours: 168 });
+  const fiber = ctx.plugin(bridgePlugin, bridgeValues(pastedDir));
   await fiber;
   assert.deepEqual((await ctx.get("llm").resolveModelInfo("p", "m")).inputModalities, ["text", "image"]);
   await fiber.dispose();
@@ -170,186 +167,101 @@ test("integration: fiber disposal restores the original method (task 2.2)", { sk
 
 test("integration: a host without llm.resolveModelInfo disables the bridge instead of failing", { skip }, async () => {
   const ctx = new cordis.Context();
-  const reentries = [];
-  const llm = {
-    stream: async function* (opts) {
-      reentries.push(opts);
-      yield { type: "finish", reason: { kind: "stop" } };
-    },
-  };
-  ctx.provide("llm", llm);
+  ctx.provide("llm", { stream: async function* () {} });
   ctx.provide("attachments", { readImage: async () => ({ data: new Uint8Array() }) });
   const pastedDir = await fs.mkdtemp(path.join(os.tmpdir(), "vib-noguard-"));
   // apply() must not throw: the row stays alive with bridging disabled
-  await ctx.plugin(bridgePlugin, { enabled: true, routes: [], pastedDir, retainHours: 168 });
+  await ctx.plugin(bridgePlugin, bridgeValues(pastedDir));
   assert.equal(typeof ctx.get("llm").stream, "function");
   await fs.rm(pastedDir, { recursive: true, force: true });
 });
 
-test("integration: both namespaces are served by the native settings service", { skip }, async () => {
-  const ctx = new cordis.Context();
-  await ctx.plugin(MemorySettingsProvider, {});
-  ctx.provide("llm", { resolveModelInfo: async () => ({ inputModalities: ["text"] }), stream: async function* () {} });
-  ctx.provide("attachments", { readImage: async () => ({ data: new Uint8Array() }) });
-  const registered = [];
-  ctx.provide("tools", { register: (tool) => registered.push(tool) });
-  ctx.provide("systemPrompt", { section: () => {} });
-  const pastedDir = await fs.mkdtemp(path.join(os.tmpdir(), "vib-ns-"));
-  await ctx.plugin(visionPlugin, {
-    binaryPath: "",
-    modelType: "vision",
-    visionTimeoutMs: 60000,
-    statusTimeoutMs: 60000,
-  });
-  await ctx.plugin(bridgePlugin, { enabled: true, routes: [], pastedDir, promptTemplate: TEMPLATE, retainHours: 168 });
+test("integration: volatile config updates take effect without re-apply", { skip }, async () => {
+  const { ctx, reentries } = harnessCtx();
+  const pastedDir = await fs.mkdtemp(path.join(os.tmpdir(), "vib-volatile-"));
+  // apply directly with Loader-shaped volatile refs (entry-level schema
+  // validation would reject refs; the Loader delivers them post-resolution).
+  const { config, set } = volatileConfig(bridgeValues(pastedDir));
+  bridgePlugin.apply(ctx, config);
+  await drain(await fireStream(ctx, reentries));
+  assert.equal(reentries.length, 1, "bridged while enabled");
+  // 模拟 settings 写入 enabled=false：Loader 只更新 volatile 引用，无需 re-apply
+  set("enabled", false);
+  await drain(await fireStream(ctx, reentries));
+  assert.equal(reentries.length, 1, "disabled bridge passes the request through untouched");
+  await fs.rm(pastedDir, { recursive: true, force: true });
+});
 
-  const descriptions = ctx.get("settings").describe();
-  const nsList = descriptions.map((d) => d.ns).sort();
-  assert.deepEqual(nsList, [bridgePlugin.SETTINGS_NAMESPACE, visionPlugin.SETTINGS_NAMESPACE].sort());
-  const vision = descriptions.find((d) => d.ns === visionPlugin.SETTINGS_NAMESPACE);
-  assert.equal(vision.value.modelType, "vision"); // composition entry is the base
-  assert.equal(typeof vision.revision, "number");
+test("integration: cleanPasted fires on loader/volatile-update and resets itself", { skip }, async () => {
+  const settingsCalls = { configures: [], updates: [] };
+  const settings = {
+    configure: (presentation, owner) => { settingsCalls.configures.push({ presentation, owner }); return () => {}; },
+    describe: () => [{ ns: bridgePlugin.SETTINGS_NAMESPACE, revision: 7 }],
+    async update(ns, patch, revision) { settingsCalls.updates.push({ ns, patch, revision }); },
+  };
+  const { ctx } = harnessCtx({ settings });
+  const pastedDir = await fs.mkdtemp(path.join(os.tmpdir(), "vib-clean-"));
+  const { config, set } = volatileConfig(bridgeValues(pastedDir));
+  bridgePlugin.apply(ctx, config);
+  const file = path.join(pastedDir, "old.png");
+  await fs.writeFile(file, new Uint8Array([1]));
+  // 触发：settings 写入 cleanPasted=true → Loader 提交 volatile → 本 fiber 事件
+  set("cleanPasted", true);
+  ctx.emit("loader/volatile-update", [["cleanPasted"]]);
+  const cleaned = await waitFor(async () => (await fs.readdir(pastedDir)).length === 0);
+  assert.ok(cleaned, "pasted copies are removed");
+  const reset = await waitFor(() => settingsCalls.updates.some((u) => u.ns === bridgePlugin.SETTINGS_NAMESPACE
+    && u.patch.cleanPasted === false));
+  assert.ok(reset, "the one-shot trigger writes cleanPasted=false back");
+  await fs.rm(pastedDir, { recursive: true, force: true });
+});
+
+test("integration: the bridge rejects a template without {path} at entry load", { skip }, async () => {
+  const { ctx } = harnessCtx();
+  const pastedDir = await fs.mkdtemp(path.join(os.tmpdir(), "vib-valid-"));
+  const bad = Object.assign({}, bridgeValues(pastedDir), { promptTemplate: "no placeholder here" });
+  await assert.rejects(async () => {
+    await ctx.plugin(bridgePlugin, bad);
+  }, /\{path\}/);
+  await fs.rm(pastedDir, { recursive: true, force: true });
+});
+
+test("integration: both plugin rows call settings.configure({ auto: false }) when served", { skip }, async () => {
+  const settingsCalls = { configures: [] };
+  const settings = {
+    configure: (presentation, owner) => { settingsCalls.configures.push({ presentation, owner }); return () => {}; },
+  };
+  const registered = [];
+  const { ctx } = harnessCtx({ settings, tools: { register: (tool) => registered.push(tool) } });
+  const pastedDir = await fs.mkdtemp(path.join(os.tmpdir(), "vib-config-"));
+  await ctx.plugin(visionPlugin, visionValues());
+  await ctx.plugin(bridgePlugin, bridgeValues(pastedDir));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(settingsCalls.configures.length, 2, "each row's optional settings child configures the presentation");
+  for (const call of settingsCalls.configures) assert.deepEqual(call.presentation, { auto: false });
   assert.ok(registered.some((t) => t.name === "deepseek_vision"));
   await fs.rm(pastedDir, { recursive: true, force: true });
 });
 
-test("integration: a native settings write hot-reloads the plugin runtime", { skip }, async () => {
-  const ctx = new cordis.Context();
-  await ctx.plugin(MemorySettingsProvider, {});
-  ctx.provide("llm", { resolveModelInfo: async () => ({ inputModalities: ["text"] }), stream: async function* () {} });
-  ctx.provide("attachments", { readImage: async () => ({ data: new Uint8Array() }) });
-  ctx.provide("tools", { register: () => {} });
-  ctx.provide("systemPrompt", { section: () => {} });
-  const pastedDir = await fs.mkdtemp(path.join(os.tmpdir(), "vib-hot-"));
-  await ctx.plugin(visionPlugin, { binaryPath: "", modelType: "vision", visionTimeoutMs: 60000, statusTimeoutMs: 60000 });
-  await ctx.plugin(bridgePlugin, { enabled: true, routes: [], pastedDir, promptTemplate: TEMPLATE, retainHours: 168 });
-
-  const settings = ctx.get("settings");
-  const before = settings.describe().find((d) => d.ns === visionPlugin.SETTINGS_NAMESPACE);
-  await settings.update(visionPlugin.SETTINGS_NAMESPACE, { modelType: "ocr" }, before.revision);
-  const after = settings.describe().find((d) => d.ns === visionPlugin.SETTINGS_NAMESPACE);
-  assert.equal(after.value.modelType, "ocr");
-  assert.equal(after.revision, before.revision + 1);
-  // the section's onChange ran: a later entry-level read still resolves through it
-  assert.equal(after.base.modelType, "vision");
-  await fs.rm(pastedDir, { recursive: true, force: true });
-});
-
-test("integration: cleanPasted trigger cleans the directory and resets itself", { skip }, async () => {
-  const ctx = new cordis.Context();
-  await ctx.plugin(MemorySettingsProvider, {});
-  ctx.provide("llm", { resolveModelInfo: async () => ({ inputModalities: ["text"] }), stream: async function* () {} });
-  ctx.provide("attachments", { readImage: async () => ({ data: new Uint8Array() }) });
-  const pastedDir = await fs.mkdtemp(path.join(os.tmpdir(), "vib-clean-"));
-  await fs.writeFile(path.join(pastedDir, "one.png"), new Uint8Array([1]));
-  await ctx.plugin(bridgePlugin, { enabled: true, routes: [], pastedDir, promptTemplate: TEMPLATE, retainHours: 168 });
-
-  const settings = ctx.get("settings");
-  const before = settings.describe().find((d) => d.ns === bridgePlugin.SETTINGS_NAMESPACE);
-  await settings.update(bridgePlugin.SETTINGS_NAMESPACE, { cleanPasted: true }, before.revision);
-  // The trigger runs: cleanup is async and the persisted reset is a second write.
-  const cleaned = await waitFor(async () => (await fs.readdir(pastedDir)).length === 0);
-  assert.ok(cleaned, "pasted copies are removed");
-  const reset = await waitFor(() => {
-    const view = settings.describe().find((d) => d.ns === bridgePlugin.SETTINGS_NAMESPACE);
-    return view.value.cleanPasted === false && view.user.cleanPasted === false;
-  });
-  assert.ok(reset, "the one-shot trigger resets itself in the value and in the document");
-  await fs.rm(pastedDir, { recursive: true, force: true });
-});
-
-test("integration: the section validate hook rejects a template without {path}", { skip }, async () => {
-  const ctx = new cordis.Context();
-  await ctx.plugin(MemorySettingsProvider, {});
-  ctx.provide("llm", { resolveModelInfo: async () => ({ inputModalities: ["text"] }), stream: async function* () {} });
-  ctx.provide("attachments", { readImage: async () => ({ data: new Uint8Array() }) });
-  const pastedDir = await fs.mkdtemp(path.join(os.tmpdir(), "vib-valid-"));
-  await ctx.plugin(bridgePlugin, { enabled: true, routes: [], pastedDir, promptTemplate: TEMPLATE, retainHours: 168 });
-
-  const settings = ctx.get("settings");
-  const before = settings.describe().find((d) => d.ns === bridgePlugin.SETTINGS_NAMESPACE);
-  await assert.rejects(
-    () => settings.update(bridgePlugin.SETTINGS_NAMESPACE, { promptTemplate: "no placeholder here" }, before.revision),
-    /\{path\}/,
-  );
-  const after = settings.describe().find((d) => d.ns === bridgePlugin.SETTINGS_NAMESPACE);
-  assert.equal(after.value.promptTemplate, TEMPLATE, "the invalid write never lands");
-  await fs.rm(pastedDir, { recursive: true, force: true });
-});
-
-test("integration: a stale revision is rejected with SettingsConflictError", { skip }, async () => {
-  const ctx = new cordis.Context();
-  await ctx.plugin(MemorySettingsProvider, {});
-  ctx.provide("llm", { resolveModelInfo: async () => ({ inputModalities: ["text"] }), stream: async function* () {} });
-  ctx.provide("attachments", { readImage: async () => ({ data: new Uint8Array() }) });
-  const pastedDir = await fs.mkdtemp(path.join(os.tmpdir(), "vib-conflict-"));
-  await ctx.plugin(bridgePlugin, { enabled: true, routes: [], pastedDir, promptTemplate: TEMPLATE, retainHours: 168 });
-
-  const settings = ctx.get("settings");
-  const first = settings.describe().find((d) => d.ns === bridgePlugin.SETTINGS_NAMESPACE);
-  await settings.update(bridgePlugin.SETTINGS_NAMESPACE, { retainHours: 24 }, first.revision);
-  await assert.rejects(
-    () => settings.update(bridgePlugin.SETTINGS_NAMESPACE, { retainHours: 48 }, first.revision),
-    (err) => err instanceof dshSettings.SettingsConflictError,
-  );
-  const after = settings.describe().find((d) => d.ns === bridgePlugin.SETTINGS_NAMESPACE);
-  assert.equal(after.value.retainHours, 24, "the stale write did not land");
-  await fs.rm(pastedDir, { recursive: true, force: true });
-});
-
-test("integration: mutate unsets a field back to the composition base", { skip }, async () => {
-  const ctx = new cordis.Context();
-  await ctx.plugin(MemorySettingsProvider, {});
-  ctx.provide("llm", { resolveModelInfo: async () => ({ inputModalities: ["text"] }), stream: async function* () {} });
-  ctx.provide("attachments", { readImage: async () => ({ data: new Uint8Array() }) });
-  const pastedDir = await fs.mkdtemp(path.join(os.tmpdir(), "vib-unset-"));
-  await ctx.plugin(bridgePlugin, { enabled: true, routes: [], pastedDir, promptTemplate: TEMPLATE, retainHours: 168 });
-
-  const settings = ctx.get("settings");
-  const first = settings.describe().find((d) => d.ns === bridgePlugin.SETTINGS_NAMESPACE);
-  await settings.update(bridgePlugin.SETTINGS_NAMESPACE, { retainHours: 24 }, first.revision);
-  const patched = settings.describe().find((d) => d.ns === bridgePlugin.SETTINGS_NAMESPACE);
-  assert.equal(patched.value.retainHours, 24);
-  await settings.mutate(bridgePlugin.SETTINGS_NAMESPACE, [{ op: "unset", path: ["retainHours"] }], patched.revision);
-  const after = settings.describe().find((d) => d.ns === bridgePlugin.SETTINGS_NAMESPACE);
-  assert.equal(after.value.retainHours, 168, "back to the entry default");
-  assert.equal(after.user.retainHours, undefined, "the user layer no longer holds the key");
-  await fs.rm(pastedDir, { recursive: true, force: true });
-});
-
 test("integration: no plugin-owned webServer route is registered (spec: 无私有路由)", { skip }, async () => {
-  const ctx = new cordis.Context();
   const routes = [];
-  ctx.provide("webServer", {
-    register(route) {
-      routes.push(route);
-      return () => {};
-    },
-  });
-  await ctx.plugin(MemorySettingsProvider, {});
-  ctx.provide("llm", { resolveModelInfo: async () => ({ inputModalities: ["text"] }), stream: async function* () {} });
-  ctx.provide("attachments", { readImage: async () => ({ data: new Uint8Array() }) });
-  ctx.provide("tools", { register: () => {} });
-  ctx.provide("systemPrompt", { section: () => {} });
+  const registered = [];
+  const { ctx } = harnessCtx({ webServerRoutes: routes, tools: { register: (tool) => registered.push(tool) } });
   const pastedDir = await fs.mkdtemp(path.join(os.tmpdir(), "vib-noroute-"));
-  await ctx.plugin(visionPlugin, { binaryPath: "", modelType: "vision", visionTimeoutMs: 60000, statusTimeoutMs: 60000 });
-  await ctx.plugin(bridgePlugin, { enabled: true, routes: [], pastedDir, promptTemplate: TEMPLATE, retainHours: 168 });
+  await ctx.plugin(visionPlugin, visionValues());
+  await ctx.plugin(bridgePlugin, bridgeValues(pastedDir));
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.deepEqual(routes, [], "the plugin mounts no HTTP route of its own");
   await fs.rm(pastedDir, { recursive: true, force: true });
 });
 
-test("integration: without a settings provider the rows load and tools use the entry config", { skip }, async () => {
-  const ctx = new cordis.Context();
-  ctx.provide("llm", { resolveModelInfo: async () => ({ inputModalities: ["text"] }), stream: async function* () {} });
-  ctx.provide("attachments", { readImage: async () => ({ data: new Uint8Array() }) });
+test("integration: without a settings service the rows load and tools use the entry config", { skip }, async () => {
   const registered = [];
-  ctx.provide("tools", { register: (tool) => registered.push(tool) });
-  ctx.provide("systemPrompt", { section: () => {} });
+  const { ctx } = harnessCtx({ tools: { register: (tool) => registered.push(tool) } });
   const pastedDir = await fs.mkdtemp(path.join(os.tmpdir(), "vib-nosettings-"));
-  // no settings provider mounted: both rows must still apply cleanly
-  await ctx.plugin(visionPlugin, { binaryPath: "", modelType: "vision", visionTimeoutMs: 60000, statusTimeoutMs: 60000 });
-  await ctx.plugin(bridgePlugin, { enabled: true, routes: [], pastedDir, promptTemplate: TEMPLATE, retainHours: 168 });
+  // no settings service mounted: both rows must still apply cleanly
+  await ctx.plugin(visionPlugin, visionValues());
+  await ctx.plugin(bridgePlugin, bridgeValues(pastedDir));
   assert.equal(ctx.get("settings"), undefined);
   const names = registered.map((t) => t.name).sort();
   assert.deepEqual(names, [

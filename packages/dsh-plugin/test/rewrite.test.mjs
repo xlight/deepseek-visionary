@@ -64,7 +64,9 @@ test("renderAnalysis wraps analysis output in the untrusted-evidence frame", () 
 test("bridge default template is Chinese and renders the {path} placeholder", async () => {
   const { Config, DEFAULT_PROMPT_TEMPLATE } = await import("../lib/image-bridge/index.mjs");
   const defaults = Config({});
-  assert.equal(defaults.promptTemplate, DEFAULT_PROMPT_TEMPLATE);
+  const { volGet } = await import("../lib/index.mjs");
+  // volatile() 使默认值以 Volatile 引用呈现（DSH 0.2.0），读取经 volGet 解包。
+  assert.equal(volGet(defaults.promptTemplate), DEFAULT_PROMPT_TEMPLATE);
   assert.ok(DEFAULT_PROMPT_TEMPLATE.includes("{path}"));
   assert.ok(DEFAULT_PROMPT_TEMPLATE.includes("deepseek_vision"));
   assert.ok(DEFAULT_PROMPT_TEMPLATE.includes("不可信证据"));

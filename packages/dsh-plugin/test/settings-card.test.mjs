@@ -1,21 +1,17 @@
-// Browser-half tests for lib/client.js (the Plugins page row configuration).
+// Browser-half tests for lib/client.js (DSH 0.2.0 `plugins.bundle.config` inline section).
 //
 // The shipped artifact is a hand-written lazy-CJS bundle, so the test evaluates
 // it exactly as the DSH module loader would (a `window.__ModuleLoader__.load`
-// call), then drives the real components through a tiny React hook harness:
-// state, effects, and element trees are enough to exercise the row surface
-// without a DOM.
+// call), then drives the two sub-card components through a tiny React hook harness
+// with faithful stand-ins for the configForms scope and the primitives form
+// system (SettingsFormModel semantics mirrored from the primitives source).
 //
-// DSH 0.1.7 contract under test: the bundle injects `slots` + `locale` only
-// (no `settingsScope`), registers one `plugins.row.config` entry per plugin row
-// keyed `<package>#<rowId>`, and the row component consumes the page-injected
-// `{ view, form }` props (ConfigPageForm) — `form` is the host entry's
-// ConfigForm (getSnapshot/subscribe/mutate/unset). Covered: the bundle
-// contract, the two keyed registrations, staged edits written through
-// `form.mutate` with the read revision as the fence, the advanced disclosure,
-// the one-shot `cleanPasted` trigger, reset via `unset`, stale-write conflict
-// reporting, summary-view rendering, and the loading/unavailable/read-only
-// degradation paths.
+// Covered: the bundle contract (id = package name, react + primitives edges),
+// the single `plugins.bundle.config` registration behind `whileServed`, numeric/text
+// fields staged through `scope.mutate` with the read revision, choice fields
+// via SegmentedControl, boolean via Switch, the fail-loud `{path}` template,
+// the one-shot cleanPasted action, the shared binaryPath dual-write, and the
+// unavailable/read-only degradation paths.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -23,18 +19,10 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const BUNDLE = fileURLToPath(new URL("../lib/client.js", import.meta.url));
-// The registered id must be the package name: the runner activates the row by
-// requiring it (see the discovery test in integration-smoke.test.mjs).
 const BUNDLE_ID = JSON.parse(readFileSync(fileURLToPath(new URL("../package.json", import.meta.url)), "utf8")).name;
+const PRIMITIVES_ID = "@deepseek-ai/dsh-client-ui-primitives";
 const NS_VISION = "visionary-vision";
 const NS_BRIDGE = "visionary-image-bridge";
-/** `plugins.row.config` keys follow the page's rowConfigKey(bundle, rowId). */
-const ROW_KEY = (rowId) => `${BUNDLE_ID}#${rowId}`;
-/** Platform seed module the host exposes to every browser bundle. */
-const PRIMITIVES_ID = "@deepseek-ai/dsh-client-ui-primitives";
-/** Stand-in for the host Switch: the tiny renderer does not expand components,
- *  so the element type stays this function and assertions match on it. */
-const SwitchStub = (props) => ({ type: "switch", props });
 
 // ── minimal React ───────────────────────────────────────────────────────────
 
@@ -68,19 +56,6 @@ function makeReact() {
         && deps.every((d, k) => d === prev.deps[k]);
       if (!same) pending.push({ i, fn, deps });
     },
-    useMemo(fn, deps) {
-      const i = cursor++;
-      const prev = hooks.effects[i];
-      const same = prev !== undefined
-        && Array.isArray(deps) && Array.isArray(prev.deps)
-        && deps.length === prev.deps.length
-        && deps.every((d, k) => d === prev.deps[k]);
-      if (!same) {
-        hooks.effects[i] = { fn, deps };
-        hooks.values[i] = fn();
-      }
-      return hooks.values[i];
-    },
     useRef(init) {
       const i = cursor++;
       if (!(i in hooks.values)) hooks.values[i] = { current: init };
@@ -90,7 +65,7 @@ function makeReact() {
   const render = (Component, props) => {
     cursor = 0;
     pending = [];
-    const tree = Component(props || {});
+    const tree = Component(props ?? {});
     pending.forEach(({ i, fn, deps }) => { hooks.effects[i] = { fn, deps }; fn(); });
     return tree;
   };
@@ -104,13 +79,11 @@ function walk(node, visit) {
   visit(node);
   walk(node.props ? node.props.children : undefined, visit);
 }
-
 function collect(tree, predicate) {
   const out = [];
   walk(tree, (node) => { if (predicate(node)) out.push(node); });
   return out;
 }
-
 function textOf(node) {
   if (typeof node === "string" || typeof node === "number") return String(node);
   if (Array.isArray(node)) return node.map(textOf).join("");
@@ -118,60 +91,186 @@ function textOf(node) {
   return "";
 }
 
-function byClass(tree, className) {
-  return collect(tree, (n) => n.type === "button" && n.props.className === className);
+// ── faithful SettingsFormModel stand-in (semantics mirrored from primitives) ─
+
+function createSnapshotStore(init) {
+  let snapshot = init;
+  const listeners = new Set();
+  return {
+    getSnapshot: () => snapshot,
+    set: (next) => { snapshot = next; listeners.forEach((l) => l()); },
+    subscribe: (l) => { listeners.add(l); return () => listeners.delete(l); },
+  };
 }
 
-// ── ConfigForm fake (the page-injected `form`) ──────────────────────────────
+class TestFormModel {
+  constructor(scope, specs, secrets = []) {
+    this.scope = scope;
+    this.specs = new Map(specs.map((spec) => [spec.field, spec]));
+    this.secrets = new Map(secrets.map((spec) => [spec.field, spec]));
+    this.staged = new Map();
+    this.listeners = new Set();
+    this.baseline = undefined;
+    this.saving = false;
+    this.failed = false;
+    this.unsubscribe = scope.subscribe(() => this.publish());
+  }
+  bind(project) {
+    const store = createSnapshotStore(project());
+    this.listeners.add(() => store.set(project()));
+    return store;
+  }
+  shell() {
+    const snapshot = this.scope.getSnapshot();
+    const plan = this.plan();
+    return {
+      available: snapshot.status === "ready",
+      writable: snapshot.writable,
+      dirty: plan.length > 0,
+      invalid: plan.some((item) => item.run === undefined && item.op === undefined),
+      saving: this.saving,
+      failed: this.failed,
+    };
+  }
+  field(field) {
+    const staged = this.staged.get(field);
+    if (staged === undefined) {
+      return {
+        text: this.spec(field).format(this.scope.getSnapshot().value?.[field]),
+        overridden: this.stored(field),
+        invalid: false,
+      };
+    }
+    const write = staged.clear ? { kind: "clear" } : this.spec(field).parse(staged.text);
+    return { text: staged.text, overridden: write?.kind === "set", invalid: write === undefined };
+  }
+  actions() {
+    return {
+      edit: (field, text) => this.stage(field, { text, clear: false }),
+      resetField: (field) => {
+        this.stage(field, { text: this.spec(field).format(this.scope.getSnapshot().base?.[field]), clear: true });
+      },
+      save: () => this.save(),
+      discard: () => {
+        if (this.staged.size === 0 && !this.failed) return;
+        this.staged.clear();
+        this.baseline = undefined;
+        this.failed = false;
+        this.publish();
+      },
+    };
+  }
+  plan() {
+    const plan = [];
+    for (const [field, staged] of this.staged) {
+      if (staged.clear) {
+        if (this.stored(field)) plan.push({ field, op: { op: "unset", path: [field] } });
+        continue;
+      }
+      if (staged.text === this.spec(field).format(this.scope.getSnapshot().value?.[field])) continue;
+      const write = this.spec(field).parse(staged.text);
+      if (write === undefined) plan.push({ field });
+      else if (write.kind === "clear") plan.push({ field, op: { op: "unset", path: [field] } });
+      else plan.push({ field, op: { op: "set", path: [field], value: write.value } });
+    }
+    return plan;
+  }
+  async save() {
+    const plan = this.plan();
+    if (!plan.length || this.saving || !this.scope.getSnapshot().writable || plan.some((item) => item.run === undefined && item.op === undefined)) return false;
+    this.saving = true;
+    this.failed = false;
+    this.publish();
+    try {
+      const ops = plan.flatMap((item) => (item.op === undefined ? [] : [item.op]));
+      const landed = !ops.length || await this.scope.mutate(ops, this.baseline?.revision);
+      if (!landed) { this.failed = true; this.publish(); return false; }
+      for (const item of plan) if (item.run) await item.run();
+      this.staged.clear();
+      this.baseline = undefined;
+    } catch {
+      this.failed = true;
+    } finally {
+      this.saving = false;
+      this.publish();
+    }
+    return !this.failed;
+  }
+  stage(field, edit) {
+    this.baseline = this.baseline ?? this.scope.getSnapshot();
+    this.staged.set(field, edit);
+    this.failed = false;
+    this.publish();
+  }
+  spec(field) {
+    const spec = this.specs.get(field);
+    if (!spec) throw new Error(`plugin card has no field ${field}`);
+    return spec;
+  }
+  stored(field) {
+    const user = this.scope.getSnapshot().user;
+    return user !== undefined && Object.hasOwn(user, field);
+  }
+  publish() { this.listeners.forEach((l) => l()); }
+  dispose() { this.unsubscribe(); this.listeners.clear(); }
+}
 
-function makeForm({ value, user = undefined, revision = 7, status = "ready", writable = true } = {}) {
-  const state = {
-    status,
-    value: Object.assign({}, value),
-    base: Object.assign({}, value),
-    user,
-    revision,
-    writable,
-    mode: "host",
-  };
+// ── scope + primitives stand-ins ────────────────────────────────────────────
+
+function makeScope(namespace, { value, base, user, revision = 7, status = "ready", writable = true } = {}) {
+  const state = { status, value: Object.assign({}, value), base: Object.assign({}, base ?? value), user, revision, writable, mode: "host" };
   const listeners = new Set();
-  const form = {
+  const scope = {
+    namespace,
     state,
-    calls: { mutate: [], set: [], unset: [] },
+    calls: { mutate: [] },
     rejectNext: false,
     getSnapshot: () => state,
     subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
-    emit: () => { listeners.forEach((l) => l()); },
-    mutate(ops, expectedRevision) {
-      form.calls.mutate.push({ ops, expectedRevision });
-      if (form.rejectNext) { form.rejectNext = false; return Promise.resolve(); }
+    emit: () => listeners.forEach((l) => l()),
+    async mutate(ops, expectedRevision) {
+      scope.calls.mutate.push({ ops, expectedRevision });
+      if (scope.rejectNext) { scope.rejectNext = false; return false; }
       const next = Object.assign({}, state.value);
-      ops.forEach((op) => {
+      for (const op of ops) {
         if (op.op === "unset") delete next[op.path[0]];
         else next[op.path[0]] = op.value;
-      });
+      }
       state.value = next;
       state.user = Object.assign({}, state.user, ...ops.map((op) => (op.op === "set" ? { [op.path[0]]: op.value } : {})));
       state.revision = expectedRevision === undefined ? state.revision : expectedRevision + 1;
-      form.emit();
-      return Promise.resolve();
-    },
-    set(field, value) {
-      form.calls.set.push({ field, value });
-      return form.mutate([{ op: "set", path: [field], value }], state.revision);
-    },
-    unset(field) {
-      form.calls.unset.push(field);
-      const next = Object.assign({}, state.value);
-      delete next[field];
-      state.value = next;
-      if (state.user) { const u = Object.assign({}, state.user); delete u[field]; state.user = u; }
-      form.emit();
-      return Promise.resolve();
+      scope.emit();
+      return true;
     },
   };
-  return form;
+  return scope;
 }
+
+const primitivesStub = {
+  SettingsForm: (props) => ({ type: "SettingsForm", props }),
+  SettingsValueField: (props) => ({ type: "SettingsValueField", props }),
+  Switch: (props) => ({ type: "switch", props }),
+  SegmentedControl: (props) => ({ type: "segmented", props }),
+  settingsNumberField: (field) => ({
+    field,
+    format: (value) => (typeof value === "number" ? String(value) : ""),
+    parse: (text) => {
+      const trimmed = text.trim();
+      if (trimmed === "") return { kind: "clear" };
+      const parsed = Number(trimmed);
+      return Number.isFinite(parsed) ? { kind: "set", value: parsed } : undefined;
+    },
+  }),
+  settingsTextField: (field) => ({
+    field,
+    format: (value) => (typeof value === "string" ? value : ""),
+    parse: (text) => {
+      const trimmed = text.trim();
+      return trimmed === "" ? { kind: "clear" } : { kind: "set", value: trimmed };
+    },
+  }),
+  SettingsFormModel: TestFormModel,
+};
 
 /** Evaluate the shipped bundle the way the loader does. */
 function loadBundle() {
@@ -182,29 +281,27 @@ function loadBundle() {
   assert.ok(captured, "the bundle must call window.__ModuleLoader__.load");
   const required = [];
   const react = makeReact();
-  // The host Switch primitive: identity only, so the row's use of it is visible.
-  const primitives = { Switch: SwitchStub };
   const exportsObj = captured.factory((id) => {
     required.push(id);
     if (id === "react") return react.React;
-    if (id === PRIMITIVES_ID) return primitives;
+    if (id === PRIMITIVES_ID) return primitivesStub;
     throw new Error(`unexpected module request: ${id}`);
   });
-  return { id: captured.id, exports: exportsObj, required, react, primitives };
+  return { id: captured.id, exports: exportsObj, required, react };
 }
 
-/** Boot the browser plugin; returns the two row handles plus the sessions. */
-function bootRows({ vision, bridge } = {}) {
+/** Boot the browser plugin against fake configForms scopes. */
+function bootPages({ vision, bridge } = {}) {
   const bundle = loadBundle();
-  const forms = {
-    [NS_VISION]: makeForm({ value: Object.assign({
+  const scopes = {
+    [NS_VISION]: makeScope(NS_VISION, { value: Object.assign({
       binaryPath: "",
       modelType: "vision",
       visionTimeoutMs: 1111,
       statusTimeoutMs: 2222,
       loginTimeoutSeconds: 3333,
-    }, vision && vision.value), user: vision && vision.user, status: vision && vision.status, writable: vision && vision.writable, revision: 7 }),
-    [NS_BRIDGE]: makeForm({ value: Object.assign({
+    }, vision && vision.value), user: vision && vision.user, revision: 7 }),
+    [NS_BRIDGE]: makeScope(NS_BRIDGE, { value: Object.assign({
       binaryPath: "",
       enabled: true,
       scope: "text-only",
@@ -212,41 +309,62 @@ function bootRows({ vision, bridge } = {}) {
       promptTemplate: "path {path}",
       pastedDir: "~/.deepseek-visionary/pasted",
       retainHours: 168,
-      cleanPasted: false,
+      routes: [],
     }, bridge && bridge.value), user: bridge && bridge.user, revision: 11 }),
   };
   const registrations = [];
   const injections = [];
-  const effects = [];
   const ctx = {
     locale: { register: () => () => {}, bind: () => (key) => key },
+    configForms: {
+      get: (ns) => scopes[ns],
+      whileServed: (_namespaces, register) => { register(); return () => {}; },
+    },
     slots: {
-      inject: (name, callback) => { injections.push({ name, callback }); },
+      inject: (name, callback) => { injections.push({ name, callback }); return () => {}; },
       register: (options, component) => { registrations.push({ options, component }); return () => {}; },
     },
-    effect: (fn) => { effects.push(fn()); return () => {}; },
+    remote: { visionaryDashboard: { getStatus: async () => ({}), reprobeBinary: async () => ({}), relogin: async () => ({}), cleanPasted: async () => ({}), selfCheck: async () => ({}) } },
+    effect: (fn) => { fn(); return () => {}; },
   };
   bundle.exports.apply(ctx);
   injections.forEach(({ callback }) => callback());
 
-  const rows = {};
-  registrations.forEach(({ options, component }) => { rows[options.key] = { options, component }; });
+  const cards = {};
+  let bundleConfig = null;
+  registrations.forEach(({ options, component }) => {
+    if (options.name === "plugins.bundle.config") {
+      bundleConfig = { options, component };
+    }
+  });
 
-  const render = (rowId, overrides = {}) => {
-    let tree = null;
-    const draw = () => {
-      tree = bundle.react.render(rows[ROW_KEY(rowId)].component, {
-        view: "page",
-        form: forms[rowId],
-        ...overrides,
-      });
-    };
-    bundle.react.setRerender(draw);
-    draw();
-    return () => tree;
+  /** Render a sub-card's page via the merged inject face; the snapshot comes
+   * from the controller's real bound store. `which` is "vision" or "bridge".
+   * The composite `VisionaryBundleConfig` is rendered first to materialize the
+   * children element nodes (createElement is lazy — children are unexecuted
+   * {type, props} nodes), then the chosen child is executed via react.render. */
+  const render = (id, { view = "page" } = {}) => {
+    const which = id === NS_VISION ? "vision" : "bridge";
+    const face = bundleConfig.options.inject();
+    const hookKey = which === "vision" ? "visionCard" : "bridgeCard";
+    const snapshot = face.hooks[hookKey].getSnapshot();
+    const props = Object.assign({}, face, {
+      t: (key) => key,
+      view,
+      useVisionCard: () => face.hooks.visionCard.getSnapshot(),
+      useBridgeCard: () => face.hooks.bridgeCard.getSnapshot(),
+    });
+    const fullTree = bundle.react.render(bundleConfig.component, props);
+    const childIndex = which === "vision" ? 1 : 2;
+    const childNode = fullTree.props.children[childIndex];
+    // For summary view, re-render the child component with view: "summary"
+    // (VisionaryBundleConfig hardcodes view: "page" for inline display).
+    const childProps = view === "summary" ? Object.assign({}, childNode.props, { view: "summary" }) : childNode.props;
+    const tree = bundle.react.render(childNode.type, childProps);
+    return { tree, face, props: childProps, snapshot };
   };
 
-  return { bundle, forms, registrations, rows, render, effects, injections };
+  return { bundle, scopes, registrations, cards, bundleConfig, render };
 }
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -257,251 +375,163 @@ test("bundle: loader id and the module edges it needs", () => {
   const { id, required } = loadBundle();
   assert.equal(id, BUNDLE_ID);
   assert.deepEqual(required, ["react", PRIMITIVES_ID],
-    "the row needs the react seed word and the host Switch primitive");
+    "the pages need the react seed word and the host primitives");
 });
 
-test("bundle: no reference to the removed client-runtime module", () => {
-  const source = readFileSync(BUNDLE, "utf8");
-  assert.ok(!source.includes("@deepseek-ai/dsh-client-runtime"), "the runtime edge must be gone");
-  assert.ok(!source.includes("ctx.settingsScope.bind"), "the 0.1.5 settingsScope binding must be gone from the runtime");
-  assert.ok(!source.includes('"settings.plugin.item"'), "the 0.1.5 plugin card slot must be gone");
-  assert.ok(!source.includes("/visionary/api"), "the private settings route must be gone");
-});
-
-test("bundle: injects only the slots and locale services", () => {
+test("bundle: injects the slots, locale, configForms and remote services", () => {
   const { exports } = loadBundle();
-  assert.deepEqual(exports.inject, ["slots", "locale"],
-    "activation must not wait on a settings service the 0.1.7 host no longer provides");
+  assert.deepEqual(exports.inject, ["slots", "locale", "configForms", "remote"]);
 });
 
 // ── registration ────────────────────────────────────────────────────────────
 
-test("registration: one plugins.row.config entry per plugin row", () => {
-  const { registrations, rows, injections } = bootRows();
-  assert.equal(injections.length, 2);
-  assert.ok(injections.every((i) => i.name === "plugins.row.config"));
-  assert.equal(registrations.length, 2);
-  for (const options of registrations.map((r) => r.options)) {
-    assert.equal(options.name, "plugins.row.config");
-    assert.equal(typeof options.order, "number");
-  }
-  assert.deepEqual(Object.keys(rows).sort(), [ROW_KEY(NS_BRIDGE), ROW_KEY(NS_VISION)].sort());
-  assert.equal(typeof rows[ROW_KEY(NS_VISION)].component, "function");
-  assert.equal(typeof rows[ROW_KEY(NS_BRIDGE)].component, "function");
+test("registration: single plugins.bundle.config inline section, no row.config, no item", () => {
+  const { registrations } = bootPages();
+  const rowRegs = registrations.filter((r) => r.options.name === "plugins.row.config");
+  const itemRegs = registrations.filter((r) => r.options.name === "plugins.item");
+  assert.equal(rowRegs.length, 0, "no plugins.row.config registrations");
+  assert.equal(itemRegs.length, 0, "no plugins.item registrations");
+  const bundleRegs = registrations.filter((r) => r.options.name === "plugins.bundle.config");
+  assert.equal(bundleRegs.length, 1, "exactly one plugins.bundle.config");
+  const options = bundleRegs[0].options;
+  assert.equal(options.key, "@xlight-oss/visionary-dsh");
+  assert.equal(typeof options.label, "function");
+  assert.equal(options.locale, "settings.plugins.visionary");
+  assert.equal(typeof options.inject, "function");
+});
+
+test("registration: inject() returns an object with namespaced vision + bridge faces + remote", () => {
+  const { bundleConfig } = bootPages();
+  const face = bundleConfig.options.inject();
+  assert.equal(typeof face, "object", "inject() returns an object (not array)");
+  assert.ok(!Array.isArray(face), "inject() is not an array");
+  assert.ok(face.hooks && face.hooks.visionCard, "hooks.visionCard present");
+  assert.ok(face.hooks && face.hooks.bridgeCard, "hooks.bridgeCard present");
+  assert.equal(typeof face.visionEdit, "function");
+  assert.equal(typeof face.visionSave, "function");
+  assert.equal(typeof face.bridgeEdit, "function");
+  assert.equal(typeof face.bridgeSave, "function");
+  assert.equal(typeof face.remote, "object", "remote (dashboard) present");
+});
+
+test("layout: summary view returns the one-liner, page view renders the form", () => {
+  const { render, scopes } = bootPages();
+  const summary = render(NS_VISION, { view: "summary", snapshot: scopes[NS_VISION].getSnapshot() });
+  assert.equal(typeof summary.tree, "string", "summary is plain text");
+  const { tree: pageTree, props } = render(NS_VISION);
+  assert.equal(collect(pageTree, (n) => n.type === primitivesStub.SettingsForm).length, 1);
 });
 
 // ── writes ──────────────────────────────────────────────────────────────────
 
 test("write: a staged number is written through mutate with the read revision", async () => {
-  const { forms, render } = bootRows();
-  let tree = render(NS_VISION)();
-  const input = collect(tree, (n) => n.type === "input" && n.props.value === "1111")[0];
-  assert.ok(input, "the vision timeout field renders its current value");
-  input.props.onChange({ target: { value: "9999" } });
-
-  tree = render(NS_VISION)();
-  const save = byClass(tree, "vlb-save")[0];
-  assert.ok(save, "the save button renders");
-  assert.equal(save.props.disabled, false, "a dirty, valid row may save");
-  save.props.onClick();
+  const { render, scopes } = bootPages();
+  const { tree, props } = render(NS_VISION);
+  const field = collect(tree, (n) => n.type === primitivesStub.SettingsValueField
+    && n.props.id === "visionary-visionTimeoutMs")[0];
+  assert.ok(field, "the vision timeout field renders its current value");
+  field.props.onEdit("9999");
+  props.visionSave();
   await tick();
-
-  assert.equal(forms[NS_VISION].calls.mutate.length, 1);
-  assert.deepEqual(forms[NS_VISION].calls.mutate[0].ops, [
+  assert.equal(scopes[NS_VISION].calls.mutate.length, 1);
+  assert.deepEqual(scopes[NS_VISION].calls.mutate[0].ops, [
     { op: "set", path: ["visionTimeoutMs"], value: 9999 },
   ]);
-  assert.equal(forms[NS_VISION].calls.mutate[0].expectedRevision, 7, "the read revision fences the write");
-  assert.equal(forms[NS_BRIDGE].calls.mutate.length, 0, "a page-local field touches its own entry only");
+  assert.equal(scopes[NS_VISION].calls.mutate[0].expectedRevision, 7, "the read revision fences the write");
 });
 
-test("write: the binaryPath field writes its own row entry only", async () => {
-  const { forms, render } = bootRows();
-  let tree = render(NS_VISION)();
-  const input = collect(tree, (n) => n.type === "input" && n.props.value === "")[0];
-  assert.ok(input, "the empty binary path field renders");
-  input.props.onChange({ target: { value: "/opt/visionary-server" } });
-
-  tree = render(NS_VISION)();
-  byClass(tree, "vlb-save")[0].props.onClick();
+test("write: choice fields edit through SegmentedControl", async () => {
+  const { render, scopes } = bootPages();
+  const { tree, props } = render(NS_VISION);
+  const mode = collect(tree, (n) => n.type === primitivesStub.SegmentedControl && n.props.id === "visionary-modelType")[0];
+  assert.ok(mode, "modelType renders a SegmentedControl");
+  assert.equal(mode.props.value, "vision");
+  mode.props.onChange("ocr");
+  props.visionSave();
   await tick();
-
-  assert.deepEqual(forms[NS_VISION].calls.mutate[0].ops, [
-    { op: "set", path: ["binaryPath"], value: "/opt/visionary-server" },
-  ]);
-  assert.equal(forms[NS_VISION].calls.mutate[0].expectedRevision, 7);
-  assert.equal(forms[NS_BRIDGE].calls.mutate.length, 0,
-    "each row page owns its entry; the bridge binaryPath is configured on its own page");
+  assert.deepEqual(scopes[NS_VISION].calls.mutate[0].ops, [{ op: "set", path: ["modelType"], value: "ocr" }]);
 });
 
-test("write: clearing a field sends unset", async () => {
-  const { forms, render } = bootRows();
-  let tree = render(NS_VISION)();
-  collect(tree, (n) => n.type === "input" && n.props.value === "1111")[0]
-    .props.onChange({ target: { value: "" } });
-  tree = render(NS_VISION)();
-  byClass(tree, "vlb-save")[0].props.onClick();
+test("write: the shared binaryPath writes both entries with their own revisions", async () => {
+  const { render, scopes } = bootPages();
+  const { tree, props } = render(NS_VISION);
+  const field = collect(tree, (n) => n.type === primitivesStub.SettingsValueField
+    && n.props.id === "visionary-binaryPath")[0];
+  field.props.onEdit("/opt/visionary-server");
+  props.visionSave();
   await tick();
-  assert.deepEqual(forms[NS_VISION].calls.mutate[0].ops, [
-    { op: "unset", path: ["visionTimeoutMs"] },
-  ]);
+  assert.deepEqual(scopes[NS_VISION].calls.mutate[0].ops, [{ op: "set", path: ["binaryPath"], value: "/opt/visionary-server" }]);
+  assert.equal(scopes[NS_VISION].calls.mutate[0].expectedRevision, 7);
+  assert.deepEqual(scopes[NS_BRIDGE].calls.mutate[0].ops, [{ op: "set", path: ["binaryPath"], value: "/opt/visionary-server" }]);
+  assert.equal(scopes[NS_BRIDGE].calls.mutate[0].expectedRevision, 11);
 });
 
-test("write: a rejected write surfaces as the conflict notice and re-reads", async () => {
-  const { forms, render } = bootRows();
-  forms[NS_VISION].rejectNext = true;
-  let tree = render(NS_VISION)();
-  collect(tree, (n) => n.type === "input" && n.props.value === "1111")[0]
-    .props.onChange({ target: { value: "9999" } });
-  tree = render(NS_VISION)();
-  byClass(tree, "vlb-save")[0].props.onClick();
+test("write: the prompt template must carry the {path} placeholder", async () => {
+  const { render, scopes } = bootPages();
+  let { tree, props } = render(NS_BRIDGE);
+  // 展开高级区
+  const disclosure = collect(tree, (n) => n.type === "button" && textOf(n).includes("advanced"))[0];
+  assert.ok(disclosure, "the advanced disclosure renders");
+  disclosure.props.onClick();
+  const { tree: openedTree, props: opened } = render(NS_BRIDGE);
+  const field = collect(openedTree, (n) => n.type === primitivesStub.SettingsValueField
+    && n.props.id === "visionary-bridge-promptTemplate")[0];
+  assert.ok(field, "the template lives in the advanced region");
+  field.props.onEdit("no placeholder here");
+  const { tree: editedTree, props: edited } = render(NS_BRIDGE);
+  const invalid = collect(editedTree, (n) => n.type === primitivesStub.SettingsValueField
+    && n.props.id === "visionary-bridge-promptTemplate")[0];
+  assert.equal(invalid.props.invalid, true, "missing {path} marks the field invalid");
+  edited.bridgeSave();
   await tick();
+  assert.equal(scopes[NS_BRIDGE].calls.mutate.length, 0, "an invalid draft refuses to save");
+});
+
+test("write: the cleanPasted action writes true with the read revision", async () => {
+  const { render, scopes } = bootPages();
+  let { tree, props } = render(NS_BRIDGE);
+  collect(tree, (n) => n.type === "button" && textOf(n).includes("advanced"))[0].props.onClick();
+  const { tree: openedTree, props: opened } = render(NS_BRIDGE);
+  const action = collect(openedTree, (n) => n.type === "button" && textOf(n).includes("cleanPastedAction"))[0];
+  assert.ok(action, "the one-shot cleanup button lives in the advanced region");
+  action.props.onClick();
+  assert.deepEqual(scopes[NS_BRIDGE].calls.mutate[0].ops, [{ op: "set", path: ["cleanPasted"], value: true }]);
+  assert.equal(scopes[NS_BRIDGE].calls.mutate[0].expectedRevision, 11);
+});
+
+test("write: a refused write surfaces as failed and keeps the drafts", async () => {
+  const { render, scopes } = bootPages();
+  scopes[NS_VISION].rejectNext = true;
+  const { tree, props } = render(NS_VISION);
+  collect(tree, (n) => n.type === primitivesStub.SettingsValueField && n.props.id === "visionary-visionTimeoutMs")[0]
+    .props.onEdit("9999");
+  props.visionSave();
   await tick();
-  tree = render(NS_VISION)();
-  assert.ok(textOf(tree).includes("saveConflict"), "the row reports a refused write");
+  assert.equal(scopes[NS_VISION].calls.mutate[0].expectedRevision, 7);
+  const { tree: afterTree, props: after } = render(NS_VISION);
+  assert.equal(collect(afterTree, (n) => n.type === primitivesStub.SettingsForm)[0].props.state.failed, true);
 });
 
-test("write: the one-shot cleanPasted trigger writes true and reports it", async () => {
-  const { forms, render } = bootRows();
-  let tree = render(NS_BRIDGE)();
-  byClass(tree, "vlb-disclosure")[0].props.onClick();
-  tree = render(NS_BRIDGE)();
-  const trigger = byClass(tree, "vlb-trigger")[0];
-  assert.ok(trigger, "the trigger button lives in the advanced region");
-  trigger.props.onClick();
-  await tick();
-  assert.deepEqual(forms[NS_BRIDGE].calls.mutate[0].ops, [
-    { op: "set", path: ["cleanPasted"], value: true },
-  ]);
-  assert.equal(forms[NS_BRIDGE].calls.mutate[0].expectedRevision, 11);
+// ── degradation ─────────────────────────────────────────────────────────────
+
+test("degradation: an unavailable namespace renders no page form", () => {
+  const { render, scopes } = bootPages();
+  scopes[NS_VISION].state.status = "unavailable";
+  scopes[NS_VISION].emit();
+  const { tree, props } = render(NS_VISION);
+  const form = collect(tree, (n) => n.type === primitivesStub.SettingsForm)[0];
+  assert.ok(form, "the page still renders the SettingsForm frame");
+  assert.equal(form.props.state.available, false);
 });
 
-test("write: reset clears one overridden field through unset", async () => {
-  const { forms, render } = bootRows({ vision: { value: { modelType: "ocr" }, user: { modelType: "ocr" } } });
-  let tree = render(NS_VISION)();
-  const reset = byClass(tree, "vlb-reset")[0];
-  assert.ok(reset, "an overridden field shows its reset affordance");
-  reset.props.onClick();
-  await tick();
-  assert.deepEqual(forms[NS_VISION].calls.unset, ["modelType"]);
-});
-
-// ── layout and degradation ──────────────────────────────────────────────────
-
-test("layout: advanced fields stay collapsed until the disclosure opens", () => {
-  const { render } = bootRows();
-  let tree = render(NS_VISION)();
-  assert.equal(collect(tree, (n) => n.type === "input" && n.props.value === "2222").length, 0,
-    "statusTimeoutMs (advanced) is collapsed");
-  byClass(tree, "vlb-disclosure")[0].props.onClick();
-  tree = render(NS_VISION)();
-  assert.equal(collect(tree, (n) => n.type === "input" && n.props.value === "2222").length, 1,
-    "statusTimeoutMs appears once the disclosure opens");
-  assert.equal(collect(tree, (n) => n.type === "input" && n.props.value === "1111").length, 1,
-    "the main region stays visible");
-});
-
-test("layout: the bridge row keeps its own advanced field set", () => {
-  const { render } = bootRows();
-  let tree = render(NS_BRIDGE)();
-  byClass(tree, "vlb-disclosure")[0].props.onClick();
-  tree = render(NS_BRIDGE)();
-  assert.equal(collect(tree, (n) => n.type === "textarea").length, 1, "promptTemplate renders in advanced");
-  assert.equal(collect(tree, (n) => n.type === "select").length, 2, "scope and mode stay in the main region");
-});
-
-test("degradation: an unavailable form renders a notice instead of throwing", () => {
-  const { render } = bootRows({ vision: { status: "unavailable" } });
-  const tree = render(NS_VISION)();
-  assert.ok(textOf(tree).includes("unavailable"));
-  assert.equal(collect(tree, (n) => n.type === "input").length, 0);
-});
-
-test("degradation: a read-only deployment disables editing", () => {
-  const { render } = bootRows({ vision: { writable: false } });
-  const tree = render(NS_VISION)();
-  assert.ok(textOf(tree).includes("readOnly"));
-  const inputs = collect(tree, (n) => n.type === "input" || n.type === "select");
-  assert.ok(inputs.length > 0);
-  assert.ok(inputs.every((n) => n.props.disabled === true), "every control is disabled");
-});
-
-test("degradation: a row without a page-injected form shows the unavailable notice", () => {
-  const { render } = bootRows();
-  const tree = render(NS_VISION, { form: undefined })();
-  assert.ok(textOf(tree).includes("unavailable"));
-  assert.equal(collect(tree, (n) => n.type === "input").length, 0);
-});
-
-test("view: summary renders the description one-liner, not the form", () => {
-  const { render } = bootRows();
-  const tree = render(NS_VISION, { view: "summary" })();
-  assert.ok(textOf(tree).includes("visionDescription"), "summary shows the page's description fallback");
-  assert.equal(collect(tree, (n) => n.type === "input").length, 0, "summary never mounts the form");
-});
-
-// ── host-native chrome ──────────────────────────────────────────────────────
-
-test("chrome: apply() injects one tagged stylesheet and removes it on dispose", () => {
-  const appended = [];
-  const removed = [];
-  const style = {
-    textContent: "",
-    attributes: {},
-    setAttribute(name, value) { this.attributes[name] = value; },
-    remove() { removed.push(true); },
-  };
-  globalThis.document = {
-    head: { appendChild: (el) => appended.push(el) },
-    createElement: () => style,
-  };
-  try {
-    const { effects } = bootRows();
-    assert.equal(appended.length, 1, "exactly one stylesheet for both rows");
-    assert.ok(style.textContent.includes(".vlb-card"), "the card chrome ships in the bundle");
-    assert.equal(style.attributes["data-plugin"], BUNDLE_ID);
-    const dispose = effects[1];
-    assert.equal(typeof dispose, "function", "the stylesheet effect returns a disposer");
-    dispose();
-    assert.equal(removed.length, 1, "dispose removes the stylesheet");
-  } finally {
-    delete globalThis.document;
-  }
-});
-
-test("chrome: boolean fields render the host Switch, not a raw checkbox", async () => {
-  const { forms, render } = bootRows();
-  let tree = render(NS_BRIDGE)();
-  const toggle = collect(tree, (n) => n.type === SwitchStub)[0];
-  assert.ok(toggle, "the bridge enabled field renders the host Switch primitive");
-  assert.equal(toggle.props.checked, true);
-  assert.equal(toggle.props.label, "enabledLabel");
-  assert.equal(collect(tree, (n) => n.type === "input" && n.props.type === "checkbox").length, 0,
-    "no browser-default checkbox is left in the row");
-  toggle.props.onChange(false);
-  await tick();
-  tree = render(NS_BRIDGE)();
-  byClass(tree, "vlb-save")[0].props.onClick();
-  await tick();
-  assert.deepEqual(forms[NS_BRIDGE].calls.mutate[0].ops, [
-    { op: "set", path: ["enabled"], value: false },
-  ]);
-});
-
-test("chrome: field controls are labelled and marked invalid for assistive tech", () => {
-  const { render } = bootRows();
-  let tree = render(NS_VISION)();
-  const labels = collect(tree, (n) => n.type === "label" && n.props.htmlFor);
-  assert.ok(labels.length >= 3, "every field carries a label bound to its control id");
-  for (const label of labels) {
-    const control = collect(tree, (n) => ["input", "select", "textarea"].includes(n.type)
-      && n.props.id === label.props.htmlFor)[0];
-    assert.ok(control, `the control for ${label.props.htmlFor} exists`);
-  }
-  const timed = collect(tree, (n) => n.type === "input" && n.props.value === "1111")[0];
-  assert.equal(timed.props["aria-invalid"], "false", "a valid number field is announced as valid");
-  timed.props.onChange({ target: { value: "nope" } });
-  tree = render(NS_VISION)();
-  const invalid = collect(tree, (n) => n.type === "input" && n.props["aria-invalid"] === "true")[0];
-  assert.ok(invalid, "an invalid staged value is announced");
-  assert.ok(invalid.props.className.includes("vlb-inputInvalid"));
+test("degradation: a read-only deployment disables the controls", () => {
+  const { render, scopes } = bootPages();
+  scopes[NS_BRIDGE].state.writable = false;
+  scopes[NS_BRIDGE].emit();
+  const { tree, props } = render(NS_BRIDGE);
+  const toggle = collect(tree, (n) => n.type === primitivesStub.Switch)[0];
+  assert.ok(toggle, "the bridge enabled field renders the host Switch");
+  assert.equal(toggle.props.disabled, true);
+  const segs = collect(tree, (n) => n.type === primitivesStub.SegmentedControl);
+  assert.ok(segs.length > 0 && segs.every((n) => n.props.disabled === true), "choice fields are disabled");
 });

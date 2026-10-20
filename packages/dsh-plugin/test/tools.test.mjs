@@ -14,7 +14,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 
 const plugin = await import("../lib/index.mjs");
-const { apply, buildImageCliArgs } = plugin;
+const { apply, buildImageCliArgs, volGet } = plugin;
 
 // The recorder fixture is an extensionless POSIX shebang script; Windows cannot
 // spawn that shape (ENOENT), and the real binary there is a `visionary-server.exe`.
@@ -54,43 +54,24 @@ async function bootApply({ modelType = "vision", binaryPath = "" } = {}) {
   return { registered, promptSections, ctx, config };
 }
 
-/** Fake settings service holder: lets a test simulate a settings-panel write by
- * replacing the resolved value and firing the installed section's onChange hook
- * (which is exactly what `installSection`'s hooks wire up). */
-function makeSettingsHarness(initial) {
-  const hooks = { setSource: null, onChange: null };
-  const state = { value: initial };
-  const harness = {
-    ctx: {
-      tools: { register: () => {} },
-      systemPrompt: { section: () => {} },
-      fiber: { state: 0 }, // isUnloading() reads ctx.fiber.state
-      effect: () => () => {},
-      inject: (deps, fn) => {
-        if (deps.includes("settings")) {
-          const settings = {
-            installSection: (_owner, _ns, _schema, _entry, sectionHooks) => {
-              hooks.setSource = sectionHooks.setSource;
-              hooks.onChange = sectionHooks.onChange;
-              // mimic the provider: bind the source, then fire onChange once
-              sectionHooks.setSource(() => state.value);
-              sectionHooks.onChange();
-            },
-          };
-          fn({ settings, effect: () => () => {} });
-        }
-        return () => {};
-      },
-    },
-    /** Simulate a settings write: swap the resolved value and fire onChange. */
-    write(next) {
-      state.value = next;
-      hooks.onChange();
-    },
-  };
-  return harness;
-}
 
+/** Build a config whose fields are live volatile refs (as the 0.2.0 loader
+ * would provide after `.volatile()` declaration), plus `set(field, value)` to
+ * simulate a settings-panel write. Reads inside the plugin go through volGet,
+ * so every call sees the current value with no re-apply. */
+const VOLATILE_WRITE = Symbol.for("cosmokit.volatile.write");
+function volatileRef(initial) {
+  let current = initial;
+  return Object.freeze({ get: () => current, [VOLATILE_WRITE]: (next) => { current = next; } });
+}
+function makeVolatileConfig(initial) {
+  const refs = {};
+  for (const [key, value] of Object.entries(initial)) refs[key] = volatileRef(value);
+  return {
+    config: refs,
+    set: (field, value) => { refs[field][VOLATILE_WRITE](value); },
+  };
+}
 // ------------------------------------------------------------- buildImageCliArgs
 
 test("buildImageCliArgs: vision default adds no --model-type; ocr config appends it", () => {
@@ -201,23 +182,24 @@ test("deepseek_vision: default modelType spawns without --model-type", { skip: S
 test("deepseek_vision: settings write to modelType=ocr hot-reloads without re-apply", { skip: SPAWN_SKIP }, async () => {
   const record = path.join(os.tmpdir(), `vs-tool-record-${Date.now()}.json`);
   const bin = await makeRecorderBinary(record);
-  const harness = makeSettingsHarness({
+  const { config, set } = makeVolatileConfig({
     binaryPath: bin,
     modelType: "vision",
     visionTimeoutMs: 60000,
     statusTimeoutMs: 60000,
   });
+  const ctx = { tools: { register: () => {} }, systemPrompt: { section: () => {} }, inject: () => () => {} };
   try {
     const registered = [];
-    harness.ctx.tools.register = (tool) => registered.push(tool);
-    apply(harness.ctx, { binaryPath: bin, modelType: "vision", visionTimeoutMs: 60000, statusTimeoutMs: 60000 });
+    ctx.tools.register = (tool) => registered.push(tool);
+    apply(ctx, config);
     const vision = registered.find((t) => t.name === "deepseek_vision");
     assert.ok(vision, "deepseek_vision must be registered");
     // 初始 vision：spawn 不带 --model-type
     await vision.execute({ image: "vision.png" }, { signal: undefined });
     assert.deepEqual(JSON.parse(await fs.readFile(record, "utf8")), ["vision", "vision.png", "--json"]);
-    // 模拟设置面板写入 modelType=ocr（installSection onChange 热重载）
-    harness.write({ binaryPath: bin, modelType: "ocr", visionTimeoutMs: 60000, statusTimeoutMs: 60000 });
+    // 模拟设置面板写入 modelType=ocr（0.2.0 volatile：Loader 只更新引用，无需 re-apply）
+    set("modelType", "ocr");
     await vision.execute({ image: "ocr.png" }, { signal: undefined });
     const argv = JSON.parse(await fs.readFile(record, "utf8"));
     assert.deepEqual(argv, ["vision", "ocr.png", "--json", "--model-type=ocr"]);
@@ -225,6 +207,24 @@ test("deepseek_vision: settings write to modelType=ocr hot-reloads without re-ap
     await fs.rm(path.dirname(bin), { recursive: true, force: true });
     await fs.rm(record, { force: true });
   }
+});
+
+test("volatile config: volGet unwraps volatile refs and passes plain values through", () => {
+  const { config } = makeVolatileConfig({ a: 1 });
+  assert.equal(volGet(config.a), 1, "volatile refs unwrap to their current value");
+  assert.equal(volGet(42), 42);
+  assert.equal(volGet(null), null);
+  assert.equal(volGet(undefined), undefined);
+  assert.equal(volGet("x"), "x");
+  assert.equal(volGet({ plain: true }).plain, true);
+});
+
+test("volatile config: reads stay current after a write without re-apply", () => {
+  const { config, set } = makeVolatileConfig({ modelType: "vision", visionTimeoutMs: 60000 });
+  set("modelType", "ocr");
+  set("visionTimeoutMs", 90000);
+  assert.equal(volGet(config.modelType), "ocr");
+  assert.equal(volGet(config.visionTimeoutMs), 90000);
 });
 
 test("deepseek_ocr: no image input throws a clear error", async () => {

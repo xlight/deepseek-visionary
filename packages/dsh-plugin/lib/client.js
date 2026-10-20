@@ -1,30 +1,23 @@
-// Browser half of the visionary-dsh plugin.
+// Browser half of the visionary-dsh plugin (DSH 0.2.0 settings surface).
 //
-// One `plugins.row.config` entry per plugin row (`visionary-vision`,
-// `visionary-image-bridge`), rendered by the host's Plugins page when the row
-// is opened. The page draws the title/icon/crumb itself and injects the row's
-// ConfigForm through the `{ view, form }` props; this half renders the form
-// fields and staged writes (`form.mutate` with the read revision as the fence).
-//
-// Transport: the page-provided `form` (the host entry's ConfigForm over the
-// shared describe mirror). Reads never touch the wire here; writes go through
-// `mutate(ops, revision)` with the revision read from the snapshot.
-// as the fence. There is no plugin-owned HTTP route and no snapshot-generation
-// layer: the scope owns the wire, the revision fence, and the recovery read.
+// DSH 0.2.0 exposes editable settings as *volatile fields of the profile entry
+// config*: the host serves them through `ctx.settings.describe/update/mutate`
+// (keyed by profile entry id, `SettingsConflictError` on stale writes), and the
+// Plugins panel (`dsh-client-ui-plugin-manager`) renders `plugins.row.config`
+// entries (keyed by `<bundle package>#<row id>`) as a Configure control on each
+// bundle row, opening a page with a one-liner (`view: "summary"`) and a full
+// form (`view: "page"`). This bundle ships two such row pages over the two host
+// entries (`visionary-vision`, `visionary-image-bridge`) and stages edits through the
+// primitives' `SettingsFormModel` + form controls (`SettingsValueField` /
+// `Switch` / `SegmentedControl`), so the pages match the host's own
+// shell/agent-loop pages exactly. There is no plugin-owned HTTP route and no
+// snapshot-generation layer: the scope owns the wire, the revision fence, and
+// the recovery read.
 //
 // Hand-written in the lazy-CJS bundle protocol (`window.__ModuleLoader__.load`)
-// because no published preset emits that artifact for out-of-repo packages.
-//
-// Discovery contract (dsh-client-modules): a browser bundle is served only for
-// a Loader row whose *bare package specifier* (e.g. `@xlight-oss/visionary-dsh`)
-// resolves to a manifest declaring `dsh.client` + `exports["./client"]` — a
-// subpath row name like `@xlight-oss/visionary-dsh/settings-card` is rejected
-// by exactPackageSpecifier and silently yields no entry. The registered id must
-// equal that package name, because the runner activates the row by requiring
-// it. Hence this bundle lives at `lib/client.js` of the main package and is
-// discovered through the main (vision) Loader row — no extra row is needed.
-// Module edges: `react` only (a platform seed word). Service dependencies are
-// waited on through cordis `inject`, not through module edges.
+// with the id equal to the package name (see the discovery note in this file's
+// header). Module edges: `react` + `@deepseek-ai/dsh-client-ui-primitives` (both
+// platform seed words, like every shipped settings page).
 window.__ModuleLoader__.load({
   id: "@xlight-oss/visionary-dsh",
   factory: (require) => {
@@ -32,116 +25,23 @@ window.__ModuleLoader__.load({
     var exports = module.exports;
     Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
     var React = require("react");
-    // The host's UI primitives are a platform seed module (every shipped card
-    // requires them), so the Switch below is the deployment's own control rather
-    // than a re-invented one. The default-checkbox fallback keeps the card usable
-    // if a future shell stops exposing the seed word.
     var primitives = {};
     try {
       primitives = require("@deepseek-ai/dsh-client-ui-primitives") || {};
     } catch (error) {
-      console.warn("visionary-dsh: UI primitives unavailable, falling back to plain controls", error);
+      console.warn("visionary-dsh: UI primitives unavailable, settings pages will not render", error);
     }
-    var SwitchControl = typeof primitives.Switch === "function"
-      ? primitives.Switch
-      : function FallbackSwitch(props) {
-          return React.createElement("input", {
-            type: "checkbox",
-            checked: Boolean(props.checked),
-            disabled: Boolean(props.disabled),
-            "aria-label": props.label,
-            onChange: function (event) { props.onChange(event.target.checked); },
-          });
-        };
-
-
-    var NS_VISION = "visionary-vision";
-    var NS_BRIDGE = "visionary-image-bridge";
-
-    // ── field definitions ──
-    // `area` decides the card region: "main" is always visible, "advanced"
-    // lives behind the collapsed disclosure. `targets` lists the namespace keys
-    // this field writes — one entry for a normal field, two for the shared
-    // `binaryPath` (the tools and the bridge both resolve the binary).
-
-    function field(ns, key, kind, area, opts) {
-      var base = {
-        id: ns + "." + key,
-        key: key,
-        kind: kind,
-        area: area,
-        targets: [{ ns: ns, key: key }],
-      };
-      for (var k in opts) if (Object.prototype.hasOwnProperty.call(opts, k)) base[k] = opts[k];
-      return base;
-    }
-
-    var VISION_FIELDS = [
-      field(NS_VISION, "modelType", "select", "main", {
-        options: ["vision", "ocr"],
-        labelKey: "visionModelTypeLabel",
-        hintKey: "visionModelTypeHint",
-      }),
-      field(NS_VISION, "visionTimeoutMs", "number", "main", {
-        labelKey: "visionTimeoutLabel",
-        hintKey: "visionTimeoutHint",
-      }),
-      field(NS_VISION, "binaryPath", "text", "main", {
-        labelKey: "visionBinaryPathLabel",
-        hintKey: "sharedBinaryPathHint",
-      }),
-      field(NS_VISION, "statusTimeoutMs", "number", "advanced", {
-        labelKey: "visionStatusTimeoutLabel",
-        hintKey: "visionStatusTimeoutHint",
-      }),
-      field(NS_VISION, "loginTimeoutSeconds", "number", "advanced", {
-        labelKey: "visionLoginTimeoutLabel",
-        hintKey: "visionLoginTimeoutHint",
-      }),
-    ];
-
-    var BRIDGE_FIELDS = [
-      field(NS_BRIDGE, "enabled", "boolean", "main", {
-        labelKey: "enabledLabel",
-        hintKey: "enabledHint",
-      }),
-      field(NS_BRIDGE, "scope", "select", "main", {
-        options: ["text-only", "also-vl"],
-        labelKey: "scopeLabel",
-        hintKey: "scopeHint",
-      }),
-      field(NS_BRIDGE, "mode", "select", "main", {
-        options: ["agentic", "deterministic"],
-        labelKey: "modeLabel",
-        hintKey: "modeHint",
-      }),
-      field(NS_BRIDGE, "binaryPath", "text", "main", {
-        labelKey: "bridgeBinaryPathLabel",
-        hintKey: "bridgeBinaryPathHint",
-      }),
-      field(NS_BRIDGE, "promptTemplate", "textarea", "advanced", {
-        labelKey: "promptTemplateLabel",
-        hintKey: "promptTemplateHint",
-        placeholderKey: "promptTemplateHint",
-      }),
-      field(NS_BRIDGE, "pastedDir", "text", "advanced", {
-        labelKey: "pastedDirLabel",
-        hintKey: "pastedDirHint",
-      }),
-      field(NS_BRIDGE, "retainHours", "number", "advanced", {
-        labelKey: "retainHoursLabel",
-        hintKey: "retainHoursHint",
-      }),
-      field(NS_BRIDGE, "cleanPasted", "trigger", "advanced", {
-        labelKey: "cleanPastedLabel",
-        hintKey: "cleanPastedHint",
-        actionKey: "cleanPastedAction",
-      }),
-    ];
-
-    // ── locale ──
+    var SettingsForm = primitives.SettingsForm;
+    var SettingsFormModel = primitives.SettingsFormModel;
+    var SettingsValueField = primitives.SettingsValueField;
+    var settingsNumberField = primitives.settingsNumberField;
+    var settingsTextField = primitives.settingsTextField;
+    var SwitchControl = primitives.Switch;
+    var SegmentedControl = primitives.SegmentedControl;
 
     var NS = "settings.plugins.visionary";
+    var NS_VISION = "visionary-vision";
+    var NS_BRIDGE = "visionary-image-bridge";
 
     var LOCALE_ZH = {
       visionTitle: "Visionary · 视觉工具",
@@ -158,9 +58,6 @@ window.__ModuleLoader__.load({
       visionTimeoutHint: "deepseek_vision / deepseek_ocr 单次调用超时",
       visionStatusTimeoutLabel: "状态超时（毫秒）",
       visionStatusTimeoutHint: "deepseek_vision_status / deepseek_vision_logout 超时",
-      visionBinaryPathLabel: "二进制路径",
-      bridgeBinaryPathLabel: "二进制路径（deterministic 模式）",
-      bridgeBinaryPathHint: "visionary-server 路径，仅 deterministic 模式分析用；空 = DEEPSEEK_VISIONARY_BIN → PATH",
       sharedBinaryPathLabel: "二进制路径",
       sharedBinaryPathHint: "visionary-server 路径，工具与桥接（deterministic 模式）共用；空 = DEEPSEEK_VISIONARY_BIN → PATH",
       enabledLabel: "桥接启用",
@@ -173,26 +70,46 @@ window.__ModuleLoader__.load({
       scopeHint: "text-only：仅文本模型 | also-vl：VL 模型同样经桥接",
       modeLabel: "桥接模式",
       modeHint: "agentic：改写为引导文本 | deterministic：直接调用分析",
+      routesLabel: "桥接路由",
+      routesHint: "JSON 数组，[{ \"provider\": \"pi-ai\", \"model\": \"*\" }]；空数组 = 全部路由",
       promptTemplateLabel: "引导模板",
       promptTemplateHint: "必须包含 {path} 占位符",
       cleanPastedLabel: "清理已落盘副本",
       cleanPastedHint: "一次性操作：删除落盘目录中的图片副本（附件库不受影响），清理数量写入 DSH 日志",
       cleanPastedAction: "立即清理",
       cleanPastedTriggered: "已触发清理",
-      expand: "展开设置",
-      collapse: "收起设置",
       save: "保存",
       saving: "保存中…",
       discard: "放弃修改",
-      unsaved: "未保存",
       saveFailed: "保存失败，已保留供修改。",
-      saveConflict: "保存被拒绝：配置已在别处修改，已重新读取。",
+      unavailable: "该插件当前未加载，暂时无法配置。",
+      readOnly: "本部署的设置为只读。",
       overridden: "已覆盖",
       reset: "恢复默认",
-      readOnly: "本部署设置为只读。",
-      loading: "加载中…",
-      unavailable: "设置服务不可用。",
       invalidNumber: "请输入数字；留空表示使用默认值。",
+      invalidTemplate: "引导模板必须包含 {path} 占位符。",
+      invalidRoutes: "路由需为 JSON 数组，如 [{\"provider\":\"pi-ai\",\"model\":\"*\"}]。",
+      // ── 仪表盘段（plugins.bundle.config）──────────────────────────────────
+      dashboardSummary: "二进制、登录与桥接运行态总览，含诊断动作",
+      dashboardBinaryTitle: "二进制状态",
+      dashboardBinaryReady: "就绪",
+      dashboardBinaryMissing: "缺失",
+      dashboardBinaryIncompatible: "版本不兼容",
+      dashboardLoginTitle: "登录 / 会话",
+      dashboardLoginOk: "已登录",
+      dashboardLoginOff: "未登录",
+      dashboardLoginError: "查询失败",
+      dashboardBridgeTitle: "桥接运行态",
+      dashboardBridgeOn: "启用",
+      dashboardBridgeOff: "禁用",
+      dashboardPastedCount: "落盘副本",
+      dashboardActionsTitle: "诊断",
+      dashboardReprobe: "重探测二进制",
+      dashboardRelogin: "重新登录",
+      dashboardClean: "清理落盘",
+      dashboardSelfCheck: "自检",
+      dashboardLoading: "加载中…",
+      dashboardError: "出错",
     };
 
     var LOCALE_EN = {
@@ -210,9 +127,6 @@ window.__ModuleLoader__.load({
       visionTimeoutHint: "per deepseek_vision / deepseek_ocr call timeout",
       visionStatusTimeoutLabel: "Status timeout (ms)",
       visionStatusTimeoutHint: "deepseek_vision_status / deepseek_vision_logout timeout",
-      visionBinaryPathLabel: "Binary path",
-      bridgeBinaryPathLabel: "Binary path (deterministic mode)",
-      bridgeBinaryPathHint: "visionary-server binary, used by deterministic-mode analysis only; empty = DEEPSEEK_VISIONARY_BIN → PATH",
       sharedBinaryPathLabel: "Binary path",
       sharedBinaryPathHint: "visionary-server binary, shared by the tools and the bridge (deterministic mode); empty = DEEPSEEK_VISIONARY_BIN → PATH",
       enabledLabel: "Bridge enabled",
@@ -225,261 +139,164 @@ window.__ModuleLoader__.load({
       scopeHint: "text-only: text models only | also-vl: VL models bridged too",
       modeLabel: "Bridge mode",
       modeHint: "agentic: rewrite to guide | deterministic: analyze directly",
+      routesLabel: "Bridge routes",
+      routesHint: "JSON array, e.g. [{\"provider\":\"pi-ai\",\"model\":\"*\"}]; empty = all routes",
       promptTemplateLabel: "Prompt template",
       promptTemplateHint: "Must contain the {path} placeholder",
       cleanPastedLabel: "Clean pasted copies",
       cleanPastedHint: "One-shot action: delete the pasted image copies (the attachment store is untouched); the removed count lands in the DSH log",
       cleanPastedAction: "Clean now",
       cleanPastedTriggered: "Cleanup triggered",
-      expand: "Expand settings",
-      collapse: "Collapse settings",
       save: "Save",
       saving: "Saving…",
       discard: "Discard",
-      unsaved: "Unsaved",
       saveFailed: "Save failed; values left for you to correct.",
-      saveConflict: "Save refused: the config changed elsewhere and was re-read.",
-      overridden: "Overridden",
-      reset: "Restore default",
+      unavailable: "This plugin is not loaded, so it cannot be configured right now.",
       readOnly: "This deployment stores settings read-only.",
-      loading: "Loading…",
-      unavailable: "Settings service unavailable.",
+      overridden: "Overridden",
+      reset: "Reset to default",
       invalidNumber: "Enter a number, or leave blank to use the default.",
+      invalidTemplate: "The prompt template must contain the {path} placeholder.",
+      invalidRoutes: "Routes must be a JSON array, e.g. [{\"provider\":\"pi-ai\",\"model\":\"*\"}].",
+      // ── dashboard section (plugins.bundle.config) ──────────────────────────
+      dashboardSummary: "Binary, login and bridge runtime status with diagnostic actions",
+      dashboardBinaryTitle: "Binary status",
+      dashboardBinaryReady: "Ready",
+      dashboardBinaryMissing: "Missing",
+      dashboardBinaryIncompatible: "Version incompatible",
+      dashboardLoginTitle: "Login / session",
+      dashboardLoginOk: "Logged in",
+      dashboardLoginOff: "Not logged in",
+      dashboardLoginError: "Query failed",
+      dashboardBridgeTitle: "Bridge runtime",
+      dashboardBridgeOn: "Enabled",
+      dashboardBridgeOff: "Disabled",
+      dashboardPastedCount: "Pasted copies",
+      dashboardActionsTitle: "Diagnostics",
+      dashboardReprobe: "Re-probe binary",
+      dashboardRelogin: "Re-login",
+      dashboardClean: "Clean pasted",
+      dashboardSelfCheck: "Self-check",
+      dashboardLoading: "Loading…",
+      dashboardError: "Error",
     };
 
-    // ── editor: staged edits over one card's namespaces ──
-    // Reads come from the bound scopes; writes are queued per namespace through
-    // `mutate(ops, revision)`, so every write carries the revision this editor
-    // read as its fence. A rejected write never throws: the scope reloads the
-    // host state, and the verification pass below turns the mismatch into the
-    // conflict notice instead of silently dropping the edit.
-
-    function makeEditor(opts) {
-      var fields = opts.fields;
-      var fieldsById = {};
-      fields.forEach(function (f) { fieldsById[f.id] = f; });
-
-      var listeners = new Set();
-      var staged = {};
-      var saving = false;
-      var failed = false;
-      var conflict = false;
-      var triggered = false;
-      var cache = null;
-
-      var scopeOf = function (ns) { return opts.scopes[ns]; };
-      var primary = function () { return scopeOf(opts.primaryNs).getSnapshot(); };
-
-      var displayValue = function (f) {
-        for (var i = 0; i < f.targets.length; i++) {
-          var target = f.targets[i];
-          var snapshot = scopeOf(target.ns).getSnapshot();
-          var raw = (snapshot.value || {})[target.key];
-          if (raw !== undefined && raw !== null && raw !== "") return String(raw);
-        }
-        return "";
-      };
-
-      var overridden = function (f) {
-        for (var i = 0; i < f.targets.length; i++) {
-          var target = f.targets[i];
-          var snapshot = scopeOf(target.ns).getSnapshot();
-          var user = snapshot.user;
-          if (user !== undefined && user !== null && Object.prototype.hasOwnProperty.call(user, target.key)) {
-            return true;
-          }
-        }
-        return false;
-      };
-
-      var rebuild = function () {
-        var snap = primary();
-        var ready = snap.status === "ready";
-        var out = {
-          status: snap.status,
-          writable: snap.writable,
-          mode: snap.mode,
-          ready: ready,
-          dirty: Object.keys(staged).length > 0,
-          invalid: false,
-          saving: saving,
-          failed: failed,
-          conflict: conflict,
-          triggered: triggered,
-          fields: {},
-        };
-        fields.forEach(function (f) {
-          var stagedEntry = Object.prototype.hasOwnProperty.call(staged, f.id) ? staged[f.id] : undefined;
-          var text;
-          var fieldOverridden;
-          var invalid = false;
-          if (f.kind === "trigger") {
-            text = "";
-            fieldOverridden = false;
-          } else if (stagedEntry !== undefined) {
-            text = stagedEntry.text;
-            fieldOverridden = stagedEntry.text !== displayValue(f);
-            if (f.kind === "number" && stagedEntry.text.trim() !== "") {
-              invalid = !Number.isFinite(Number(stagedEntry.text.trim()));
-            }
-          } else {
-            text = displayValue(f);
-            fieldOverridden = overridden(f);
-          }
-          if (invalid) out.invalid = true;
-          out.fields[f.id] = { text: text, overridden: fieldOverridden, invalid: invalid };
-        });
-        cache = out;
-      };
-
-      var publish = function () { rebuild(); listeners.forEach(function (l) { l(); }); };
-
-      var store = {
-        getSnapshot: function () { return cache; },
-        subscribe: function (listener) {
-          listeners.add(listener);
-          return function () { listeners.delete(listener); };
-        },
-      };
-
-      opts.ctx.effect && opts.ctx.effect(function () {
-        var cleanups = Object.keys(opts.scopes).map(function (ns) {
-          return opts.scopes[ns].subscribe(function () { publish(); });
-        });
-        return function () { cleanups.forEach(function (cancel) { cancel(); }); };
-      }, "visionary-settings: " + opts.primaryNs + " scope subscription");
-
-      rebuild();
-
-      var coerce = function (f, text) {
-        if (f.kind === "boolean") return text === "true";
-        if (f.kind === "number") return Number(text.trim());
-        return text;
-      };
-
-      var edit = function (fieldId, text) {
-        var f = fieldsById[fieldId];
-        if (!f) return;
-        if (text === displayValue(f)) delete staged[fieldId];
-        else staged[fieldId] = { text: text };
-        failed = false;
-        conflict = false;
-        publish();
-      };
-
-      var discard = function () {
-        staged = {};
-        failed = false;
-        conflict = false;
-        triggered = false;
-        publish();
-      };
-
-      // Group staged edits by namespace: one `mutate` call per namespace, all
-      // ops sharing that namespace's read revision as the fence.
-      var groupOps = function () {
-        var byNs = {};
-        for (var fieldId in staged) {
-          if (!Object.prototype.hasOwnProperty.call(staged, fieldId)) continue;
-          var f = fieldsById[fieldId];
-          var text = staged[fieldId].text;
-          f.targets.forEach(function (target) {
-            if (!byNs[target.ns]) byNs[target.ns] = { ops: [], expect: [] };
-            if (text.trim() === "") {
-              byNs[target.ns].ops.push({ op: "unset", path: [target.key] });
-              byNs[target.ns].expect.push({ key: target.key, value: undefined });
-            } else {
-              var value = coerce(f, text);
-              byNs[target.ns].ops.push({ op: "set", path: [target.key], value: value });
-              byNs[target.ns].expect.push({ key: target.key, value: value });
-            }
-          });
-        }
-        return byNs;
-      };
-
-      // Did the host accept what we wrote? The scope reloads on rejection, so a
-      // stale fence shows up here as "the value is not what we wrote".
-      var verify = function (byNs) {
-        for (var ns in byNs) {
-          if (!Object.prototype.hasOwnProperty.call(byNs, ns)) continue;
-          var snapshot = scopeOf(ns).getSnapshot();
-          var value = snapshot.value || {};
-          var user = snapshot.user || {};
-          var expects = byNs[ns].expect;
-          for (var i = 0; i < expects.length; i++) {
-            var expected = expects[i];
-            if (expected.value === undefined) {
-              if (Object.prototype.hasOwnProperty.call(user, expected.key)) return false;
-            } else if (value[expected.key] !== expected.value) {
-              return false;
-            }
-          }
-        }
-        return true;
-      };
-
-      var save = function () {
-        if (!cache.dirty || cache.invalid || saving) return Promise.resolve();
-        var byNs = groupOps();
-        saving = true;
-        failed = false;
-        conflict = false;
-        publish();
-        var writes = Object.keys(byNs).map(function (ns) {
-          return scopeOf(ns).mutate(byNs[ns].ops, scopeOf(ns).getSnapshot().revision);
-        });
-        return Promise.all(writes)
-          .then(function () {
-            if (!verify(byNs)) conflict = true;
-            else staged = {};
-          })
-          .catch(function () { failed = true; })
-          .then(function () {
-            saving = false;
-            publish();
-          });
-      };
-
-      var reset = function (fieldId) {
-        var f = fieldsById[fieldId];
-        if (!f || !cache.writable) return Promise.resolve();
-        delete staged[fieldId];
-        var writes = f.targets.map(function (target) {
-          return scopeOf(target.ns).unset(target.key);
-        });
-        return Promise.all(writes)
-          .catch(function () { failed = true; })
-          .then(function () { publish(); });
-      };
-
-      // One-shot trigger (cleanPasted): write `true`; the host clears the files
-      // and resets the persisted value, which the scope mirror then reports.
-      var trigger = function (fieldId) {
-        var f = fieldsById[fieldId];
-        if (!f || !cache.writable) return Promise.resolve();
-        var ns = f.targets[0].ns;
-        triggered = true;
-        publish();
-        return scopeOf(ns)
-          .mutate([{ op: "set", path: [f.key], value: true }], scopeOf(ns).getSnapshot().revision)
-          .catch(function () { failed = true; })
-          .then(function () { publish(); });
-      };
-
+    /** Copy the frame labels the shared SettingsForm wants from this page. */
+    function formLabels(t) {
       return {
-        store: store,
-        edit: edit,
-        reset: reset,
-        save: save,
-        discard: discard,
-        trigger: trigger,
-        // 从当前 scope 快照重建并通知订阅者（0.1.7 页面组件在 form 变化时调用）。
-        refresh: publish,
+        unavailable: t("unavailable"),
+        readOnly: t("readOnly"),
+        saveFailed: t("saveFailed"),
+        save: t("save"),
+        saving: t("saving"),
       };
     }
 
-    // ── React plumbing ──
+    // ── field specs ───────────────────────────────────────────────────────────
+
+    function choiceSpec(field, allowed) {
+      return {
+        field,
+        format: (value) => (allowed.includes(value) ? value : allowed[0]),
+        parse: (text) => (allowed.includes(text) ? { kind: "set", value: text } : void 0),
+      };
+    }
+
+    function booleanSpec(field) {
+      return {
+        field,
+        format: (value) => String(value === true),
+        parse: (text) => ({ kind: "set", value: text === "true" }),
+      };
+    }
+
+    // Fail-loud: a template without {path} parses to undefined → the field is
+    // invalid and the form refuses to save (replaces the 0.1.5 validate hook).
+    function pathTemplateSpec(field) {
+      return {
+        field,
+        format: (value) => (typeof value === "string" ? value : ""),
+        parse: (text) => (text.includes("{path}") ? { kind: "set", value: text } : void 0),
+      };
+    }
+
+    // routes 是数组字段，表单里按 JSON 文本编辑（高级区）。
+    function jsonListSpec(field) {
+      return {
+        field,
+        format: (value) => (Array.isArray(value) ? JSON.stringify(value) : ""),
+        parse: (text) => {
+          const trimmed = text.trim();
+          if (trimmed === "") return { kind: "clear" };
+          try {
+            const parsed = JSON.parse(trimmed);
+            return Array.isArray(parsed) ? { kind: "set", value: parsed } : void 0;
+          } catch {
+            return void 0;
+          }
+        },
+      };
+    }
+
+    // ── row chrome (tokens only, mirrors the SettingsValueField layout) ───────
+
+    var styles = {
+      fieldRow: { display: "flex", flexDirection: "column", gap: 6, padding: "12px 0" },
+      fieldDivider: { borderTop: ".5px solid var(--dsw-alias-border-l2)" },
+      head: { display: "flex", alignItems: "center", gap: 8 },
+      label: { minWidth: 0, flex: 1, color: "var(--dsw-alias-label-primary)", fontSize: 13, fontWeight: 500, lineHeight: 1.5 },
+      badges: { display: "inline-flex", alignItems: "center", gap: 8 },
+      tag: { borderRadius: 999, padding: "1px 8px", fontSize: 11, lineHeight: "17px", fontWeight: 500, whiteSpace: "nowrap", background: "var(--dsw-alias-bg-module-platform)", color: "var(--dsw-alias-label-secondary)" },
+      reset: { font: "inherit", color: "var(--dsw-alias-label-secondary)", cursor: "pointer", background: "0 0", border: "none", padding: 0, fontSize: 12, lineHeight: 1.5 },
+      hint: { margin: 0, fontSize: 12, lineHeight: 1.5, color: "var(--dsw-alias-label-tertiary)" },
+      invalid: { margin: 0, fontSize: 12, lineHeight: 1.5, color: "var(--dsw-alias-label-error)" },
+      boolRow: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16 },
+      boolText: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 6 },
+      disclosure: { appearance: "none", width: "100%", font: "inherit", textAlign: "left", cursor: "pointer", background: "0 0", border: 0, borderTop: ".5px solid var(--dsw-alias-border-l2)", color: "var(--dsw-alias-label-secondary)", display: "flex", alignItems: "center", gap: 6, padding: "12px 0", fontSize: 13, lineHeight: 1.5 },
+      trigger: { appearance: "none", font: "inherit", cursor: "pointer", border: "1px solid var(--dsw-alias-border-l2)", color: "var(--dsw-alias-label-secondary)", background: "0 0", borderRadius: 8, padding: "5px 14px", fontSize: 13, lineHeight: 1.5, alignSelf: "flex-start" },
+    };
+
+    // Same glyph as the host's IconChevronDownOutline14, inlined.
+    var CHEVRON_PATH = "M11.8486 5.5L11.4238 5.92383L8.69727 8.65137C8.44157 8.90706 8.21562 9.13382 8.01172 9.29785C7.79912 9.46883 7.55595 9.61756 7.25 9.66602C7.08435 9.69222 6.91565 9.69222 6.75 9.66602C6.44405 9.61756 6.20088 9.46883 5.98828 9.29785C5.78438 9.13382 5.55843 8.90706 5.30273 8.65137L2.57617 5.92383L2.15137 5.5L3 4.65137L3.42383 5.07617L6.15137 7.80273C6.42595 8.07732 6.59876 8.24849 6.74023 8.3623C6.87291 8.46904 6.92272 8.47813 6.9375 8.48047C6.97895 8.48703 7.02105 8.48703 7.0625 8.48047C7.07728 8.47813 7.12709 8.46904 7.25977 8.3623C7.40124 8.24849 7.57405 8.07732 7.84863 7.80273L10.5762 5.07617L11 4.65137L11.8486 5.5Z";
+
+    function chevron(open) {
+      return React.createElement("svg", {
+        width: 14,
+        height: 14,
+        viewBox: "0 0 14 14",
+        fill: "none",
+        "aria-hidden": "true",
+        style: { flex: "none", color: "var(--dsw-alias-label-tertiary)", transition: "transform .16s", transform: open ? "rotate(180deg)" : "none" },
+      }, React.createElement("path", { d: CHEVRON_PATH, fill: "currentColor" }));
+    }
+
+    function badgesRow(fieldState, disabled, t, onReset) {
+      if (!fieldState.overridden) return null;
+      return React.createElement("span", { className: "vlz-badges", style: styles.badges }, [
+        React.createElement("span", { key: "tag", style: styles.tag }, t("overridden")),
+        React.createElement("button", {
+          key: "reset",
+          type: "button",
+          style: styles.reset,
+          disabled: disabled,
+          onClick: onReset,
+        }, t("reset")),
+      ]);
+    }
+
+    /** One labeled row with an overridden badge + reset next to the label. */
+    function fieldHead(labelText, fieldState, disabled, t, onReset) {
+      return React.createElement("div", { style: styles.head }, [
+        React.createElement("span", { key: "label", style: styles.label }, labelText),
+        badgesRow(fieldState, disabled, t, onReset),
+      ]);
+    }
+
+    function hint(text, invalid) {
+      return React.createElement("p", { style: invalid ? styles.invalid : styles.hint }, text);
+    }
+
+    // ── cards ─────────────────────────────────────────────────────────────────
 
     function useStore(store) {
       var pair = React.useState(function () { return store.getSnapshot(); });
@@ -492,316 +309,515 @@ window.__ModuleLoader__.load({
       return snapshot;
     }
 
-    // ── card chrome ──
-    //
-    // A `settings.plugin.item` row is normally drawn by the host's own card
-    // module (`dsh-client-ui-settings-plugins`), whose CSS-module class names are
-    // hashed per build. Those hashed names are unusable outside that package, so
-    // the rules are mirrored here under our own `vlb-` prefix with the identical
-    // declarations and `--dsw-alias-*` tokens; a token rename costs appearance,
-    // while reaching for the hashed names would break outright.
-
-    var CARD_CSS = [
-      ".vlb-card{border:.5px solid var(--dsw-alias-border-l4);background:var(--dsw-alias-bg-layer-3);border-radius:16px;list-style:none;transition:border-color .16s,background .16s}",
-      ".vlb-card:hover{border-color:var(--dsw-alias-label-dimmed)}",
-      ".vlb-cardOpen{background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-label-dimmed)}",
-      ".vlb-header{appearance:none;width:100%;font:inherit;color:inherit;text-align:left;cursor:pointer;background:0 0;border:0;border-radius:12px;align-items:center;gap:12px;padding:14px 16px;display:flex}",
-      ".vlb-header:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-2px}",
-      ".vlb-headText{flex-direction:column;flex:1;gap:4px;min-width:0;display:flex}",
-      ".vlb-name{color:var(--dsw-alias-label-primary);font-size:15px;font-weight:600;line-height:1.4}",
-      ".vlb-description{color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:1.5}",
-      ".vlb-chevron{color:var(--dsw-alias-label-tertiary);flex:none;transition:transform .16s}",
-      ".vlb-chevronOpen{transform:rotate(180deg)}",
-      ".vlb-tag{display:inline-flex;align-items:center;border-radius:999px;padding:1px 8px;font-size:11px;line-height:17px;font-weight:500;white-space:nowrap;background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-secondary)}",
-      ".vlb-pending{flex:none}",
-      ".vlb-body{border-top:.5px solid var(--dsw-alias-border-l2);margin:0 16px;padding-bottom:8px}",
-      ".vlb-field{flex-direction:column;gap:6px;padding:12px 0;display:flex}",
-      ".vlb-field+.vlb-field{border-top:.5px solid var(--dsw-alias-border-l2)}",
-      ".vlb-fieldHead{align-items:center;gap:8px;display:flex}",
-      ".vlb-label{min-width:0;color:var(--dsw-alias-label-primary);flex:1;font-size:13px;font-weight:500;line-height:1.5}",
-      ".vlb-badges{align-items:center;gap:8px;display:inline-flex}",
-      ".vlb-reset{font:inherit;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;padding:0;font-size:12px;line-height:1.5}",
-      ".vlb-reset:hover:not(:disabled){color:var(--dsw-alias-label-primary)}",
-      ".vlb-reset:disabled{cursor:default;opacity:.4}",
-      ".vlb-toggleRow{justify-content:space-between;align-items:flex-start;gap:16px;display:flex}",
-      ".vlb-toggleLabel{flex:1;min-width:0;gap:6px;flex-direction:column;display:flex}",
-      ".vlb-input{box-sizing:border-box;width:100%;border:.5px solid var(--dsw-alias-border-l4);background:var(--dsw-alias-bg-layer-3);height:34px;font:inherit;color:var(--dsw-alias-label-primary);border-radius:8px;padding:0 12px;font-size:13px;line-height:1.5}",
-      ".vlb-input:focus-visible{border-color:var(--dsw-alias-brand-primary);outline:none}",
-      ".vlb-input:disabled{color:var(--dsw-alias-label-tertiary);cursor:default}",
-      ".vlb-inputInvalid{border-color:var(--dsw-alias-label-error)}",
-      ".vlb-textarea{box-sizing:border-box;width:100%;min-height:72px;resize:vertical;border:.5px solid var(--dsw-alias-border-l4);background:var(--dsw-alias-bg-layer-3);font:inherit;color:var(--dsw-alias-label-primary);border-radius:8px;padding:8px 12px;font-size:13px;line-height:1.5}",
-      ".vlb-textarea:focus-visible{border-color:var(--dsw-alias-brand-primary);outline:none}",
-      ".vlb-hint{margin:0;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-tertiary)}",
-      ".vlb-invalid{margin:0;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-error)}",
-      ".vlb-disclosure{appearance:none;width:100%;font:inherit;text-align:left;cursor:pointer;background:0 0;border:0;border-top:.5px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);align-items:center;gap:6px;padding:12px 0;font-size:13px;line-height:1.5;display:flex}",
-      ".vlb-disclosure:hover{color:var(--dsw-alias-label-primary)}",
-      ".vlb-footer{border-top:.5px solid var(--dsw-alias-border-l2);justify-content:flex-end;align-items:center;gap:8px;padding:12px 0 4px;display:flex}",
-      ".vlb-failed{min-width:0;color:var(--dsw-alias-label-error);flex:1;margin:0;font-size:12px;line-height:1.5}",
-      ".vlb-discard,.vlb-save,.vlb-trigger{appearance:none;font:inherit;cursor:pointer;border:1px solid #0000;border-radius:8px;padding:5px 14px;font-size:13px;line-height:1.5}",
-      ".vlb-discard,.vlb-trigger{border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);background:0 0}",
-      ".vlb-discard:hover:not(:disabled),.vlb-trigger:hover:not(:disabled){color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-dimmed)}",
-      ".vlb-save{background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-3)}",
-      ".vlb-discard:disabled,.vlb-save:disabled,.vlb-trigger:disabled{opacity:.4;cursor:default}",
-      ".vlb-discard:focus-visible,.vlb-save:focus-visible,.vlb-trigger:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}",
-      ".vlb-readOnly,.vlb-loading{margin:12px 0 0;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-tertiary)}",
-      ".vlb-unavailable{margin:12px 0 0;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-error)}",
-    ].join("");
-
-    // The host's IconChevronDownOutline14, inlined: one less module edge.
-    var CHEVRON_PATH = "M11.8486 5.5L11.4238 5.92383L8.69727 8.65137C8.44157 8.90706 8.21562 9.13382 8.01172 9.29785C7.79912 9.46883 7.55595 9.61756 7.25 9.66602C7.08435 9.69222 6.91565 9.69222 6.75 9.66602C6.44405 9.61756 6.20088 9.46883 5.98828 9.29785C5.78438 9.13382 5.55843 8.90706 5.30273 8.65137L2.57617 5.92383L2.15137 5.5L3 4.65137L3.42383 5.07617L6.15137 7.80273C6.42595 8.07732 6.59876 8.24849 6.74023 8.3623C6.87291 8.46904 6.92272 8.47813 6.9375 8.48047C6.97895 8.48703 7.02105 8.48703 7.0625 8.48047C7.07728 8.47813 7.12709 8.46904 7.25977 8.3623C7.40124 8.24849 7.57405 8.07732 7.84863 7.80273L10.5762 5.07617L11 4.65137L11.8486 5.5Z";
-
-    function chevron(className) {
-      return React.createElement("svg", {
-        className: className,
-        width: 14,
-        height: 14,
-        viewBox: "0 0 14 14",
-        fill: "none",
-        "aria-hidden": "true",
-      }, React.createElement("path", { d: CHEVRON_PATH, fill: "currentColor" }));
-    }
-
-    function makeRowComponent(ctx, rowNs, fields, t, descriptionKey, advancedHintKey) {
-      return function VisionaryRow(props) {
-        // `plugins.row.config` 契：页面以 view: 'page' 渲染表单（页面自绘标题/图标/面包屑），
-        // 或 view: 'summary' 作为缺描述时的兜底一行文案；form 由页面按 entry 注入。
-        var view = props.view;
-        var form = props.form;
-        if (view !== "page") {
-          return React.createElement("p", { className: "vlb-summary" }, t(descriptionKey));
-        }
-        if (!form) {
-          return React.createElement("p", { className: "vlb-unavailable" }, t("unavailable"));
-        }
-        // 页面注入的 form 是稳定的 ConfigForm（configForms.get 缓存同一实例）；
-        // editor 只在 form 变化时重建，订阅交给组件自身的 effect。scopes 键必须
-        // 匹配字段 target 的 ns（= 本行 entry id）。
-        var scopes = {};
-        scopes[rowNs] = form;
-        var editor = React.useMemo(function () {
-          return makeEditor({ ctx: ctx, scopes: scopes, primaryNs: rowNs, fields: fields });
-        }, [form]);
-        React.useEffect(function () {
-          return form.subscribe(function () { editor.refresh(); });
-        }, [form, editor]);
-
-        var snapshot = useStore(editor.store);
-        var disclosure = React.useState(false);
-        var advancedOpen = disclosure[0];
-        var setAdvancedOpen = disclosure[1];
-        var triggeredFlag = React.useState(false);
-        var justTriggered = triggeredFlag[0];
-        var setJustTriggered = triggeredFlag[1];
-
-        var disabled = !snapshot.writable || snapshot.saving;
-
-        var badges = function (f, state) {
-          if (!state.overridden) return null;
-          return React.createElement("span", { key: "badges", className: "vlb-badges" }, [
-            React.createElement("span", { key: "tag", className: "vlb-tag" }, t("overridden")),
-            React.createElement("button", {
-              key: "reset",
-              type: "button",
-              className: "vlb-reset",
-              disabled: disabled,
-              onClick: function () { editor.reset(f.id); },
-            }, t("reset")),
-          ]);
+    // Vision card: five fields (binaryPath is dual-written to the bridge entry).
+    function makeVisionCard(ctx, t) {
+      var visionScope = ctx.configForms.get(NS_VISION);
+      var bridgeScope = ctx.configForms.get(NS_BRIDGE);
+      var form = new SettingsFormModel(visionScope, [
+        choiceSpec("modelType", ["vision", "ocr"]),
+        settingsNumberField("visionTimeoutMs"),
+        settingsTextField("binaryPath"),
+        settingsNumberField("statusTimeoutMs"),
+        settingsNumberField("loginTimeoutSeconds"),
+      ]);
+      var bridgeBinary = new SettingsFormModel(bridgeScope, [settingsTextField("binaryPath")]);
+      var store = form.bind(function () {
+        var shell = form.shell();
+        var binary = bridgeBinary.shell();
+        return {
+          available: shell.available,
+          writable: shell.writable && binary.writable,
+          dirty: shell.dirty || binary.dirty,
+          invalid: shell.invalid || binary.invalid,
+          saving: shell.saving || binary.saving,
+          failed: shell.failed || binary.failed,
+          modelType: form.field("modelType"),
+          visionTimeoutMs: form.field("visionTimeoutMs"),
+          binaryPath: form.field("binaryPath"),
+          statusTimeoutMs: form.field("statusTimeoutMs"),
+          loginTimeoutSeconds: form.field("loginTimeoutSeconds"),
         };
-
-        var renderField = function (f) {
-          var state = snapshot.fields[f.id] || { text: "", overridden: false, invalid: false };
-          var controlId = "visionary-field-" + f.id.replace(/[^A-Za-z0-9_-]/g, "-");
-          var onEdit = function (text) { editor.edit(f.id, text); };
-
-          if (f.kind === "boolean") {
-            return React.createElement("div", { key: f.id, className: "vlb-field" }, [
-              React.createElement("div", { key: "row", className: "vlb-toggleRow" }, [
-                React.createElement("div", { key: "text", className: "vlb-toggleLabel" }, [
-                  React.createElement("span", { key: "label", className: "vlb-label" }, t(f.labelKey)),
-                  badges(f, state),
-                ]),
-                React.createElement(SwitchControl, {
-                  key: "switch",
-                  checked: state.text === "true",
-                  label: t(f.labelKey),
-                  disabled: disabled,
-                  onChange: function (next) {
-                    onEdit(String(typeof next === "boolean" ? next : state.text !== "true"));
-                  },
-                }),
-              ]),
-              React.createElement("p", { key: "hint", className: "vlb-hint" }, t(f.hintKey)),
-            ]);
-          }
-
-          var control;
-          if (f.kind === "trigger") {
-            control = React.createElement("button", {
-              type: "button",
-              id: controlId,
-              className: "vlb-trigger",
-              disabled: disabled,
-              onClick: function () {
-                setJustTriggered(true);
-                editor.trigger(f.id);
-              },
-            }, justTriggered ? t("cleanPastedTriggered") : t(f.actionKey));
-          } else if (f.kind === "select") {
-            control = React.createElement("select", {
-              id: controlId,
-              className: "vlb-input",
-              value: state.text,
-              disabled: disabled,
-              onChange: function (e) { onEdit(e.target.value); },
-            }, f.options.map(function (o) { return React.createElement("option", { key: o, value: o }, o); }));
-          } else if (f.kind === "number") {
-            control = React.createElement("input", {
-              id: controlId,
-              className: state.invalid ? "vlb-input vlb-inputInvalid" : "vlb-input",
-              type: "text",
-              inputMode: "numeric",
-              "aria-invalid": state.invalid ? "true" : "false",
-              value: state.text,
-              disabled: disabled,
-              onChange: function (e) { onEdit(e.target.value); },
-            });
-          } else if (f.kind === "textarea") {
-            control = React.createElement("textarea", {
-              id: controlId,
-              className: "vlb-textarea",
-              value: state.text,
-              disabled: disabled,
-              placeholder: t(f.placeholderKey || f.hintKey),
-              onChange: function (e) { onEdit(e.target.value); },
-            });
-          } else {
-            control = React.createElement("input", {
-              id: controlId,
-              className: "vlb-input",
-              type: "text",
-              value: state.text,
-              disabled: disabled,
-              onChange: function (e) { onEdit(e.target.value); },
-            });
-          }
-
-          return React.createElement("div", { key: f.id, className: "vlb-field" }, [
-            React.createElement("div", { key: "head", className: "vlb-fieldHead" }, [
-              React.createElement("label", { key: "label", className: "vlb-label", htmlFor: controlId }, t(f.labelKey)),
-              badges(f, state),
-            ]),
-            control,
-            React.createElement("p", { key: "hint", className: state.invalid ? "vlb-invalid" : "vlb-hint" },
-              state.invalid ? t("invalidNumber") : t(f.hintKey)),
-          ]);
-        };
-
-        var body = [];
-        if (snapshot.status === "loading") {
-          body.push(React.createElement("p", { key: "loading", className: "vlb-loading" }, t("loading")));
-        } else if (snapshot.status === "unavailable") {
-          body.push(React.createElement("p", { key: "unavailable", className: "vlb-unavailable" }, t("unavailable")));
-        } else {
-          var advancedFields = fieldsIn(fields, "advanced");
-          if (!snapshot.writable) {
-            body.push(React.createElement("p", { key: "ro", className: "vlb-readOnly" }, t("readOnly")));
-          }
-          body.push(React.createElement("div", { key: "main" }, fieldsIn(fields, "main").map(renderField)));
-          if (advancedFields.length > 0) {
-            body.push(React.createElement("button", {
-              key: "disclosure",
-              type: "button",
-              className: "vlb-disclosure",
-              "aria-expanded": advancedOpen ? "true" : "false",
-              onClick: function () { setAdvancedOpen(!advancedOpen); },
-            }, [
-              chevron(advancedOpen ? "vlb-chevron vlb-chevronOpen" : "vlb-chevron"),
-              React.createElement("span", { key: "text" }, t("advanced") + " · " + t(advancedHintKey)),
-            ]));
-            if (advancedOpen) {
-              body.push(React.createElement("div", { key: "advanced" }, advancedFields.map(renderField)));
-            }
-          }
-          body.push(React.createElement("div", { key: "footer", className: "vlb-footer" }, [
-            (snapshot.failed || snapshot.conflict)
-              ? React.createElement("p", { key: "err", className: "vlb-failed" },
-                  snapshot.conflict ? t("saveConflict") : t("saveFailed"))
-              : null,
-            React.createElement("button", {
-              key: "discard",
-              type: "button",
-              className: "vlb-discard",
-              disabled: !snapshot.dirty || snapshot.saving,
-              onClick: function () { editor.discard(); setJustTriggered(false); },
-            }, t("discard")),
-            React.createElement("button", {
-              key: "save",
-              type: "button",
-              className: "vlb-save",
-              disabled: snapshot.status !== "ready" || !snapshot.dirty || snapshot.invalid || snapshot.saving,
-              onClick: function () { editor.save(); },
-            }, snapshot.saving ? t("saving") : t("save")),
-          ]));
-        }
-
-        // page 视图：字段区 + 保存控制（0.1.7 页面已绘标题/图标/面包屑与 summary 兜底，
-        // 这里只渲染表单本身；dirty「未保存」标记省略）。
-        return React.createElement("div", { className: "vlb-body vlb-bodyPage" }, body);
+      });
+      function edit(field, text) {
+        form.actions().edit(field, text);
+        if (field === "binaryPath") bridgeBinary.actions().edit(field, text);
+      }
+      function resetField(field) {
+        form.actions().resetField(field);
+        if (field === "binaryPath") bridgeBinary.actions().resetField(field);
+      }
+      function discard() {
+        form.actions().discard();
+        bridgeBinary.actions().discard();
+      }
+      async function save() {
+        var landed = await form.actions().save();
+        if (!landed) return false;
+        return bridgeBinary.actions().save();
+      }
+      return {
+        dispose() { form.dispose(); bridgeBinary.dispose(); },
+        inject() {
+          return { hooks: { visionCard: store }, visionEdit: edit, visionResetField: resetField, visionSave: save, visionDiscard: discard };
+        },
+        view(path, props) { return props.view === "summary" ? t("visionDescription") : path; },
+        raw: { form, store },
       };
     }
 
-    // Split one card's fields into the always-visible region and the collapsed
-    // "advanced" region.
-    function fieldsIn(fields, area) {
-      return fields.filter(function (f) { return f.area === area; });
+    // Bridge card: boolean/choice fields via Switch/SegmentedControl, numeric/text
+    // via SettingsValueField, plus the one-shot cleanPasted action button.
+    function makeBridgeCard(ctx, t) {
+      var scope = ctx.configForms.get(NS_BRIDGE);
+      var form = new SettingsFormModel(scope, [
+        booleanSpec("enabled"),
+        choiceSpec("scope", ["text-only", "also-vl"]),
+        choiceSpec("mode", ["agentic", "deterministic"]),
+        settingsTextField("binaryPath"),
+        settingsTextField("pastedDir"),
+        pathTemplateSpec("promptTemplate"),
+        settingsNumberField("retainHours"),
+        jsonListSpec("routes"),
+      ]);
+      var store = form.bind(function () {
+        var shell = form.shell();
+        return Object.assign({}, shell, {
+          enabled: form.field("enabled"),
+          scope: form.field("scope"),
+          mode: form.field("mode"),
+          binaryPath: form.field("binaryPath"),
+          pastedDir: form.field("pastedDir"),
+          promptTemplate: form.field("promptTemplate"),
+          retainHours: form.field("retainHours"),
+          routes: form.field("routes"),
+        });
+      });
+      function triggerClean() {
+        var snapshot = scope.getSnapshot();
+        scope.mutate([{ op: "set", path: ["cleanPasted"], value: true }], snapshot.revision);
+      }
+      return {
+        dispose() { form.dispose(); },
+        inject() {
+          return {
+            hooks: { bridgeCard: store },
+            bridgeEdit: form.actions().edit,
+            bridgeResetField: form.actions().resetField,
+            bridgeSave: form.actions().save,
+            bridgeDiscard: form.actions().discard,
+            bridgeTriggerClean: triggerClean,
+          };
+        },
+        view(path, props) { return props.view === "summary" ? t("bridgeDescription") : path; },
+        raw: { form, store },
+      };
     }
 
-    // `plugins.row.config` 的服务契约：key 为 `<package>#<rowId>`（rowConfigKey），
-    // 页面按 bundle 名 + patch 行的 rowId 装配；两行各自独立的配置页。
-    var BUNDLE_NAME = "@xlight-oss/visionary-dsh";
-    function rowKey(rowId) { return BUNDLE_NAME + "#" + rowId; }
+    // ── page components ───────────────────────────────────────────────────────
 
-    // ── apply ──
+    /** Build one numeric/text SettingsValueField row with stable per-row bindings. */
+    function advanceRow(f, idPrefix, t, editFn, resetFn, disabled) {
+      return React.createElement("div", { key: f.key, style: Object.assign({}, styles.fieldRow, styles.fieldDivider) }, [
+        React.createElement(SettingsValueField, {
+          id: idPrefix + f.key,
+          label: f.label,
+          hint: f.hint,
+          overriddenLabel: t("overridden"),
+          resetLabel: t("reset"),
+          invalidLabel: f.invalidLabel,
+          numeric: Boolean(f.numeric),
+          disabled: disabled,
+          ...f.field,
+          onEdit: function (text) { editFn(f.edit, text); },
+          onReset: function () { resetFn(f.edit); },
+        }),
+      ]);
+    }
+    function VisionaryCard(props) {
+      var t = props.t;
+      var snapshot = props.useVisionCard(function (s) { return s; });
+      var advanced = React.useState(false);
+      var advancedOpen = advanced[0];
+      var setAdvancedOpen = advanced[1];
+      if (props.view === "summary") return t("visionDescription");
+      var disabled = !snapshot.writable;
+      var children = [];
 
-    var inject = ["slots", "locale"];
+      children.push(React.createElement("div", { key: "modelType", style: styles.fieldRow }, [
+        fieldHead(t("visionModelTypeLabel"), snapshot.modelType, disabled, t, function () { props.visionResetField("modelType"); }),
+        React.createElement(SegmentedControl, {
+          id: "visionary-modelType",
+          label: t("visionModelTypeLabel"),
+          value: snapshot.modelType.text,
+          disabled: disabled,
+          options: [{ value: "vision", label: "vision" }, { value: "ocr", label: "ocr" }],
+          onChange: function (next) { props.visionEdit("modelType", next); },
+        }),
+        hint(t("visionModelTypeHint")),
+      ]));
+
+      children.push(React.createElement("div", { key: "binaryPath", style: Object.assign({}, styles.fieldRow, styles.fieldDivider) }, [
+        React.createElement(SettingsValueField, {
+          id: "visionary-binaryPath",
+          label: t("sharedBinaryPathLabel"),
+          hint: t("sharedBinaryPathHint"),
+          overriddenLabel: t("overridden"),
+          resetLabel: t("reset"),
+          invalidLabel: t("invalidNumber"),
+          disabled: disabled,
+          ...snapshot.binaryPath,
+          onEdit: function (text) { props.visionEdit("binaryPath", text); },
+          onReset: function () { props.visionResetField("binaryPath"); },
+        }),
+      ]));
+
+      children.push(React.createElement("div", { key: "visionTimeoutMs", style: Object.assign({}, styles.fieldRow, styles.fieldDivider) }, [
+        React.createElement(SettingsValueField, {
+          id: "visionary-visionTimeoutMs",
+          label: t("visionTimeoutLabel"),
+          hint: t("visionTimeoutHint"),
+          overriddenLabel: t("overridden"),
+          resetLabel: t("reset"),
+          invalidLabel: t("invalidNumber"),
+          numeric: true,
+          disabled: disabled,
+          ...snapshot.visionTimeoutMs,
+          onEdit: function (text) { props.visionEdit("visionTimeoutMs", text); },
+          onReset: function () { props.visionResetField("visionTimeoutMs"); },
+        }),
+      ]));
+
+      children.push(React.createElement("button", {
+        key: "disclosure",
+        type: "button",
+        style: styles.disclosure,
+        "aria-expanded": advancedOpen ? "true" : "false",
+        onClick: function () { setAdvancedOpen(!advancedOpen); },
+      }, [
+        chevron(advancedOpen),
+        React.createElement("span", { key: "text" }, t("advanced") + " · " + t("advancedHint")),
+      ]));
+
+      if (advancedOpen) {
+        var advancedVision = [
+          { key: "statusTimeoutMs", label: t("visionStatusTimeoutLabel"), hint: t("visionStatusTimeoutHint"), field: snapshot.statusTimeoutMs, edit: "statusTimeoutMs", numeric: true, invalidLabel: t("invalidNumber") },
+          { key: "loginTimeoutSeconds", label: t("visionLoginTimeoutLabel"), hint: t("visionLoginTimeoutHint"), field: snapshot.loginTimeoutSeconds, edit: "loginTimeoutSeconds", numeric: true, invalidLabel: t("invalidNumber") },
+        ];
+        for (var i = 0; i < advancedVision.length; i++) {
+          children.push(advanceRow(advancedVision[i], "visionary-", t, props.visionEdit, props.visionResetField, disabled));
+        }
+      }
+
+      return React.createElement(SettingsForm, {
+        labels: formLabels(t),
+        state: snapshot,
+        onSave: props.visionSave,
+        onDiscard: props.visionDiscard,
+      }, children);
+    }
+
+    function BridgeCard(props) {
+      var t = props.t;
+      var snapshot = props.useBridgeCard(function (s) { return s; });
+      var advanced = React.useState(false);
+      var advancedOpen = advanced[0];
+      var setAdvancedOpen = advanced[1];
+      var triggered = React.useState(false);
+      var justTriggered = triggered[0];
+      var setJustTriggered = triggered[1];
+      if (props.view === "summary") return t("bridgeDescription");
+      var disabled = !snapshot.writable;
+      var children = [];
+
+      children.push(React.createElement("div", { key: "enabled", style: styles.fieldRow }, [
+        React.createElement("div", { style: styles.boolRow }, [
+          React.createElement("div", { style: styles.boolText }, [
+            fieldHead(t("enabledLabel"), snapshot.enabled, disabled, t, function () { props.bridgeResetField("enabled"); }),
+          ]),
+          React.createElement(SwitchControl, {
+            checked: snapshot.enabled.text === "true",
+            label: t("enabledLabel"),
+            disabled: disabled,
+            onChange: function (next) {
+              props.bridgeEdit("enabled", String(typeof next === "boolean" ? next : snapshot.enabled.text !== "true"));
+            },
+          }),
+        ]),
+        hint(t("enabledHint")),
+      ]));
+
+      children.push(React.createElement("div", { key: "scope", style: Object.assign({}, styles.fieldRow, styles.fieldDivider) }, [
+        fieldHead(t("scopeLabel"), snapshot.scope, disabled, t, function () { props.bridgeResetField("scope"); }),
+        React.createElement(SegmentedControl, {
+          id: "visionary-scope",
+          label: t("scopeLabel"),
+          value: snapshot.scope.text,
+          disabled: disabled,
+          options: [{ value: "text-only", label: "text-only" }, { value: "also-vl", label: "also-vl" }],
+          onChange: function (next) { props.bridgeEdit("scope", next); },
+        }),
+        hint(t("scopeHint")),
+      ]));
+
+      children.push(React.createElement("div", { key: "mode", style: Object.assign({}, styles.fieldRow, styles.fieldDivider) }, [
+        fieldHead(t("modeLabel"), snapshot.mode, disabled, t, function () { props.bridgeResetField("mode"); }),
+        React.createElement(SegmentedControl, {
+          id: "visionary-mode",
+          label: t("modeLabel"),
+          value: snapshot.mode.text,
+          disabled: disabled,
+          options: [{ value: "agentic", label: "agentic" }, { value: "deterministic", label: "deterministic" }],
+          onChange: function (next) { props.bridgeEdit("mode", next); },
+        }),
+        hint(t("modeHint")),
+      ]));
+
+      children.push(React.createElement("div", { key: "binaryPath", style: Object.assign({}, styles.fieldRow, styles.fieldDivider) }, [
+        React.createElement(SettingsValueField, {
+          id: "visionary-bridge-binaryPath",
+          label: t("sharedBinaryPathLabel"),
+          hint: t("sharedBinaryPathHint"),
+          overriddenLabel: t("overridden"),
+          resetLabel: t("reset"),
+          invalidLabel: t("invalidNumber"),
+          disabled: disabled,
+          ...snapshot.binaryPath,
+          onEdit: function (text) { props.bridgeEdit("binaryPath", text); },
+          onReset: function () { props.bridgeResetField("binaryPath"); },
+        }),
+      ]));
+
+      children.push(React.createElement("button", {
+        key: "disclosure",
+        type: "button",
+        style: styles.disclosure,
+        "aria-expanded": advancedOpen ? "true" : "false",
+        onClick: function () { setAdvancedOpen(!advancedOpen); },
+      }, [
+        chevron(advancedOpen),
+        React.createElement("span", { key: "text" }, t("advanced") + " · " + t("advancedHint")),
+      ]));
+
+      if (advancedOpen) {
+        var rows = [
+          { key: "pastedDir", label: t("pastedDirLabel"), hint: t("pastedDirHint"), field: snapshot.pastedDir, edit: "pastedDir", numeric: false, invalidLabel: t("invalidNumber") },
+          { key: "promptTemplate", label: t("promptTemplateLabel"), hint: t("promptTemplateHint"), field: snapshot.promptTemplate, edit: "promptTemplate", numeric: false, invalidLabel: t("invalidTemplate") },
+          { key: "retainHours", label: t("retainHoursLabel"), hint: t("retainHoursHint"), field: snapshot.retainHours, edit: "retainHours", numeric: true, invalidLabel: t("invalidNumber") },
+          { key: "routes", label: t("routesLabel"), hint: t("routesHint"), field: snapshot.routes, edit: "routes", numeric: false, invalidLabel: t("invalidRoutes") },
+        ];
+        for (var i = 0; i < rows.length; i++) {
+          children.push(advanceRow(rows[i], "visionary-bridge-", t, props.bridgeEdit, props.bridgeResetField, disabled));
+        }
+        children.push(React.createElement("div", { key: "cleanPasted", style: Object.assign({}, styles.fieldRow, styles.fieldDivider) }, [
+          fieldHead(t("cleanPastedLabel"), { overridden: false }, disabled, t, function () {}),
+          React.createElement("button", {
+            type: "button",
+            style: styles.trigger,
+            disabled: disabled,
+            onClick: function () { setJustTriggered(true); props.bridgeTriggerClean(); },
+          }, justTriggered ? t("cleanPastedTriggered") : t("cleanPastedAction")),
+          hint(t("cleanPastedHint")),
+        ]));
+      }
+
+      return React.createElement(SettingsForm, {
+        labels: formLabels(t),
+        state: snapshot,
+        onSave: props.bridgeSave,
+        onDiscard: props.bridgeDiscard,
+      }, children);
+    }
+
+    // ── dashboard section (plugins.bundle.config) ─────────────────────────────
+    //
+    // Renders above the per-entry rows in the bundle detail page. Pulls
+    // aggregated status from the host VisionaryDashboard Service via
+    // ctx.remote.visionaryDashboard and exposes four diagnostic actions.
+
+    function VisionaryDashboardSummary(props) {
+      var t = props.t;
+      var remote = props.remote;
+      var state = React.useState({ status: null, error: null, loading: true, action: null, actionError: null });
+      var snap = state[0];
+      var setSnap = state[1];
+
+      function refresh() {
+        setSnap(function (prev) { return Object.assign({}, prev, { loading: true, error: null }); });
+        remote.getStatus().then(
+          function (status) { setSnap({ status: status, error: null, loading: false, action: null, actionError: null }); },
+          function (err) { setSnap({ status: null, error: String(err?.message ?? err), loading: false, action: null, actionError: null }); }
+        );
+      }
+
+      React.useEffect(function () { refresh(); }, []);
+
+      function runAction(name, fn) {
+        setSnap(function (prev) { return Object.assign({}, prev, { action: name, actionError: null }); });
+        fn().then(
+          function () { refresh(); },
+          function (err) { setSnap(function (prev) { return Object.assign({}, prev, { action: null, actionError: String(err?.message ?? err) }); }); }
+        );
+      }
+
+      var children = [];
+
+      if (snap.loading) {
+        children.push(React.createElement("p", { key: "loading", style: styles.hint }, t("dashboardLoading")));
+        return React.createElement("section", { style: styles.fieldRow }, children);
+      }
+
+      if (snap.error) {
+        children.push(React.createElement("p", { key: "error", style: styles.invalid }, t("dashboardError") + ": " + snap.error));
+        children.push(React.createElement("button", { key: "retry", type: "button", style: styles.trigger, onClick: refresh }, t("dashboardSelfCheck")));
+        return React.createElement("section", { style: styles.fieldRow }, children);
+      }
+
+      var s = snap.status || {};
+
+      // Binary status row
+      var binary = s.binary || {};
+      var binaryBadge;
+      if (binary.ready && binary.compatible) {
+        binaryBadge = React.createElement("span", { key: "b", style: styles.tag }, t("dashboardBinaryReady"));
+      } else if (binary.ready && !binary.compatible) {
+        binaryBadge = React.createElement("span", { key: "b", style: styles.tag }, t("dashboardBinaryIncompatible"));
+      } else {
+        binaryBadge = React.createElement("span", { key: "b", style: styles.tag }, t("dashboardBinaryMissing"));
+      }
+      var binaryDetail = binary.ready ? (binary.version || "") + (binary.compatible ? "" : " (expected " + (binary.expectedMinor || "?") + ")") : (binary.hint || "");
+      children.push(React.createElement("div", { key: "binary", style: styles.fieldRow }, [
+        React.createElement("div", { style: styles.head }, [
+          React.createElement("span", { style: styles.label }, t("dashboardBinaryTitle")),
+          binaryBadge,
+        ]),
+        binaryDetail ? React.createElement("p", { style: styles.hint }, binaryDetail) : null,
+      ]));
+
+      // Login status row
+      var login = s.login || {};
+      var loginBadge;
+      if (login.ok) {
+        loginBadge = React.createElement("span", { key: "l", style: styles.tag }, t("dashboardLoginOk"));
+      } else if (login.error) {
+        loginBadge = React.createElement("span", { key: "l", style: styles.tag }, t("dashboardLoginError"));
+      } else {
+        loginBadge = React.createElement("span", { key: "l", style: styles.tag }, t("dashboardLoginOff"));
+      }
+      children.push(React.createElement("div", { key: "login", style: Object.assign({}, styles.fieldRow, styles.fieldDivider) }, [
+        React.createElement("div", { style: styles.head }, [
+          React.createElement("span", { style: styles.label }, t("dashboardLoginTitle")),
+          loginBadge,
+        ]),
+        login.error ? React.createElement("p", { style: styles.hint }, login.error) : null,
+      ]));
+
+      // Bridge status row
+      var bridge = s.bridge || {};
+      var bridgeBadge = React.createElement("span", { key: "br", style: styles.tag }, bridge.enabled ? t("dashboardBridgeOn") : t("dashboardBridgeOff"));
+      var bridgeDetail = bridge.enabled ? t("dashboardPastedCount") + ": " + (bridge.pastedCount ?? 0) : "";
+      children.push(React.createElement("div", { key: "bridge", style: Object.assign({}, styles.fieldRow, styles.fieldDivider) }, [
+        React.createElement("div", { style: styles.head }, [
+          React.createElement("span", { style: styles.label }, t("dashboardBridgeTitle")),
+          bridgeBadge,
+        ]),
+        bridgeDetail ? React.createElement("p", { style: styles.hint }, bridgeDetail) : null,
+      ]));
+
+      // Diagnostic actions row
+      var actions = [
+        { key: "reprobe", label: t("dashboardReprobe"), fn: function () { return remote.reprobeBinary(); } },
+        { key: "relogin", label: t("dashboardRelogin"), fn: function () { return remote.relogin(); } },
+        { key: "clean", label: t("dashboardClean"), fn: function () { return remote.cleanPasted(); } },
+        { key: "selfCheck", label: t("dashboardSelfCheck"), fn: function () { return remote.selfCheck(); } },
+      ];
+      var actionButtons = actions.map(function (a) {
+        return React.createElement("button", {
+          key: a.key,
+          type: "button",
+          style: styles.trigger,
+          disabled: snap.action === a.key,
+          onClick: function () { runAction(a.key, a.fn); },
+        }, snap.action === a.key ? t("dashboardLoading") : a.label);
+      });
+      children.push(React.createElement("div", { key: "actions", style: Object.assign({}, styles.fieldRow, styles.fieldDivider) }, [
+        React.createElement("div", { style: styles.head }, [
+          React.createElement("span", { style: styles.label }, t("dashboardActionsTitle")),
+        ]),
+        React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 } }, actionButtons),
+        snap.actionError ? React.createElement("p", { style: styles.invalid }, t("dashboardError") + ": " + snap.actionError) : null,
+      ]));
+
+      return React.createElement("section", { style: styles.fieldRow }, children);
+    }
+
+    function VisionaryBundleConfig(props) {
+      return React.createElement("div", { key: "visionary-bundle-config" }, [
+        React.createElement(VisionaryDashboardSummary, {
+          key: "summary", t: props.t, remote: props.remote,
+        }),
+        React.createElement(VisionaryCard, {
+          key: "vision", t: props.t, view: "page",
+          useVisionCard: props.useVisionCard,
+          visionEdit: props.visionEdit, visionResetField: props.visionResetField,
+          visionSave: props.visionSave, visionDiscard: props.visionDiscard,
+        }),
+        React.createElement(BridgeCard, {
+          key: "bridge", t: props.t, view: "page",
+          useBridgeCard: props.useBridgeCard,
+          bridgeEdit: props.bridgeEdit, bridgeResetField: props.bridgeResetField,
+          bridgeSave: props.bridgeSave, bridgeDiscard: props.bridgeDiscard,
+          bridgeTriggerClean: props.bridgeTriggerClean,
+        }),
+      ]);
+    }
+
+    // ── apply ─────────────────────────────────────────────────────────────────
+
+    var inject = ["slots", "locale", "configForms", "remote"];
 
     function apply(ctx) {
       ctx.effect(function () {
         return ctx.locale.register(NS, { zh: LOCALE_ZH, en: LOCALE_EN });
       }, "locale: " + NS);
-      // Card chrome (CARD_CSS): one tagged <style> for both rows, removed with
-      // the fiber so a disabled or updated row leaves no styles behind.
-      ctx.effect(function () {
-        if (typeof document === "undefined") return undefined;
-        var style = document.createElement("style");
-        style.setAttribute("data-plugin", "@xlight-oss/visionary-dsh");
-        style.textContent = CARD_CSS;
-        document.head.appendChild(style);
-        return function () { style.remove(); };
-      }, "visionary-settings: card chrome");
       var t = ctx.locale.bind(NS);
 
-      var VisionRow = makeRowComponent(ctx, NS_VISION, VISION_FIELDS, t, "visionDescription", "advancedHint");
-      var BridgeRow = makeRowComponent(ctx, NS_BRIDGE, BRIDGE_FIELDS, t, "bridgeDescription", "advancedHint");
+      var vision = makeVisionCard(ctx, t);
+      var bridge = makeBridgeCard(ctx, t);
+      ctx.effect(function () {
+        return function () {
+          vision.dispose();
+          bridge.dispose();
+        };
+      }, "visionary: form subscriptions");
 
-      ctx.slots.inject("plugins.row.config", function () {
-        return ctx.slots.register({
-          name: "plugins.row.config",
-          key: rowKey(NS_VISION),
-          order: 20,
-          locale: NS,
-        }, VisionRow);
-      });
-
-      ctx.slots.inject("plugins.row.config", function () {
-        return ctx.slots.register({
-          name: "plugins.row.config",
-          key: rowKey(NS_BRIDGE),
-          order: 21,
-          locale: NS,
-        }, BridgeRow);
-      });
+      // Bundle configuration: a single `plugins.bundle.config` registration
+      // (keyed by bundle package name) renders on the `@xlight-oss/visionary-dsh`
+      // bundle detail page between its description and rows. The composite
+      // `VisionaryBundleConfig` component renders the dashboard summary plus the
+      // Vision Tools and Image Bridge forms inline. The combined `inject()`
+      // merges the namespaced faces from `vision.inject()` and `bridge.inject()`
+      // with the dashboard remote, per design D3.
+      ctx.effect(function () {
+        return ctx.configForms.whileServed([NS_VISION, NS_BRIDGE], function () {
+          var off = ctx.slots.inject("plugins.bundle.config", function () {
+            return ctx.slots.register({
+              name: "plugins.bundle.config",
+              key: "@xlight-oss/visionary-dsh",
+              order: 10,
+              label: function () { return t("dashboardSummary"); },
+              locale: NS,
+              inject: function () {
+                var vf = vision.inject();
+                var bf = bridge.inject();
+                return Object.assign({ remote: ctx.remote.visionaryDashboard }, vf, bf, {
+                  hooks: Object.assign({}, vf.hooks, bf.hooks),
+                });
+              },
+            }, VisionaryBundleConfig);
+          });
+          return function () { off(); };
+        });
+      }, "visionary: bundle config");
     }
 
     exports.inject = inject;

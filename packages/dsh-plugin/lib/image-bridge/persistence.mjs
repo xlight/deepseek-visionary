@@ -67,6 +67,31 @@ export function attachmentFilename(ref) {
  * the settings-trigger cleanup (design: 手动清理) reuses the same scanning
  * semantics as the lazy TTL cleanup.
  */
+/**
+ * Count pasted files currently on disk under `dir`. Returns 0 when the
+ * directory does not exist yet or is unreadable. Standalone (like
+ * {@link cleanupPastedDir}) so the dashboard Service can count without
+ * owning an `ImagePersistence` instance.
+ */
+export async function countPastedDir(dir) {
+  const target = expandHome(dir);
+  try {
+    await fs.access(target);
+  } catch {
+    return 0;
+  }
+  let count = 0;
+  try {
+    const entries = await fs.readdir(target, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isFile()) count += 1;
+    }
+  } catch {
+    // unreadable; report 0
+  }
+  return count;
+}
+
 export async function cleanupPastedDir(dir, { retainHours = null, all = false } = {}, logger) {
   const target = expandHome(dir);
   try {
@@ -222,6 +247,14 @@ export class ImagePersistence {
     );
     await this.dropStaleCache();
     return removed;
+  }
+
+  /**
+   * Count pasted files currently on disk under the bridge directory.
+   * Returns 0 when the directory does not exist yet.
+   */
+  async countPasted() {
+    return countPastedDir(this.dir);
   }
 
   /** Drop cache entries whose file no longer exists on disk. */

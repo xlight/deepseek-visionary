@@ -15,3 +15,7 @@ node_modules/
 .opencode/
 openspec/changes/archive/
 .tmp-dsh/
+# 临时 tarball（跨盘安装产物）
+*.tgz
+# pnpm 开发期 minimumReleaseAge 豁免（0.2.0-rc.1 临时配置，正式版不需要）
+packages/dsh-plugin/pnpm-workspace.yaml

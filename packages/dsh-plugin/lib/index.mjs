@@ -34,42 +34,54 @@ const SETTINGS_NAMESPACE = "visionary-vision";
 // CLI's `--json` output shape. Bump when the binary's contract changes.
 const COMPAT_MINOR = "0.7";
 
-// `extra("volatile", true)` 标记使字段进入 DSH 设置面板（0.1.7 起 `settings.describe()`
-// 只投影 volatile 字段；等价 DSH fork schemastery 3.18.4 的 `.volatile()`，且兼容 npm
-// 3.18.2——0.1.5 的 installSection 忽略该标记，面板内容不于此定义）。
+// `.volatile()` 标记使字段进入 DSH 0.2.0 设置面（`settings.describe()` 只投影
+// volatile 字段，表单由 entry Config 自动派生；DSH 自 0.2.0 起使用该契约，
+// 0.1.5 线的 installSection 已移除）。可编辑字段全部在此声明。
 const Config = z.object({
   binaryPath: z
     .string()
     .default("")
-    .extra("volatile", true)
+    .volatile()
     .description(
       "Absolute path to the visionary-server binary. Empty resolves via DEEPSEEK_VISIONARY_BIN, then PATH."
     ),
   loginTimeoutSeconds: z
     .number()
     .default(600)
-    .extra("volatile", true)
+    .volatile()
     .description(
       "Login wait timeout in seconds. DEEPSEEK_LOGIN_TIMEOUT env overrides when set (matching the CLI's own login deadline); schema default 600."
     ),
   visionTimeoutMs: z
     .number()
     .default(300000)
-    .extra("volatile", true)
+    .volatile()
     .description("Per deepseek_vision / deepseek_ocr call timeout in ms."),
   statusTimeoutMs: z
     .number()
     .default(60000)
-    .extra("volatile", true)
+    .volatile()
     .description("Per deepseek_vision_status / deepseek_vision_logout timeout in ms."),
   modelType: z
     .union([z.const("vision"), z.const("ocr")])
     .default("vision")
-    .extra("volatile", true)
+    .volatile()
     .description(
       "上传管道：vision（默认，完整多模态图像理解，携带 x-model-type: vision）| ocr（文本提取，不携带 x-model-type，走服务端 OCR 管道）。deepseek_vision 按此上传；deepseek_ocr 恒为 ocr。覆盖 CLI 默认配置，修改后即时生效。"
     ),
 });
+
+// --- volatile config reads ---------------------------------------------------
+//
+// DSH 0.2.0 起，`Config` 的 volatile 字段以 cosmokit `Volatile` 引用呈现（Loader 的
+// volatile-only 提交直接更新引用，无需重挂载）；每次读取经 `volGet` 解包即取当前值。
+// 判别用协议符号（`Symbol.for("cosmokit.volatile.write")`），不必依赖 cosmokit 包。
+const VOLATILE_WRITE = Symbol.for("cosmokit.volatile.write");
+export function volGet(value) {
+  return value !== null && typeof value === "object" && VOLATILE_WRITE in value
+    ? value.get()
+    : value;
+}
 
 // --- binary resolution -------------------------------------------------------
 
@@ -303,65 +315,23 @@ function parseMinor(v) {
 // --- tools -------------------------------------------------------------------
 
 function apply(ctx, config) {
-  // 运行态配置：settings 面板 / settings.yaml 写入经 source() 即时生效（热重载），
-  // 无 settings 服务时回退到插件行 entry config。所有工具调用都从 runtime 读取，
-  // 而不是冻结的 config —— 设置面板切换 modelType（vision|ocr）无需重启 DSH。
-  let runtime = { ...config };
-  let source = () => config;
-  // settings 服务可选：inject(["settings"], …) 在 provider 就绪（或之后出现）时
-  // 才注册命名空间，provider 脱离时 installSection 会把 source 回退到 entry，
-  // 因此「无 settings 服务」表现为按组合 entry 配置运行，而不是插件行报错。
+  // 运行态配置：0.2.0 起 volatile 字段是存活引用（Loader volatile-only 提交直接
+  // 更新 fiber.config），每次读取经 cfg() 解包即取当前值——不再需要 runtime/source
+  // 合并层；无 settings 服务时同样按组合 entry 配置工作。
+  const cfg = (key) => volGet(config[key]);
+  // 自带配置页（plugins.item），关闭 settings 的 schema 自动表单（auto: false）。
   ctx.inject(["settings"], (settingsCtx) => {
-    const settings = settingsCtx.settings;
-    // DSH 0.1.7+（SettingsForms）：无 installSection，改为 configure() 声明呈现策略，
-    // 表单由 entry Config 的 volatile 字段自动派生；热重载经 settings/document-updated
-    // 事件 + describe() 读回（describe 仅投影 volatile 字段，故需上面的标记）。
-    if (typeof settings?.configure === "function") {
-      const readValue = () => {
-        try {
-          const d = settings.describe().find((row) => row.ns === SETTINGS_NAMESPACE);
-          return d ? { ...config, ...(d.value ?? {}) } : null;
-        } catch {
-          return null;
-        }
-      };
-      const refresh = () => {
-        const next = readValue();
-        if (next) runtime = next;
-      };
-      // auto: false —— 本插件自带配置页（plugins.row.config），不启用 schema 自动表单。
-      settings.configure({ auto: false }, ctx.fiber);
-      ctx.effect(() => {
-        const dispose = ctx.on("settings/document-updated", (ns) => {
-          if (ns === SETTINGS_NAMESPACE) refresh();
-        });
-        return dispose;
-      }, "visionary-settings: document-updated listener");
-      refresh();
-      return;
+    try {
+      settingsCtx.settings.configure({ auto: false }, ctx.fiber);
+    } catch (err) {
+      ctx.logger?.warn?.("[visionary-vision] settings.configure failed: " + (err?.message ?? err));
     }
-    if (typeof settings?.installSection !== "function") {
-      // 契约不符（早于 0.1.2-alpha.2 的宿主）：降级为 entry 配置并明确提示，
-      // 不让整行插件在加载期死掉。
-      ctx.logger?.warn?.(
-        "[visionary-vision] the mounted settings service has no configure()/installSection(); keeping the composition entry config"
-      );
-      return;
-    }
-    settings.installSection(ctx, SETTINGS_NAMESPACE, Config, config, {
-      setSource: (thunk) => {
-        source = thunk;
-      },
-      onChange: () => {
-        runtime = { ...source() };
-      },
-    });
   });
-
   const loginSeconds = (() => {
     const raw = Number(process.env.DEEPSEEK_LOGIN_TIMEOUT);
     if (Number.isFinite(raw) && raw > 0) return raw;
-    return runtime.loginTimeoutSeconds > 0 ? runtime.loginTimeoutSeconds : 600;
+    const loginSecondsValue = cfg("loginTimeoutSeconds");
+    return loginSecondsValue > 0 ? loginSecondsValue : 600;
   })();
 
   // 版本探测：apply 时 fire-and-forget（仅用于结果附带版本警告）。
@@ -369,7 +339,7 @@ function apply(ctx, config) {
   // 重新 resolveBinaryPath(runtime)，用户修改 PATH / DEEPSEEK_VISIONARY_BIN
   // 后无需重启 DSH 即生效（懒解析，成本为数次 statSync）。
   let versionInfo = { known: false, compatible: true, version: "" };
-  const probeBinary = resolveBinaryPath(runtime);
+  const probeBinary = resolveBinaryPath({ binaryPath: cfg("binaryPath") });
   if (probeBinary) {
     runCli(probeBinary, ["--version"], { timeoutMs: 5000 })
       .then((r) => {
@@ -413,7 +383,7 @@ function apply(ctx, config) {
 
   // 懒解析：每次工具调用重新定位二进制（PATH / 环境变量改动即时生效）。
   const requireBinary = () => {
-    const binary = resolveBinaryPath(runtime);
+    const binary = resolveBinaryPath({ binaryPath: cfg("binaryPath") });
     if (!binary) throw new Error(binaryMissingHelp());
     return binary;
   };
@@ -439,12 +409,12 @@ function apply(ctx, config) {
           thinking: args.thinking,
           sessionId: args.session_id,
           continueConversation: args.continue_conversation,
-          modelType: subcommand === "vision" ? runtime.modelType : undefined,
+          modelType: subcommand === "vision" ? cfg("modelType") : undefined,
         },
       );
 
       const r = await runCli(bin, cliArgs, {
-        timeoutMs: runtime.visionTimeoutMs,
+        timeoutMs: cfg("visionTimeoutMs"),
         signal: exec.signal,
       });
       if (r.killed) throw new Error(`${name} was aborted or timed out`);
@@ -478,7 +448,7 @@ function apply(ctx, config) {
         "Analyze one or more images with DeepSeek's web vision model (local path / base64 / data URI). Pass multiple images via `images` to have the model analyze them together in one call (like the DeepSeek website). Use for screenshots, photos, or documents with images. Supports multi-turn conversation via continue_conversation / session_id.",
       parameters: imageToolParams,
       output: imageToolOutput,
-      timeoutMs: runtime.visionTimeoutMs,
+      timeoutMs: cfg("visionTimeoutMs"),
       async execute(args, exec) {
         const imageInputs = Array.isArray(args.images) && args.images.length > 0
           ? args.images
@@ -503,7 +473,7 @@ function apply(ctx, config) {
         "Extract raw text from one or more images with DeepSeek's OCR pipeline (local path / base64 / data URI), equivalent to `visionary-server ocr`. Use for the text content of a screenshot or document — document/PDF screenshots, code, signs, tables (not interpretation). Text is extracted verbatim by default. Supports multi-turn conversation via continue_conversation / session_id.",
       parameters: imageToolParams,
       output: imageToolOutput,
-      timeoutMs: runtime.visionTimeoutMs,
+      timeoutMs: cfg("visionTimeoutMs"),
       async execute(args, exec) {
         const imageInputs = Array.isArray(args.images) && args.images.length > 0
           ? args.images
@@ -531,11 +501,11 @@ function apply(ctx, config) {
         schema: { type: "string" },
         render: (_args, value) => [{ type: "text", text: value }],
       },
-      timeoutMs: runtime.statusTimeoutMs,
+      timeoutMs: cfg("statusTimeoutMs"),
       async execute(_args, exec) {
         const bin = requireBinary();
         const r = await runCli(bin, ["status", "--json"], {
-          timeoutMs: runtime.statusTimeoutMs,
+          timeoutMs: cfg("statusTimeoutMs"),
           signal: exec.signal,
         });
         if (r.killed) throw new Error("deepseek_vision_status was aborted or timed out");
@@ -604,11 +574,11 @@ function apply(ctx, config) {
         schema: { type: "string" },
         render: (_args, value) => [{ type: "text", text: value }],
       },
-      timeoutMs: runtime.statusTimeoutMs,
+      timeoutMs: cfg("statusTimeoutMs"),
       async execute(_args, exec) {
         const bin = requireBinary();
         const r = await runCli(bin, ["logout"], {
-          timeoutMs: runtime.statusTimeoutMs,
+          timeoutMs: cfg("statusTimeoutMs"),
           signal: exec.signal,
         });
         if (r.killed) throw new Error("deepseek_vision_logout was aborted or timed out");
@@ -630,6 +600,7 @@ export {
   buildImageCliArgs,
   resolveBinaryPath,
   resolveFromNpmShim,
+  COMPAT_MINOR,
 };
 
 // Internal reuse: the image-bridge plugin runs in the same package but is a
