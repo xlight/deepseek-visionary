@@ -57,7 +57,7 @@ export const IMAGE_PLACEHOLDER = "用户粘贴的图片处理失败，无法分�
 export const SETTINGS_NAMESPACE = "visionary-image-bridge";
 
 export const Config = z.object({
-  enabled: z.boolean().default(true).description(
+  enabled: z.boolean().default(true).extra("volatile", true).description(
     "桥接总开关；关闭后完整恢复宿主原行为（文本模型粘贴图片仍被拒绝）。",
   ),
   routes: z
@@ -68,32 +68,35 @@ export const Config = z.object({
       }),
     )
     .default([])
+    .extra("volatile", true)
     .description("桥接路由列表；为空 = 对所有路由生效。"),
-  pastedDir: z.string().default("~/.deepseek-visionary/pasted").description(
+  pastedDir: z.string().default("~/.deepseek-visionary/pasted").extra("volatile", true).description(
     "图片落盘目录（强制 0700，文件 0600）。",
   ),
-  promptTemplate: z.string().default(DEFAULT_PROMPT_TEMPLATE).description(
+  promptTemplate: z.string().default(DEFAULT_PROMPT_TEMPLATE).extra("volatile", true).description(
     "引导文本模板（agentic 模式），必须包含 {path} 占位符（渲染为真实图片路径）。",
   ),
-  retainHours: z.number().default(168).description(
+  retainHours: z.number().default(168).extra("volatile", true).description(
     "落盘副本保留小时数（默认 168 = 7 天）；<= 0 表示不清理。",
   ),
   scope: z
     .union([z.const("text-only"), z.const("also-vl")])
     .default("text-only")
+    .extra("volatile", true)
     .description(
       "桥接范围：text-only（默认）仅桥接文本模型，VL 模型原生看图；also-vl 时 VL 模型同样经桥接改写。",
     ),
   mode: z
     .union([z.const("agentic"), z.const("deterministic")])
     .default("agentic")
+    .extra("volatile", true)
     .description(
       "桥接模式：agentic（默认）改写为引导文本后由模型自主调用 deepseek_vision；deterministic 由桥接直接调用分析并把带不可信标注的结果注入模型消息。",
     ),
-  binaryPath: z.string().default("").description(
+  binaryPath: z.string().default("").extra("volatile", true).description(
     "visionary-server 二进制路径（deterministic 模式分析用）。空 = DEEPSEEK_VISIONARY_BIN → PATH。",
   ),
-  cleanPasted: z.boolean().default(false).description(
+  cleanPasted: z.boolean().default(false).extra("volatile", true).description(
     "手动清理触发器：切为 true（或 settings.yaml 写入）即清理 pastedDir 副本并自动复位为 false（打开一次触发一次）。",
   ),
 });
@@ -200,13 +203,60 @@ export function apply(ctx, config) {
   }
 
   // Settings section (design D6): settings panel + settings.yaml, hot reload.
-  // The service is optional: inject waits for it, and installSection falls back
-  // to the composition entry when the provider detaches (adapt-dsh-0-1-5 D2).
+  // The service is optional: inject waits for it, and the 0.1.5 installSection /
+  // 0.1.7+ configure paths both fall back to the composition entry when the
+  // provider detaches or predates the contract (adapt-dsh-0-1-5 D2).
   ctx.inject(["settings"], (settingsCtx) => {
     const settings = settingsCtx.settings;
+    // 0.1.7+（SettingsForms）：configure() 声明呈现策略，表单由 entry Config 的
+    // volatile 字段自动派生；热重载经 settings/document-updated + describe() 读回。
+    if (typeof settings?.configure === "function") {
+      const readValue = () => {
+        try {
+          const d = settings.describe().find((row) => row.ns === SETTINGS_NAMESPACE);
+          return d ? { ...config, ...(d.value ?? {}) } : null;
+        } catch {
+          return null;
+        }
+      };
+      const refresh = () => {
+        const next = readValue();
+        if (!next) return;
+        validateConfig(next);
+        // cleanPasted 是一次性触发器：切为 true 即触发清理，并把运行态复位为
+        // false（不再视为常态配置），再回写 settings 文档复位持久化值，避免
+        // 每次启动/切换都重复全量清理（design：打开一次触发一次）。
+        const triggered = next.cleanPasted === true;
+        if (triggered) next.cleanPasted = false;
+        runtime = next;
+        if (triggered) {
+          persistence
+            .cleanup({ all: true })
+            .then((removed) => {
+              ctx.logger.info(`[visionary-image-bridge] cleaned ${removed} pasted file(s)`);
+            })
+            .catch((err) => {
+              ctx.logger.warn(`[visionary-image-bridge] cleanPasted cleanup failed: ${err?.message ?? err}`);
+            });
+          settings.update(SETTINGS_NAMESPACE, { cleanPasted: false }).catch(() => {
+            // best-effort reset; runtime is already flipped, panel stays truthful
+          });
+        }
+        ctx.logger.info("[visionary-image-bridge] configuration updated");
+      };
+      // auto: false —— 本插件自带配置页（plugins.row.config），不启用 schema 自动表单。
+      settings.configure({ auto: false }, ctx.fiber);
+      ctx.effect(() => {
+        return ctx.on("settings/document-updated", (ns) => {
+          if (ns === SETTINGS_NAMESPACE) refresh();
+        });
+      }, "visionary-image-bridge: document-updated listener");
+      refresh();
+      return;
+    }
     if (typeof settings?.installSection !== "function") {
       ctx.logger?.warn?.(
-        "[visionary-image-bridge] the mounted settings service has no installSection(); keeping the composition entry config"
+        "[visionary-image-bridge] the mounted settings service has no configure()/installSection(); keeping the composition entry config"
       );
       return;
     }

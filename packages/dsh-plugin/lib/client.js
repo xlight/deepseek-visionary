@@ -1,14 +1,14 @@
 // Browser half of the visionary-dsh plugin.
 //
-// One native `settings.plugin.item` card per settings namespace the host
-// serves (`visionary-vision`, `visionary-image-bridge`). The Plugin
-// configuration tab dispatches that keyed slot by namespace and pairs the
-// host-served namespace with the card registered under the same key, so the
-// cards appear under Settings → Plugins → Plugin configuration.
+// One `plugins.row.config` entry per plugin row (`visionary-vision`,
+// `visionary-image-bridge`), rendered by the host's Plugins page when the row
+// is opened. The page draws the title/icon/crumb itself and injects the row's
+// ConfigForm through the `{ view, form }` props; this half renders the form
+// fields and staged writes (`form.mutate` with the read revision as the fence).
 //
-// Transport: `ctx.settingsScope.bind({ namespace })` — the host's own settings
-// channel. `getSnapshot()` drives rendering, `subscribe()` repaints, and writes
-// go through `mutate(ops, revision)` with the revision read from the snapshot
+// Transport: the page-provided `form` (the host entry's ConfigForm over the
+// shared describe mirror). Reads never touch the wire here; writes go through
+// `mutate(ops, revision)` with the revision read from the snapshot.
 // as the fence. There is no plugin-owned HTTP route and no snapshot-generation
 // layer: the scope owns the wire, the revision fence, and the recovery read.
 //
@@ -87,12 +87,8 @@ window.__ModuleLoader__.load({
         hintKey: "visionTimeoutHint",
       }),
       field(NS_VISION, "binaryPath", "text", "main", {
-        labelKey: "sharedBinaryPathLabel",
+        labelKey: "visionBinaryPathLabel",
         hintKey: "sharedBinaryPathHint",
-        targets: [
-          { ns: NS_VISION, key: "binaryPath" },
-          { ns: NS_BRIDGE, key: "binaryPath" },
-        ],
       }),
       field(NS_VISION, "statusTimeoutMs", "number", "advanced", {
         labelKey: "visionStatusTimeoutLabel",
@@ -118,6 +114,10 @@ window.__ModuleLoader__.load({
         options: ["agentic", "deterministic"],
         labelKey: "modeLabel",
         hintKey: "modeHint",
+      }),
+      field(NS_BRIDGE, "binaryPath", "text", "main", {
+        labelKey: "bridgeBinaryPathLabel",
+        hintKey: "bridgeBinaryPathHint",
       }),
       field(NS_BRIDGE, "promptTemplate", "textarea", "advanced", {
         labelKey: "promptTemplateLabel",
@@ -158,6 +158,9 @@ window.__ModuleLoader__.load({
       visionTimeoutHint: "deepseek_vision / deepseek_ocr 单次调用超时",
       visionStatusTimeoutLabel: "状态超时（毫秒）",
       visionStatusTimeoutHint: "deepseek_vision_status / deepseek_vision_logout 超时",
+      visionBinaryPathLabel: "二进制路径",
+      bridgeBinaryPathLabel: "二进制路径（deterministic 模式）",
+      bridgeBinaryPathHint: "visionary-server 路径，仅 deterministic 模式分析用；空 = DEEPSEEK_VISIONARY_BIN → PATH",
       sharedBinaryPathLabel: "二进制路径",
       sharedBinaryPathHint: "visionary-server 路径，工具与桥接（deterministic 模式）共用；空 = DEEPSEEK_VISIONARY_BIN → PATH",
       enabledLabel: "桥接启用",
@@ -207,6 +210,9 @@ window.__ModuleLoader__.load({
       visionTimeoutHint: "per deepseek_vision / deepseek_ocr call timeout",
       visionStatusTimeoutLabel: "Status timeout (ms)",
       visionStatusTimeoutHint: "deepseek_vision_status / deepseek_vision_logout timeout",
+      visionBinaryPathLabel: "Binary path",
+      bridgeBinaryPathLabel: "Binary path (deterministic mode)",
+      bridgeBinaryPathHint: "visionary-server binary, used by deterministic-mode analysis only; empty = DEEPSEEK_VISIONARY_BIN → PATH",
       sharedBinaryPathLabel: "Binary path",
       sharedBinaryPathHint: "visionary-server binary, shared by the tools and the bridge (deterministic mode); empty = DEEPSEEK_VISIONARY_BIN → PATH",
       enabledLabel: "Bridge enabled",
@@ -336,7 +342,7 @@ window.__ModuleLoader__.load({
         },
       };
 
-      opts.ctx.effect(function () {
+      opts.ctx.effect && opts.ctx.effect(function () {
         var cleanups = Object.keys(opts.scopes).map(function (ns) {
           return opts.scopes[ns].subscribe(function () { publish(); });
         });
@@ -468,6 +474,8 @@ window.__ModuleLoader__.load({
         save: save,
         discard: discard,
         trigger: trigger,
+        // 从当前 scope 快照重建并通知订阅者（0.1.7 页面组件在 form 变化时调用）。
+        refresh: publish,
       };
     }
 
@@ -553,31 +561,39 @@ window.__ModuleLoader__.load({
       }, React.createElement("path", { d: CHEVRON_PATH, fill: "currentColor" }));
     }
 
-    function makeCardComponent(editor, fields, t, titleKey, descriptionKey, advancedHintKey) {
-      return function VisionaryCard() {
+    function makeRowComponent(ctx, rowNs, fields, t, descriptionKey, advancedHintKey) {
+      return function VisionaryRow(props) {
+        // `plugins.row.config` 契：页面以 view: 'page' 渲染表单（页面自绘标题/图标/面包屑），
+        // 或 view: 'summary' 作为缺描述时的兜底一行文案；form 由页面按 entry 注入。
+        var view = props.view;
+        var form = props.form;
+        if (view !== "page") {
+          return React.createElement("p", { className: "vlb-summary" }, t(descriptionKey));
+        }
+        if (!form) {
+          return React.createElement("p", { className: "vlb-unavailable" }, t("unavailable"));
+        }
+        // 页面注入的 form 是稳定的 ConfigForm（configForms.get 缓存同一实例）；
+        // editor 只在 form 变化时重建，订阅交给组件自身的 effect。scopes 键必须
+        // 匹配字段 target 的 ns（= 本行 entry id）。
+        var scopes = {};
+        scopes[rowNs] = form;
+        var editor = React.useMemo(function () {
+          return makeEditor({ ctx: ctx, scopes: scopes, primaryNs: rowNs, fields: fields });
+        }, [form]);
+        React.useEffect(function () {
+          return form.subscribe(function () { editor.refresh(); });
+        }, [form, editor]);
+
         var snapshot = useStore(editor.store);
-        var openState = React.useState(false);
-        var open = openState[0];
-        var setOpen = openState[1];
         var disclosure = React.useState(false);
         var advancedOpen = disclosure[0];
         var setAdvancedOpen = disclosure[1];
         var triggeredFlag = React.useState(false);
         var justTriggered = triggeredFlag[0];
         var setJustTriggered = triggeredFlag[1];
-        var saveStarted = React.useRef(false);
 
         var disabled = !snapshot.writable || snapshot.saving;
-        var title = t(titleKey);
-
-        // Native cards collapse once a save lands; mirror that so a finished edit
-        // leaves the list in its compact state.
-        React.useEffect(function () {
-          if (snapshot.saving) { saveStarted.current = true; return; }
-          if (!saveStarted.current) return;
-          saveStarted.current = false;
-          if (!snapshot.dirty && !snapshot.failed && !snapshot.conflict) setOpen(false);
-        }, [snapshot.dirty, snapshot.failed, snapshot.conflict, snapshot.saving]);
 
         var badges = function (f, state) {
           if (!state.overridden) return null;
@@ -729,26 +745,9 @@ window.__ModuleLoader__.load({
           ]));
         }
 
-        return React.createElement("li", { className: open ? "vlb-card vlb-cardOpen" : "vlb-card" }, [
-          React.createElement("button", {
-            key: "header",
-            type: "button",
-            className: "vlb-header",
-            "aria-expanded": open ? "true" : "false",
-            "aria-label": t(open ? "collapse" : "expand") + ": " + title,
-            onClick: function () { setOpen(!open); },
-          }, [
-            React.createElement("span", { key: "text", className: "vlb-headText" }, [
-              React.createElement("span", { key: "name", className: "vlb-name" }, title),
-              React.createElement("span", { key: "desc", className: "vlb-description" }, t(descriptionKey)),
-            ]),
-            snapshot.dirty
-              ? React.createElement("span", { key: "pending", className: "vlb-tag vlb-pending" }, t("unsaved"))
-              : null,
-            chevron(open ? "vlb-chevron vlb-chevronOpen" : "vlb-chevron"),
-          ]),
-          open ? React.createElement("div", { key: "body", className: "vlb-body" }, body) : null,
-        ]);
+        // page 视图：字段区 + 保存控制（0.1.7 页面已绘标题/图标/面包屑与 summary 兜底，
+        // 这里只渲染表单本身；dirty「未保存」标记省略）。
+        return React.createElement("div", { className: "vlb-body vlb-bodyPage" }, body);
       };
     }
 
@@ -758,15 +757,20 @@ window.__ModuleLoader__.load({
       return fields.filter(function (f) { return f.area === area; });
     }
 
+    // `plugins.row.config` 的服务契约：key 为 `<package>#<rowId>`（rowConfigKey），
+    // 页面按 bundle 名 + patch 行的 rowId 装配；两行各自独立的配置页。
+    var BUNDLE_NAME = "@xlight-oss/visionary-dsh";
+    function rowKey(rowId) { return BUNDLE_NAME + "#" + rowId; }
+
     // ── apply ──
 
-    var inject = ["slots", "locale", "settingsScope"];
+    var inject = ["slots", "locale"];
 
     function apply(ctx) {
       ctx.effect(function () {
         return ctx.locale.register(NS, { zh: LOCALE_ZH, en: LOCALE_EN });
       }, "locale: " + NS);
-      // Card chrome (CARD_CSS): one tagged <style> for both cards, removed with
+      // Card chrome (CARD_CSS): one tagged <style> for both rows, removed with
       // the fiber so a disabled or updated row leaves no styles behind.
       ctx.effect(function () {
         if (typeof document === "undefined") return undefined;
@@ -778,32 +782,25 @@ window.__ModuleLoader__.load({
       }, "visionary-settings: card chrome");
       var t = ctx.locale.bind(NS);
 
-      var scopes = {};
-      scopes[NS_VISION] = ctx.settingsScope.bind({ namespace: NS_VISION });
-      scopes[NS_BRIDGE] = ctx.settingsScope.bind({ namespace: NS_BRIDGE });
+      var VisionRow = makeRowComponent(ctx, NS_VISION, VISION_FIELDS, t, "visionDescription", "advancedHint");
+      var BridgeRow = makeRowComponent(ctx, NS_BRIDGE, BRIDGE_FIELDS, t, "bridgeDescription", "advancedHint");
 
-      var visionEditor = makeEditor({ ctx: ctx, scopes: scopes, primaryNs: NS_VISION, fields: VISION_FIELDS });
-      var bridgeEditor = makeEditor({ ctx: ctx, scopes: scopes, primaryNs: NS_BRIDGE, fields: BRIDGE_FIELDS });
-
-      var VisionCard = makeCardComponent(visionEditor, VISION_FIELDS, t, "visionTitle", "visionDescription", "advancedHint");
-      var BridgeCard = makeCardComponent(bridgeEditor, BRIDGE_FIELDS, t, "bridgeTitle", "bridgeDescription", "advancedHint");
-
-      ctx.slots.inject("settings.plugin.item", function () {
+      ctx.slots.inject("plugins.row.config", function () {
         return ctx.slots.register({
-          name: "settings.plugin.item",
-          key: NS_VISION,
+          name: "plugins.row.config",
+          key: rowKey(NS_VISION),
           order: 20,
           locale: NS,
-        }, VisionCard);
+        }, VisionRow);
       });
 
-      ctx.slots.inject("settings.plugin.item", function () {
+      ctx.slots.inject("plugins.row.config", function () {
         return ctx.slots.register({
-          name: "settings.plugin.item",
-          key: NS_BRIDGE,
+          name: "plugins.row.config",
+          key: rowKey(NS_BRIDGE),
           order: 21,
           locale: NS,
-        }, BridgeCard);
+        }, BridgeRow);
       });
     }
 

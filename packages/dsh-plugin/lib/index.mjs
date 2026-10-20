@@ -34,30 +34,38 @@ const SETTINGS_NAMESPACE = "visionary-vision";
 // CLI's `--json` output shape. Bump when the binary's contract changes.
 const COMPAT_MINOR = "0.7";
 
+// `extra("volatile", true)` 标记使字段进入 DSH 设置面板（0.1.7 起 `settings.describe()`
+// 只投影 volatile 字段；等价 DSH fork schemastery 3.18.4 的 `.volatile()`，且兼容 npm
+// 3.18.2——0.1.5 的 installSection 忽略该标记，面板内容不于此定义）。
 const Config = z.object({
   binaryPath: z
     .string()
     .default("")
+    .extra("volatile", true)
     .description(
       "Absolute path to the visionary-server binary. Empty resolves via DEEPSEEK_VISIONARY_BIN, then PATH."
     ),
   loginTimeoutSeconds: z
     .number()
     .default(600)
+    .extra("volatile", true)
     .description(
       "Login wait timeout in seconds. DEEPSEEK_LOGIN_TIMEOUT env overrides when set (matching the CLI's own login deadline); schema default 600."
     ),
   visionTimeoutMs: z
     .number()
     .default(300000)
+    .extra("volatile", true)
     .description("Per deepseek_vision / deepseek_ocr call timeout in ms."),
   statusTimeoutMs: z
     .number()
     .default(60000)
+    .extra("volatile", true)
     .description("Per deepseek_vision_status / deepseek_vision_logout timeout in ms."),
   modelType: z
     .union([z.const("vision"), z.const("ocr")])
     .default("vision")
+    .extra("volatile", true)
     .description(
       "上传管道：vision（默认，完整多模态图像理解，携带 x-model-type: vision）| ocr（文本提取，不携带 x-model-type，走服务端 OCR 管道）。deepseek_vision 按此上传；deepseek_ocr 恒为 ocr。覆盖 CLI 默认配置，修改后即时生效。"
     ),
@@ -305,11 +313,38 @@ function apply(ctx, config) {
   // 因此「无 settings 服务」表现为按组合 entry 配置运行，而不是插件行报错。
   ctx.inject(["settings"], (settingsCtx) => {
     const settings = settingsCtx.settings;
+    // DSH 0.1.7+（SettingsForms）：无 installSection，改为 configure() 声明呈现策略，
+    // 表单由 entry Config 的 volatile 字段自动派生；热重载经 settings/document-updated
+    // 事件 + describe() 读回（describe 仅投影 volatile 字段，故需上面的标记）。
+    if (typeof settings?.configure === "function") {
+      const readValue = () => {
+        try {
+          const d = settings.describe().find((row) => row.ns === SETTINGS_NAMESPACE);
+          return d ? { ...config, ...(d.value ?? {}) } : null;
+        } catch {
+          return null;
+        }
+      };
+      const refresh = () => {
+        const next = readValue();
+        if (next) runtime = next;
+      };
+      // auto: false —— 本插件自带配置页（plugins.row.config），不启用 schema 自动表单。
+      settings.configure({ auto: false }, ctx.fiber);
+      ctx.effect(() => {
+        const dispose = ctx.on("settings/document-updated", (ns) => {
+          if (ns === SETTINGS_NAMESPACE) refresh();
+        });
+        return dispose;
+      }, "visionary-settings: document-updated listener");
+      refresh();
+      return;
+    }
     if (typeof settings?.installSection !== "function") {
       // 契约不符（早于 0.1.2-alpha.2 的宿主）：降级为 entry 配置并明确提示，
       // 不让整行插件在加载期死掉。
       ctx.logger?.warn?.(
-        "[visionary-vision] the mounted settings service has no installSection(); keeping the composition entry config"
+        "[visionary-vision] the mounted settings service has no configure()/installSection(); keeping the composition entry config"
       );
       return;
     }

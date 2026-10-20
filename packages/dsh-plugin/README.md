@@ -33,10 +33,11 @@ dsh plugin --profile web add /path/to/packages/dsh-plugin
 
 | 插件版本 | 支持的 DSH |
 |---------|-----------|
-| 0.7.3（本版） | **≥ 0.1.5-rc.1**（0.1.5 线，含 rc.1 / rc.2） |
+| 本版（已适配 0.1.7 契约） | **≥ 0.1.7-rc.1**（host 侧 `settings.configure()` 表单 + 浏览器 `plugins.row.config` 行配置页）；发布时按 `bump_version.py` 递增版本号 |
+| 0.7.3 | 0.1.5 线（rc.1 / rc.2；`settings.plugin.item` 卡片） |
 | 0.7.2 及更早 | 0.1.0-rc.x / 0.1.1 / 0.1.2-alpha.2 之前（**已不再支持**） |
 
-本版使用当前宿主契约：host 侧 `ctx.settings.installSection(...)` 注册命名空间、浏览器侧 `ctx.settingsScope.bind({ namespace })` 读写、卡片注册到 `settings.plugin.item`。DSH 自 0.1.2-alpha.2 起移除了旧的 `installSettingsSection` / `settingsNamespace` 导出与 `@deepseek-ai/dsh-client-runtime` 模块，因此更早的宿主请继续固定在 `@xlight-oss/visionary-dsh@0.7.2`。
+0.7.4 使用 DSH 0.1.7 的宿主契约：host 侧 `ctx.settings.configure({ auto: false })` 声明呈现策略（表单由 entry Config 的 **volatile** 字段经 `settings.describe()` 自动派生），热重载走 `settings/document-updated` 事件；浏览器侧不依赖任何 settings 服务（**不再 inject `settingsScope`**），每行经 `plugins.row.config` 注册独立配置页（key = `<包名>#<rowId>`），页面注入 `{ view, form }` 后读写 `form.mutate(ops, revision)`。DSH 0.1.7 移除了 `settingsScope` 服务与 `settings.plugin.item` 卡片，因此更早的宿主请继续固定在 `@xlight-oss/visionary-dsh@0.7.3`（0.1.5 线）或 0.7.2。
 
 ## 前置要求
 
@@ -54,7 +55,7 @@ dsh plugin --profile web add /path/to/packages/dsh-plugin
 
 ### 工具（visionary-vision）
 
-配置经 `$DSH_HOME/settings.yaml` 与 DSH 设置面板**双入口**，修改**即时生效**（热重载，无需重启）。设置面板入口位于 **设置 → 插件 → Plugin configuration**（本插件在 `visionary-vision` 命名空间下的卡片），低频选项收在卡片内的「高级」折叠区。
+配置经 `$DSH_HOME/settings.yaml` 与 DSH 设置面板**双入口**，修改**即时生效**（热重载，无需重启）。设置面板入口位于 **设置 → 插件 → Plugins**（本插件的行配置页，行 = `visionary-vision`），低频选项收在页内的「高级」折叠区。
 
 ```yaml
 visionary-vision:
@@ -89,7 +90,7 @@ visionary-vision:
 
 ### 图片桥接（visionary-image-bridge）
 
-配置经 `$DSH_HOME/settings.yaml` 与 DSH 设置面板双入口，修改**即时生效**（热重载，无需重启）。设置面板入口位于 **设置 → 插件 → Plugin configuration**（本插件在 `visionary-image-bridge` 命名空间下的卡片）；`promptTemplate`、`pastedDir`、`retainHours` 与「清理已落盘副本」收在卡片内的「高级」折叠区。
+配置经 `$DSH_HOME/settings.yaml` 与 DSH 设置面板双入口，修改**即时生效**（热重载，无需重启）。设置面板入口位于 **设置 → 插件 → Plugins**（本插件的行配置页，行 = `visionary-image-bridge`）；`promptTemplate`、`pastedDir`、`retainHours` 与「清理已落盘副本」收在页内的「高级」折叠区。
 
 ```yaml
 visionary-image-bridge:
@@ -123,7 +124,7 @@ visionary-image-bridge:
 >
 > **deterministic 模式注意**：分析结果文本由模型接在用户粘贴位置继续推理，图片内容仅作为「不可信证据」参考（prompt-injection 防护），不会与附件字节一起交给模型。
 
-> **面板传输机制（原生设置面，DSH ≥ 0.1.5-rc.1）**：宿主自 0.1.2-alpha.2 起让 `settings.describe()` 返回**每个**已注册命名空间，不再有 `WEB_SETTINGS_NAMESPACES` 白名单，因此本插件**不再自建任何 HTTP 路由**。两张卡片注册进 `settings.plugin.item`（按命名空间 keyed），读写走浏览器端的 `ctx.settingsScope.bind({ namespace })`：`getSnapshot()` / `subscribe()` 读，`mutate(ops, revision)` 写，写入以读取时的修订号作为栅栏（陈旧写被宿主拒绝，卡片随即重读并提示冲突）。命名空间仍由 host 侧 `ctx.settings.installSection(...)` 注册（`settings.yaml` 段照常生效，且 settings 服务缺席时回退到组合 entry 配置）。浏览器半（`lib/client.js`）由本包 `package.json` 的 `dsh.client` + `exports["./client"]` 声明，`dsh-client-modules` 从**主行**（`visionary-vision`，裸包名 `@xlight-oss/visionary-dsh`）发现并下发；因此**不需要**也不可以有独立的 `.../settings-card` 插件行——`dsh-client-modules` 只接受裸包名（`exactPackageSpecifier`），子路径行名会在解析前被丢弃，静默地不下发任何 bundle（`test/integration-smoke.test.mjs` 的 `client discovery` 用例守着这条契约）。
+> **面板传输机制（原生设置面，DSH ≥ 0.1.7-rc.1）**：宿主浏览器侧由 `dsh-client-ui-settings` 提供 `configForms` 服务（`settings.describe()` 的浏览镜像 + 写通道），**本插件不再依赖任何 settings 服务**——每行页面由宿主 Plugins 页装配：`plugins.row.config` 槽位（key = `@xlight-oss/visionary-dsh#<rowId>`）收到页面注入的 `{ view, form }`，`form` 即该 entry 的 `ConfigForm`（`getSnapshot()` / `subscribe()` 读，`mutate(ops, revision)` 写，写入以读取时的修订号作为栅栏，陈旧写被宿主拒绝并回读冲突）。命名空间由 host 侧 `ctx.settings.configure({ auto: false })` 声明（表单从 entry Config 的 **volatile** 字段自动派生；`settings.yaml` 段照常生效，且 settings 服务缺席时回退到组合 entry 配置）。浏览器半（`lib/client.js`）由本包 `package.json` 的 `dsh.client` + `exports["./client"]` 声明，`dsh-client-modules` 从**主行**（`visionary-vision`，裸包名 `@xlight-oss/visionary-dsh`）发现并下发；因此**不需要**也不可以有独立的 `.../settings-card` 插件行——`dsh-client-modules` 只接受裸包名（`exactPackageSpecifier`），子路径行名会在解析前被丢弃，静默地不下发任何 bundle（`test/integration-smoke.test.mjs` 的 `client discovery` 用例守着这条契约）。
 
 ### 桥接原理
 
@@ -194,7 +195,7 @@ visionary-image-bridge:
 | 引导文本里的路径文件不存在 | 落盘副本已被 TTL 清理（旧会话重放）；调大 `retainHours` 或重新让用户发图 |
 | 切到 VL 模型后历史图片不可见 | 桥接按请求实时判定能力——VL 路由（原生支持 image）**不会**被改写，历史图片自动恢复原生可见；若仍不可见，确认 VL 模型确实声明了 `inputModalities` 含 `image` |
 | 设置面板改配置不生效 | 确认 `settings.yaml` 无冲突值；`promptTemplate` 缺少 `{path}` 会被校验拒绝；写入被别处抢先（修订冲突）时卡片会提示并重读，重试即可 |
-| 设置 → 插件 → Plugin configuration 不出现本插件卡片 | ① 宿主版本低于 0.1.5-rc.1（本插件自该线起只支持原生设置面；旧版本请用 0.7.2）；② 插件行未装配（`dsh --profile web --dump-config` 应出现 `visionary-vision` / `visionary-image-bridge` 两行）；③ 宿主未挂载 settings provider（headless / 只读部署：卡片会显示「设置服务不可用」，工具与桥接仍按组合 entry 工作）；④ 宿主启动后未刷新页面（浏览器 bundle 在启动期注入，改包后需重启宿主并硬刷新）；⑤ 打开 `/plugins/??@xlight-oss/visionary-dsh/client.js` 若 404，说明 bundle 未被下发——检查主行的 `name` 是否为裸包名（子路径行名会被 `dsh-client-modules` 静默丢弃） |
+| 设置 → 插件 → Plugins 不出现本插件的行配置 | ① 宿主版本低于 0.1.7-rc.1（本插件自该线起只在 Plugins 页提供行配置；0.1.5 线请用 0.7.3）；② 插件行未装配（`dsh --profile web --dump-config` 应出现 `visionary-vision` / `visionary-image-bridge` 两行）；③ 宿主 browserside 未挂载 `configForms` / Plugins 页（headless / 只读部署：行配置页不可用，工具与桥接仍按组合 entry 工作）；④ 宿主启动后未刷新页面（浏览器 bundle 在启动期注入，改包后需重启宿主并硬刷新）；⑤ 打开 `/plugins/??@xlight-oss/visionary-dsh/client.js` 若 404，说明 bundle 未被下发——检查主行的 `name` 是否为裸包名（子路径行名会被 `dsh-client-modules` 静默丢弃） |
 | agent-loop invariant（log-reconstruction desync）误报 | 不应发生：改写重入请求丢失 agent-loop 身份标记，desync 校验被跳过（这是改写得以存在的必要条件）；若宿主升级为内容级校验，属版本兼容面，请联系反馈 |
 | `deepseek_vision` 返回 `File ... processing failed: status=CONTENT_EMPTY` | **已修复（2026-08-16）**：根因是后端对上传图片做 OCR 文本提取，无 OCR 文字（如纯插画/渐变/深色无文字图）即标记 `CONTENT_EMPTY`，与视觉模型能否识图无关；旧版 CLI 将其当作硬失败中止。修复：`upload.rs` 对 `CONTENT_EMPTY` 不再中止，继续 fork 到 vision 模型（与网页端行为一致）。**需要重新安装 `visionary-server` 二进制（≥0.5.x 修复版）** |
 

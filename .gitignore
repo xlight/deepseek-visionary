@@ -14,3 +14,4 @@ node_modules/
 .pnpm-store/
 .opencode/
 openspec/changes/archive/
+.tmp-dsh/
