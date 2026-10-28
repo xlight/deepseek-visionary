@@ -15,7 +15,24 @@ serde_json = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "stream", "rustls-tls"] }
-wasmtime = "48"
+# wasmtime 的 cache feature 会引入 wasmtime-internal-cache -> zstd 0.13 链路。
+# zstd 0.13 / zstd-safe 7 / zstd-sys 2.0 的漏洞要等 zstd 0.14.3 / 8.2.0 / 2.1.2 才修复，
+# 而上游 wasmtime 尚未放宽 zstd 约束（仍是 ^0.13.0），因此这里显式关闭默认 feature 集
+# 中的 cache，从依赖图中彻底移除该链路。本项目不使用 wasmtime 磁盘编译缓存
+#（pow.rs 直接用 Engine::default() 编译内嵌 wasm），关闭它没有功能影响。
+# 其余 feature 与 wasmtime 上游 default 列表逐项一致，仅去掉 cache。
+wasmtime = {
+  version = "48",
+  default-features = false,
+  features = [
+    "anyhow", "async", "backtrace",
+    "gc", "gc-copying", "gc-drc", "gc-null",
+    "wat", "profiling", "parallel-compilation", "cranelift", "pooling-allocator",
+    "demangle", "addr2line", "coredump", "debug-builtins", "runtime",
+    "component-model", "component-model-async", "threads", "stack-switching", "std",
+    "debug", "compile-time-builtins", "wit-parser",
+  ],
+}
 anyhow = "1"
 thiserror = "2"
 clap = { version = "4", features = ["derive"] }
