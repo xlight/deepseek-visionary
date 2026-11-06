@@ -62,6 +62,45 @@ pub async fn probe_token(config: &Config) -> Result<()> {
     Ok(())
 }
 
+/// token 自动续期开关（`DEEPSEEK_AUTO_REFRESH=0` 关闭，默认开启）。
+///
+/// 关闭后 token 失效会直接把原始错误抛给调用方，由用户手动
+/// `visionary-server logout && visionary-server login` 处理。
+pub fn auto_refresh_enabled() -> bool {
+    match std::env::var("DEEPSEEK_AUTO_REFRESH") {
+        Ok(v) => !matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "0" | "false" | "off" | "no"
+        ),
+        Err(_) => true,
+    }
+}
+
+/// token 失效时自动续期：重跑浏览器登录流程，用持久 profile 里的会话换一个新的
+/// `userToken` 并覆盖保存。
+///
+/// DeepSeek 网页端每次加载页面都会轮换 `localStorage.userToken` 并作废旧 token，
+/// CLI 存的只是快照——不续期的话，用一会儿就会撞上
+/// `biz_code=40003 Authorization Failed (invalid token)`。
+///
+/// 会短暂拉起一次浏览器窗口（headful）：新 token 只能由网页端签发，没有纯 HTTP 的
+/// 换取途径。持久 profile 已登录时通常几秒内即可拿到新 token。
+pub async fn refresh_token(config: &Config) -> Result<()> {
+    if !config.auto_refresh {
+        anyhow::bail!(
+            "token expired and auto-refresh is disabled (DEEPSEEK_AUTO_REFRESH=0); run `visionary-server logout && visionary-server login` to refresh it manually"
+        );
+    }
+    let timeout = crate::login::refresh_timeout();
+    tracing::warn!(
+        "token rejected by DeepSeek; refreshing credentials via browser login (timeout {}s)",
+        timeout.as_secs()
+    );
+    let _creds = crate::login::refresh_credentials(config, timeout).await?;
+    tracing::info!("credentials refreshed successfully");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,5 +134,20 @@ mod tests {
         let c = auth.cookies();
         assert_eq!(c.len(), 1);
         assert_eq!(c[0], ("cf_clearance".to_string(), "cf".to_string()));
+    }
+
+    #[test]
+    fn auto_refresh_switch_reads_env() {
+        let old = std::env::var("DEEPSEEK_AUTO_REFRESH").ok();
+        std::env::set_var("DEEPSEEK_AUTO_REFRESH", "0");
+        assert!(!auto_refresh_enabled());
+        std::env::set_var("DEEPSEEK_AUTO_REFRESH", "false");
+        assert!(!auto_refresh_enabled());
+        std::env::set_var("DEEPSEEK_AUTO_REFRESH", "1");
+        assert!(auto_refresh_enabled());
+        match old {
+            Some(v) => std::env::set_var("DEEPSEEK_AUTO_REFRESH", v),
+            None => std::env::remove_var("DEEPSEEK_AUTO_REFRESH"),
+        }
     }
 }

@@ -42,15 +42,57 @@ pub struct ApiData {
     pub biz_data: serde_json::Value,
 }
 
+/// 鉴权失败（token 失效）的业务码：DeepSeek 用 `40003` +
+/// `Authorization Failed (invalid token)` 表达。
+pub const AUTH_FAILURE_CODE: i64 = 40003;
+
+/// 账号被风控静音的业务码（上传等写操作被拒）。
+pub const MUTED_CODE: i64 = 14;
+
+/// 鉴权失败（token 失效/被服务端轮换）的可识别错误。
+///
+/// 流水线据此触发一次自动续期并重试（见 `pipeline.rs`）。
+#[derive(Debug)]
+pub struct AuthFailure(pub String);
+
+impl std::fmt::Display for AuthFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::error::Error for AuthFailure {}
+
+/// 瞬时错误（限流 / 服务端错误）——可退避重试。
+#[derive(Debug)]
+pub struct TransientFailure(pub String);
+
+impl std::fmt::Display for TransientFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::error::Error for TransientFailure {}
+
+/// 判断 HTTP 状态 + 响应体是否表示鉴权失败。
+///
+/// 只认 401 与明确的鉴权文案：**不把 403 当鉴权失败**——上传接口在 PoW 校验失败时
+/// 也返回 403，那是另一类问题（重新签发 PoW 才有意义，刷新 token 没用）。
+pub fn looks_like_auth_failure(status: reqwest::StatusCode, body: &str) -> bool {
+    if status == reqwest::StatusCode::UNAUTHORIZED {
+        return true;
+    }
+    let lower = body.to_ascii_lowercase();
+    lower.contains("authorization failed")
+        || lower.contains("invalid token")
+        || lower.contains("\"40003\"")
+}
+
 impl ApiEnvelope {
-    /// 校验业务码为 0，返回 `data.biz_data`。
-    ///
-    /// DeepSeek 的业务码有两个位置：顶层 `biz_code`/`code`，以及 `data.biz_code`。
-    /// 线上响应实际把业务码放在 `data` 里（顶层 `code` 恒为 0），
-    /// 只读顶层会漏判业务错误，最终报出 `file missing id` 这类难以定位的下游错误。
-    pub fn into_biz_data(self, context: &str) -> Result<serde_json::Value> {
-        let biz = self
-            .biz_code
+    /// 有效业务码（顶层或 `data` 内，均忽略 0）。
+    fn effective_biz_code(&self) -> i64 {
+        self.biz_code
             .filter(|c| *c != 0)
             .or_else(|| {
                 self.data
@@ -59,25 +101,95 @@ impl ApiEnvelope {
                     .filter(|c| *c != 0)
             })
             .or(self.code)
-            .unwrap_or(0);
-        if biz != 0 {
-            let msg = self
-                .msg
-                .as_deref()
-                .filter(|m| !m.is_empty())
-                .or_else(|| {
-                    self.data
-                        .as_ref()
-                        .and_then(|d| d.biz_msg.as_deref())
-                        .filter(|m| !m.is_empty())
-                })
-                .unwrap_or("unknown error");
-            return Err(anyhow!("{context} failed: biz_code={biz}, msg={msg}"));
+            .filter(|c| *c != 0)
+            .unwrap_or(0)
+    }
+
+    /// 业务错误描述（无业务错误时返回 `None`）。
+    ///
+    /// DeepSeek 的业务码有两个位置：顶层 `biz_code`/`code`，以及 `data.biz_code`。
+    /// 线上响应实际把业务码放在 `data` 里（顶层 `code` 恒为 0），
+    /// 只读顶层会漏判业务错误，最终报出 `file missing id` 这类难以定位的下游错误。
+    pub fn biz_error_message(&self, context: &str) -> Option<String> {
+        let biz = self.effective_biz_code();
+        if biz == 0 {
+            return None;
+        }
+        let msg = self
+            .msg
+            .as_deref()
+            .filter(|m| !m.is_empty())
+            .or_else(|| {
+                self.data
+                    .as_ref()
+                    .and_then(|d| d.biz_msg.as_deref())
+                    .filter(|m| !m.is_empty())
+            })
+            .unwrap_or("unknown error");
+        let mut out = format!("{context} failed: biz_code={biz}, msg={msg}");
+        if biz == MUTED_CODE {
+            if let Some(until) = self
+                .data
+                .as_ref()
+                .and_then(|d| d.biz_data.get("mute_until"))
+                .and_then(|v| v.as_f64())
+            {
+                out.push_str(&format!(
+                    "; account uploads are muted until {} (unix {})",
+                    format_epoch_utc(until as i64),
+                    until as i64
+                ));
+            }
+        }
+        Some(out)
+    }
+
+    /// 校验业务码为 0，返回 `data.biz_data`。
+    pub fn into_biz_data(self, context: &str) -> Result<serde_json::Value> {
+        if let Some(msg) = self.biz_error_message(context) {
+            return Err(anyhow!("{msg}"));
         }
         self.data
             .map(|d| d.biz_data)
             .context(format!("{context}: missing data.biz_data"))
     }
+
+    /// 是否表示鉴权失败（token 失效）。
+    pub fn is_auth_failure(&self) -> bool {
+        if self.effective_biz_code() == AUTH_FAILURE_CODE {
+            return true;
+        }
+        let top = self.msg.as_deref().unwrap_or_default().to_ascii_lowercase();
+        let inner = self
+            .data
+            .as_ref()
+            .and_then(|d| d.biz_msg.as_deref())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        [top, inner]
+            .iter()
+            .any(|m| m.contains("authorization failed") || m.contains("invalid token"))
+    }
+}
+
+/// unix 时间戳 → `YYYY-MM-DD HH:MM UTC`（Howard Hinnant 的 civil_from_days 算法）。
+///
+/// 只用于把风控返回的 `mute_until` 变成人看得懂的绝对时间，避免额外引入时间库依赖。
+pub fn format_epoch_utc(secs: i64) -> String {
+    let days = secs.div_euclid(86_400);
+    let rem = secs.rem_euclid(86_400);
+    let (h, mi) = (rem / 3600, (rem % 3600) / 60);
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    format!("{y:04}-{m:02}-{d:02} {h:02}:{mi:02} UTC")
 }
 
 impl ApiClient {
@@ -117,10 +229,26 @@ impl ApiClient {
         let resp = req.send().await.with_context(|| format!("GET {path}"))?;
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
+        if looks_like_auth_failure(status, &text) {
+            return Err(AuthFailure(format!("GET {path} returned HTTP {status}: {text}")).into());
+        }
+        if status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error() {
+            return Err(
+                TransientFailure(format!("GET {path} returned HTTP {status}: {text}")).into(),
+            );
+        }
         if status != StatusCode::OK {
             return Err(anyhow!("GET {path} returned HTTP {status}: {text}"));
         }
-        serde_json::from_str(&text).with_context(|| format!("parse GET {path} response"))
+        let envelope: ApiEnvelope =
+            serde_json::from_str(&text).with_context(|| format!("parse GET {path} response"))?;
+        if envelope.is_auth_failure() {
+            let detail = envelope
+                .biz_error_message(path)
+                .unwrap_or_else(|| "invalid token".to_string());
+            return Err(AuthFailure(detail).into());
+        }
+        Ok(envelope)
     }
 
     /// POST JSON body 并返回 JSON 响应壳（带重试）。
@@ -144,11 +272,30 @@ impl ApiClient {
                 Ok(resp) => {
                     let status = resp.status();
                     let text = resp.text().await.unwrap_or_default();
+                    if looks_like_auth_failure(status, &text) {
+                        return Err(AuthFailure(format!(
+                            "POST {path} returned HTTP {status}: {text}"
+                        ))
+                        .into());
+                    }
+                    if status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error() {
+                        return Err(TransientFailure(format!(
+                            "POST {path} returned HTTP {status}: {text}"
+                        ))
+                        .into());
+                    }
                     if status != StatusCode::OK {
                         return Err(anyhow!("POST {path} returned HTTP {status}: {text}"));
                     }
-                    return serde_json::from_str(&text)
-                        .with_context(|| format!("parse POST {path} response"));
+                    let envelope: ApiEnvelope = serde_json::from_str(&text)
+                        .with_context(|| format!("parse POST {path} response"))?;
+                    if envelope.is_auth_failure() {
+                        let detail = envelope
+                            .biz_error_message(path)
+                            .unwrap_or_else(|| "invalid token".to_string());
+                        return Err(AuthFailure(detail).into());
+                    }
+                    return Ok(envelope);
                 }
                 Err(e) => {
                     last_err = Some(anyhow!("POST {path} attempt {} failed: {e}", attempt + 1));
@@ -188,13 +335,29 @@ impl ApiClient {
         let resp = req.send().await.with_context(|| format!("POST {path}"))?;
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
+        if looks_like_auth_failure(status, &text) {
+            return Err(AuthFailure(format!("POST {path} returned HTTP {status}: {text}")).into());
+        }
         if status == StatusCode::FORBIDDEN {
             return Err(anyhow!("POST {path} returned 403 after PoW: {text}"));
+        }
+        if status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error() {
+            return Err(
+                TransientFailure(format!("POST {path} returned HTTP {status}: {text}")).into(),
+            );
         }
         if status != StatusCode::OK {
             return Err(anyhow!("POST {path} returned HTTP {status}: {text}"));
         }
-        serde_json::from_str(&text).with_context(|| format!("parse POST {path} response"))
+        let envelope: ApiEnvelope =
+            serde_json::from_str(&text).with_context(|| format!("parse POST {path} response"))?;
+        if envelope.is_auth_failure() {
+            let detail = envelope
+                .biz_error_message(path)
+                .unwrap_or_else(|| "invalid token".to_string());
+            return Err(AuthFailure(detail).into());
+        }
+        Ok(envelope)
     }
 }
 
@@ -223,7 +386,7 @@ pub(crate) fn apply_headers(
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_headers, ApiEnvelope};
+    use super::{apply_headers, format_epoch_utc, looks_like_auth_failure, ApiEnvelope};
 
     /// 回归测试：completion 请求同时经过 `.json()` 和显式 `content-type` 时，
     /// 最终请求只能带一个 content-type 头（重复会被服务端判为 HTTP 415）。
@@ -310,5 +473,70 @@ mod tests {
             msg.contains("Authorization Failed"),
             "unexpected error: {msg}"
         );
+    }
+
+    #[test]
+    fn is_auth_failure_detects_biz_code_40003() {
+        let env: ApiEnvelope =
+            serde_json::from_str(r#"{"code":40003,"msg":"Authorization Failed (invalid token)"}"#)
+                .unwrap();
+        assert!(env.is_auth_failure());
+
+        // 线上实际把业务码放在 data 里
+        let env: ApiEnvelope = serde_json::from_str(
+            r#"{"code":0,"data":{"biz_code":40003,"biz_msg":"Authorization Failed (invalid token)"}}"#,
+        )
+        .unwrap();
+        assert!(env.is_auth_failure());
+    }
+
+    #[test]
+    fn is_auth_failure_detects_message_text() {
+        let env: ApiEnvelope = serde_json::from_str(r#"{"code":0,"msg":"invalid token"}"#).unwrap();
+        assert!(env.is_auth_failure());
+    }
+
+    #[test]
+    fn is_auth_failure_false_for_normal_response() {
+        let env: ApiEnvelope =
+            serde_json::from_str(r#"{"code":0,"data":{"biz_code":0,"biz_data":{"ok":true}}}"#)
+                .unwrap();
+        assert!(!env.is_auth_failure());
+    }
+
+    #[test]
+    fn looks_like_auth_failure_ignores_403() {
+        // 403 是 PoW 校验失败，不是 token 失效：刷新 token 没用，必须区分开。
+        assert!(!looks_like_auth_failure(
+            reqwest::StatusCode::FORBIDDEN,
+            "forbidden"
+        ));
+        assert!(looks_like_auth_failure(
+            reqwest::StatusCode::UNAUTHORIZED,
+            "unauthorized"
+        ));
+        assert!(looks_like_auth_failure(
+            reqwest::StatusCode::OK,
+            r#"{"msg":"Authorization Failed (invalid token)"}"#
+        ));
+    }
+
+    #[test]
+    fn muted_error_message_includes_deadline() {
+        let env: ApiEnvelope = serde_json::from_str(
+            r#"{"code":0,"data":{"biz_code":14,"biz_msg":"user is muted","biz_data":{"is_muted":1,"mute_until":1794738505}}}"#,
+        )
+        .unwrap();
+        let msg = env.biz_error_message("upload").unwrap();
+        assert!(msg.contains("biz_code=14"), "{msg}");
+        assert!(msg.contains("user is muted"), "{msg}");
+        assert!(msg.contains("2026-11-15 10:28 UTC"), "{msg}");
+    }
+
+    #[test]
+    fn format_epoch_utc_known_values() {
+        assert_eq!(format_epoch_utc(0), "1970-01-01 00:00 UTC");
+        assert_eq!(format_epoch_utc(1_700_000_000), "2023-11-14 22:13 UTC");
+        assert_eq!(format_epoch_utc(1794738505), "2026-11-15 10:28 UTC");
     }
 }

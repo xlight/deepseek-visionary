@@ -8,7 +8,7 @@
 //! SSE 解析逻辑与 Python 逐行对齐：`data:` 前缀行、`[DONE]` 终止、
 //! `type=error` 抛错、`response_message_id` 提取、`v` 字符串增量拼接。
 
-use crate::client::{apply_headers, ApiClient};
+use crate::client::{apply_headers, ApiClient, AuthFailure, TransientFailure};
 use crate::hif::HifAuth;
 use crate::pow;
 use anyhow::{anyhow, Context, Result};
@@ -97,10 +97,19 @@ impl CompletionTransport for ReqwestTransport {
         let status = resp.status();
         if status != StatusCode::OK {
             let text = resp.text().await.unwrap_or_default();
-            return Err(anyhow!(
-                "Vision API returned HTTP {status}: {}",
-                &text[..text.len().min(300)]
-            ));
+            let snippet = &text[..text.len().min(300)];
+            if crate::client::looks_like_auth_failure(status, &text) {
+                return Err(
+                    AuthFailure(format!("Vision API returned HTTP {status}: {snippet}")).into(),
+                );
+            }
+            if status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error() {
+                return Err(TransientFailure(format!(
+                    "Vision API returned HTTP {status}: {snippet}"
+                ))
+                .into());
+            }
+            return Err(anyhow!("Vision API returned HTTP {status}: {snippet}"));
         }
         Ok(resp.bytes_stream())
     }
@@ -127,7 +136,7 @@ pub async fn vision_completion<F>(
     prompt: &str,
     thinking: bool,
     parent_message_id: Option<&str>,
-    on_token: Option<F>,
+    on_token: Option<&mut F>,
 ) -> Result<(String, Option<String>)>
 where
     F: FnMut(&str) + Send,
@@ -251,13 +260,17 @@ where
                 };
 
                 if event.get("type").and_then(|t| t.as_str()) == Some("error") {
-                    return Err(anyhow!(
-                        "Vision error: {}",
-                        event
-                            .get("content")
-                            .and_then(|c| c.as_str())
-                            .unwrap_or("unknown error")
-                    ));
+                    let content = event
+                        .get("content")
+                        .and_then(|c| c.as_str())
+                        .unwrap_or("unknown error")
+                        .to_string();
+                    // 鉴权失败也可能以 SSE error 事件的形式回来（HTTP 仍是 200），
+                    // 同样要让流水线识别出来并触发 token 续期。
+                    if crate::client::looks_like_auth_failure(StatusCode::OK, &content) {
+                        return Err(AuthFailure(format!("Vision error: {content}")).into());
+                    }
+                    return Err(anyhow!("Vision error: {content}"));
                 }
 
                 // 提取 message_id（对应 Python 的多级查找）

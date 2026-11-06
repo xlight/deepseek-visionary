@@ -149,6 +149,15 @@ visionary-server vision img.png --no-stream
 
 登录页语言：默认跟随系统 locale（`LC_ALL` / `LC_MESSAGES` / `LANG`，如 `zh_CN.UTF-8` → 中文版），可用 `DEEPSEEK_LOGIN_LANG` 手动指定（如 `zh-CN` / `en` / `ja`）。
 
+token 自动续期：DeepSeek 网页端每次加载页面都会轮换 `userToken` 并作废旧 token，而 CLI 存的只是快照。检测到鉴权失败（`biz_code=40003` / HTTP 401）时，CLI 会用持久化的浏览器 profile **自动续期并重试一次**（会短暂拉起一次浏览器窗口，通常几秒内完成）。
+
+- `DEEPSEEK_AUTO_REFRESH`：设为 `0` 关闭自动续期（默认开启）
+- `DEEPSEEK_REFRESH_TIMEOUT`：自动续期的登录等待超时秒数（默认 90）
+
+上传限速：同一进程内的连续上传（多图联合分析）默认间隔 5 秒，避免触发 DeepSeek 的上传风控（`biz_code=14 user is muted`，账号会被静音数天，届时错误信息里会给出解除时间的 UTC 绝对时间）。
+
+- `DEEPSEEK_UPLOAD_MIN_INTERVAL`：两次上传之间的最小间隔秒数（默认 5，`0` 关闭限速）
+
 ## 与 MCP 工具的关系
 
 - `vision` / `ocr` / `status` / `login` / `logout` 五个子命令与 MCP 工具共享同一核心实现（`pipeline.rs` / `login.rs` / `auth.rs`），无两套漂移代码

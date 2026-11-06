@@ -128,12 +128,49 @@ pub fn resolve_prompt(prompt: String, is_ocr: bool) -> String {
 /// 执行完整 vision 流水线。
 ///
 /// `on_token` 为可选流式回调（透传给 completion）：CLI 流式打印用，`None` 时仅收集。
+///
+/// token 失效（DeepSeek 会轮换 `userToken`）时自动续期并重跑一次：
+/// 续期会短暂拉起一次浏览器，用持久 profile 里的会话换一个新的 token。
 pub async fn run_vision_pipeline<F>(
     config: &Config,
     hif: &HifAuth,
     session_store: &SessionStore,
     request: VisionRequest,
-    on_token: Option<F>,
+    mut on_token: Option<F>,
+) -> Result<PipelineOutput>
+where
+    F: FnMut(&str) + Send,
+{
+    let mut refreshed = false;
+    loop {
+        match run_pipeline_once(config, hif, session_store, &request, on_token.as_mut()).await {
+            Ok(output) => return Ok(output),
+            Err(e) => {
+                let auth_failed = e.downcast_ref::<crate::client::AuthFailure>().is_some();
+                if !auth_failed || refreshed {
+                    return Err(e);
+                }
+                refreshed = true;
+                tracing::warn!(
+                    "token expired during the pipeline; refreshing credentials and retrying once"
+                );
+                crate::auth::refresh_token(config)
+                    .await
+                    .context("token auto-refresh failed")?;
+                // HIF 签名是用旧 token 换来的，续期后必须作废缓存。
+                hif.invalidate();
+            }
+        }
+    }
+}
+
+/// 单次流水线执行（不含 token 续期重试）。
+async fn run_pipeline_once<F>(
+    config: &Config,
+    hif: &HifAuth,
+    session_store: &SessionStore,
+    request: &VisionRequest,
+    on_token: Option<&mut F>,
 ) -> Result<PipelineOutput>
 where
     F: FnMut(&str) + Send,
@@ -148,7 +185,7 @@ where
     let is_ocr = model_type == Some(config::MODEL_TYPE_OCR);
 
     // ocr 管道默认提示词：用户未显式覆盖（prompt 恰为 vision 默认）时改用文字提取语义。
-    let prompt = resolve_prompt(request.prompt, is_ocr);
+    let prompt = resolve_prompt(request.prompt.clone(), is_ocr);
 
     // Step 1: 上传所有图片（vision 管道携带 x-model-type: vision，上传即视觉可用；
     // ocr 管道不携带，走服务端 OCR 文本提取）+ 轮询 SUCCESS

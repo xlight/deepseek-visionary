@@ -249,6 +249,9 @@ visionary-server skill install
 | `DEEPSEEK_LOGIN_TIMEOUT` | 登录等待超时秒数（默认 600） |
 | `DEEPSEEK_VISIONARY_MODEL_TYPE` | 默认上传管道模型类型（`vision` 或 `ocr`，默认 `vision`；CLI `--model-type` 优先于该变量） |
 | `DEEPSEEK_VISIONARY_BIN` | DSH 插件解析二进制路径（`Config.binaryPath` → 此变量 → PATH） |
+| `DEEPSEEK_AUTO_REFRESH` | token 失效时自动用浏览器 profile 续期并重试一次（默认开启，`0` 关闭） |
+| `DEEPSEEK_REFRESH_TIMEOUT` | 自动续期的登录等待超时秒数（默认 90） |
+| `DEEPSEEK_UPLOAD_MIN_INTERVAL` | 两次上传之间的最小间隔秒数（默认 5，`0` 关闭限速；防上传风控） |
 
 ## 开发
 

@@ -36,6 +36,18 @@ fn login_timeout() -> Duration {
     Duration::from_secs(secs)
 }
 
+/// 自动续期（token 失效后自动刷新）的登录等待超时（可用 `DEEPSEEK_REFRESH_TIMEOUT` 覆盖，秒）。
+///
+/// 比手动登录短：续期走的是**已登录的持久 profile**，页面加载后几秒即可拿到新 token，
+/// 不需要用户交互；若超时，多半是人机验证挡住了，此时快速失败比干等 10 分钟好。
+pub(crate) fn refresh_timeout() -> Duration {
+    let secs = std::env::var("DEEPSEEK_REFRESH_TIMEOUT")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(90);
+    Duration::from_secs(secs)
+}
+
 /// 轮询间隔：1 秒。
 const POLL_INTERVAL: Duration = Duration::from_secs(1);
 
@@ -107,7 +119,7 @@ pub async fn run_login(config: &Config) -> Result<String> {
         );
     }
 
-    match login_flow(config).await {
+    match login_flow(config, login_timeout()).await {
         Ok(creds) => {
             config.save_credentials(&creds)?;
             Ok(format!(
@@ -153,8 +165,21 @@ pub async fn run_logout(config: &Config) -> Result<String> {
         .into())
 }
 
+/// 刷新凭据（token 自动续期的底层实现）。
+///
+/// 与 `run_login` 的区别：不检查"是否已配置 token"，直接重跑浏览器登录流程并覆盖保存。
+/// DeepSeek 网页端每次加载页面都会轮换 `localStorage.userToken` 并作废旧 token，
+/// 而 CLI 存的是快照——token 失效时只能靠这条路径重新拿一个。
+pub async fn refresh_credentials(config: &Config, timeout: Duration) -> Result<Credentials> {
+    let creds = login_flow(config, timeout)
+        .await
+        .context("browser login flow failed while refreshing credentials")?;
+    config.save_credentials(&creds)?;
+    Ok(creds)
+}
+
 /// 完整登录流程：启动浏览器 → 等待登录 → 抓取凭据。
-async fn login_flow(_config: &Config) -> Result<Credentials> {
+async fn login_flow(_config: &Config, timeout: Duration) -> Result<Credentials> {
     let browser_path = browser::find_browser()?;
     let profile_dir = config::browser_profile_dir()?;
 
@@ -203,7 +228,7 @@ async fn login_flow(_config: &Config) -> Result<Credentials> {
     // handler drain loop（chromiumoxide 必需）
     let handler_task = tokio::spawn(async move { while let Some(_h) = handler.next().await {} });
 
-    let result = wait_for_login(&mut browser, &profile_dir).await;
+    let result = wait_for_login(&mut browser, &profile_dir, timeout).await;
 
     // 清理：浏览器进程随后会被 chromiumoxide 关闭，但专用 profile 中的
     // 登录会话保留，用户重跑 login 即可续接（见 run_login 错误提示）
@@ -213,7 +238,11 @@ async fn login_flow(_config: &Config) -> Result<Credentials> {
 }
 
 /// 等待用户登录并抓取凭据。
-async fn wait_for_login(browser: &mut Browser, _profile_dir: &PathBuf) -> Result<Credentials> {
+async fn wait_for_login(
+    browser: &mut Browser,
+    _profile_dir: &PathBuf,
+    timeout: Duration,
+) -> Result<Credentials> {
     // 先创建空白页并注入反自动化脚本（隐藏 navigator.webdriver 等指纹），
     // 再导航到 chat.deepseek.com —— 否则登录页的 hCaptcha 检测到自动化
     // 浏览器后，人机验证始终无法通过（"过不了 capture"）。
@@ -238,13 +267,13 @@ async fn wait_for_login(browser: &mut Browser, _profile_dir: &PathBuf) -> Result
         .await
         .context("failed to open chat.deepseek.com")?;
 
-    let deadline = tokio::time::Instant::now() + login_timeout();
+    let deadline = tokio::time::Instant::now() + timeout;
     let mut captcha_hinted = false;
     loop {
         if tokio::time::Instant::now() >= deadline {
             return Err(anyhow!(
                 "Login timed out after {} seconds",
-                login_timeout().as_secs()
+                timeout.as_secs()
             ));
         }
 

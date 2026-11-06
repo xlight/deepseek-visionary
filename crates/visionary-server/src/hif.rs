@@ -71,6 +71,16 @@ impl HifAuth {
         Ok(headers)
     }
 
+    /// 作废缓存的 HIF token。
+    ///
+    /// DeepSeek 的 userToken 会被轮换，HIF token 是用旧 token 换来的，
+    /// token 续期后必须作废缓存，否则签名与新身份不匹配。
+    pub fn invalidate(&self) {
+        if let Ok(mut guard) = self.cache.lock() {
+            *guard = None;
+        }
+    }
+
     /// 刷新 token（对应 Python `_refresh`）：leim 必需，dliq 可选。
     async fn refresh(&self) -> Result<(String, Option<String>)> {
         let token = self.config.credentials().user_token;

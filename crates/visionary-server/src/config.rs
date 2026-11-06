@@ -119,6 +119,11 @@ pub struct Config {
     /// 上传管道：`None`（默认 vision）或 `"ocr"`。
     /// 优先级：CLI `--model-type` flag（cmd_vision 覆盖）> env > settings.json > 默认。
     pub model_type: Option<String>,
+    /// 上传最小间隔（限速 / 风控保护）：两次上传开始之间的最小间隔。
+    /// 默认 5 秒；`DEEPSEEK_UPLOAD_MIN_INTERVAL` 覆盖，设为 0 关闭限速。
+    pub upload_min_interval: Duration,
+    /// token 自动续期开关（默认开启，`DEEPSEEK_AUTO_REFRESH=0` 关闭）。
+    pub auto_refresh: bool,
 }
 
 impl Config {
@@ -172,6 +177,10 @@ impl Config {
             app_version: "2.0.0".into(),
             client_locale: "zh_CN".into(),
             model_type,
+            upload_min_interval: Duration::from_millis(
+                (env_f64("DEEPSEEK_UPLOAD_MIN_INTERVAL", 5.0) * 1000.0) as u64,
+            ),
+            auto_refresh: crate::auth::auto_refresh_enabled(),
         })
     }
 

@@ -2,11 +2,44 @@
 //!
 //! 流水线：图片压缩 → 获取并求解上传 PoW → multipart 上传 → 轮询状态至 SUCCESS。
 
-use crate::client::ApiClient;
+use crate::client::{ApiClient, TransientFailure};
 use crate::pow::{self, Challenge};
 use anyhow::{anyhow, Context, Result};
 use std::io::Cursor;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
+
+/// 进程级上传节流状态：最近一次**上传开始**的时刻。
+///
+/// DeepSeek 对上传有风控：短时间连续上传过多会触发 `biz_code=14 user is muted`
+/// （账号被静音数天）。这里给同一进程内的连续上传（多图联合分析）留出间隔。
+static LAST_UPLOAD_START: Mutex<Option<Instant>> = Mutex::new(None);
+
+/// 上传前节流：距上次上传不足 `min_interval` 时等待补足（`min_interval` 为 0 时不等待）。
+pub async fn throttle_upload(min_interval: Duration) {
+    if min_interval.is_zero() {
+        return;
+    }
+    let wait = {
+        let mut guard = match LAST_UPLOAD_START.lock() {
+            Ok(g) => g,
+            Err(e) => {
+                tracing::warn!("upload throttle lock poisoned: {e}");
+                return;
+            }
+        };
+        let now = Instant::now();
+        let wait = guard.map(|last| min_interval.saturating_sub(now.duration_since(last)));
+        *guard = Some(now);
+        wait
+    };
+    if let Some(wait) = wait {
+        if !wait.is_zero() {
+            tracing::debug!("upload throttled: waiting {}ms", wait.as_millis());
+            tokio::time::sleep(wait).await;
+        }
+    }
+}
 
 /// 上传成功后返回的文件信息（对应 Python `FileInfo`）。
 #[derive(Debug, Clone)]
@@ -39,23 +72,48 @@ pub async fn upload_and_wait(
     let original_size = image_data.len();
     let image_data = maybe_compress(&image_data)?;
 
-    // 上传前 PoW（对应 Python `_get_pow_challenge` + `solve_challenge`）
-    let challenge = create_pow_challenge(client, "/api/v0/file/upload_file").await?;
-    let pow_header = pow::PoWSolver::solve_challenge(&challenge)?;
+    // 上传（带限速 + 瞬时错误退避重试）。
+    //
+    // 每次尝试都**重新签发并求解 PoW**：PoW 是一次性凭据，复用已消费的 PoW 会被拒。
+    let mut attempt = 0u32;
+    let envelope = loop {
+        // 上传前 PoW（对应 Python `_get_pow_challenge` + `solve_challenge`）
+        let challenge = create_pow_challenge(client, "/api/v0/file/upload_file").await?;
+        let pow_header = pow::PoWSolver::solve_challenge(&challenge)?;
 
-    let headers = build_upload_headers(&pow_header, original_size, model_type);
+        let headers = build_upload_headers(&pow_header, original_size, model_type);
 
-    let envelope = client
-        .post_multipart(
-            "/api/v0/file/upload_file",
-            "file",
-            "image.png",
-            "image/png",
-            image_data,
-            headers,
-            client.config.upload_timeout,
-        )
-        .await?;
+        // 限速：两次上传开始之间留出最小间隔，降低触发风控的概率
+        throttle_upload(client.config.upload_min_interval).await;
+
+        match client
+            .post_multipart(
+                "/api/v0/file/upload_file",
+                "file",
+                "image.png",
+                "image/png",
+                image_data.clone(),
+                headers,
+                client.config.upload_timeout,
+            )
+            .await
+        {
+            Ok(envelope) => break envelope,
+            Err(e) => {
+                let transient = e.downcast_ref::<TransientFailure>().is_some();
+                attempt += 1;
+                if !transient || attempt >= client.config.max_retries.max(1) {
+                    return Err(e);
+                }
+                let backoff = Duration::from_millis(1000u64 << (attempt - 1));
+                tracing::warn!(
+                    "upload attempt {attempt} failed ({e}); retrying in {}ms",
+                    backoff.as_millis()
+                );
+                tokio::time::sleep(backoff).await;
+            }
+        }
+    };
 
     let biz = envelope.into_biz_data("upload")?;
     let file_data = biz
@@ -341,5 +399,26 @@ mod tests {
         // 其余头保持现状（x-file-size 为原始字节数）
         assert_eq!(map.get("x-file-size"), Some(&"99"));
         assert_eq!(map.get("x-thinking-enabled"), Some(&"1"));
+    }
+
+    #[tokio::test]
+    async fn throttle_upload_waits_between_uploads() {
+        let interval = Duration::from_millis(150);
+        throttle_upload(interval).await; // 第一次：只记录时刻
+        let start = Instant::now();
+        throttle_upload(interval).await; // 第二次：应补足间隔
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed >= Duration::from_millis(120),
+            "upload throttle did not wait: {elapsed:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn throttle_upload_zero_disables_limit() {
+        throttle_upload(Duration::ZERO).await;
+        let start = Instant::now();
+        throttle_upload(Duration::ZERO).await;
+        assert!(start.elapsed() < Duration::from_millis(50));
     }
 }
