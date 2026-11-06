@@ -227,10 +227,12 @@ fn skill_install_writes_embedded_skill() {
     ));
     let path = home.join(".agents/skills/visionary-cli/SKILL.md");
     let content = std::fs::read_to_string(&path).expect("SKILL.md should exist");
+    // Windows checkout（core.autocrlf=true，内嵌 SKILL.md 为 CRLF）比较前先归一化换行。
+    let normalized = content.replace("\r\n", "\n");
     assert!(
-        content.starts_with("---\nname: visionary-cli"),
+        normalized.starts_with("---\nname: visionary-cli"),
         "SKILL.md should start with frontmatter, got: {}",
-        &content[..content.len().min(60)]
+        &normalized[..normalized.len().min(60)]
     );
 }
 

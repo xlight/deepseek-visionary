@@ -8,7 +8,7 @@
 //! SSE 解析逻辑与 Python 逐行对齐：`data:` 前缀行、`[DONE]` 终止、
 //! `type=error` 抛错、`response_message_id` 提取、`v` 字符串增量拼接。
 
-use crate::client::ApiClient;
+use crate::client::{apply_headers, ApiClient};
 use crate::hif::HifAuth;
 use crate::pow;
 use anyhow::{anyhow, Context, Result};
@@ -87,10 +87,9 @@ impl CompletionTransport for ReqwestTransport {
         cookies: &[(String, String)],
         body: &CompletionBody,
     ) -> Result<impl futures_util::Stream<Item = Result<bytes::Bytes, reqwest::Error>>> {
-        let mut req = self.client.post(url).json(body);
-        for (k, v) in headers {
-            req = req.header(k, v);
-        }
+        // 用 HeaderMap（替换语义）应用头：`.json()` 自带一个 content-type，
+        // 若再追加一个同名头，服务端会按重复媒体类型判为 HTTP 415。
+        let mut req = apply_headers(self.client.post(url).json(body), headers)?;
         for (k, v) in cookies {
             req = req.header(reqwest::header::COOKIE, format!("{k}={v}"));
         }

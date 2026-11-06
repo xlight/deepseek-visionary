@@ -170,6 +170,7 @@ fn claude_desktop_config_path(home: &Path) -> Option<PathBuf> {
     }
     #[cfg(target_os = "windows")]
     {
+        let _ = home;
         std::env::var_os("APPDATA").map(|p| {
             PathBuf::from(p)
                 .join("Claude")
