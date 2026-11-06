@@ -139,11 +139,14 @@ test("getStatus degrades gracefully when status command exits non-zero", { skip:
   const scriptPath = path.join(binDir, "fake-visionary-bad.js");
   await fs.writeFile(
     scriptPath,
-    `const args = process.argv.slice(2);
+    `#!/usr/bin/env node
+const args = process.argv.slice(2);
 if (args[0] === "--version") { process.stdout.write("visionary-server 0.7.3"); process.exit(0); }
 if (args[0] === "status") { process.stderr.write("not logged in"); process.exit(1); }
 process.exit(2);
 `,
+    // mode 0o755：Linux 上直接 spawn 脚本需要可执行位（Windows 分支走 .cmd shim）。
+    { mode: 0o755 },
   );
   let bin = scriptPath;
   if (isWin) {

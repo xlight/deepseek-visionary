@@ -392,10 +392,11 @@ function apply(ctx, config) {
   // `subcommand`：本轮 spawn 的 CLI 子命令；`modelType` 仅 vision 生效（见
   // buildImageCliArgs）。ocr 工具恒为 ocr 子命令，不受 config.modelType 影响。
   async function runImageAnalysis({ subcommand, name, imageInputs, args, exec }) {
-    const bin = requireBinary();
+    // 先校验调用参数：没图是调用方的问题，不该被“二进制没找到”掩盖。
     if (imageInputs.length === 0) {
       throw new Error(`${name}: at least one image is required (\`images\` or \`image\`)`);
     }
+    const bin = requireBinary();
     const materialized = [];
     try {
       for (const image of imageInputs) {
