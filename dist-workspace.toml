@@ -22,18 +22,15 @@ hosting = "github"
 publish-jobs = ["homebrew", "npm"]
 # Homebrew tap：发布时推送 formula 到 xlight/homebrew-tap（需先创建该 tap 仓库，见 design.md Open Questions）
 tap = "xlight/homebrew-tap"
-# GitHub Actions runners for each target.
+# GitHub Actions runners for each target。
+# 注意：cargo-dist 0.32 的键名是 github-custom-runners（不是 github-runners），
+# 且值必须是 map（写成 "target = runner" 的数组会报 "invalid type: sequence, expected a map"）；
+# 键名写错不会报错、只会静默忽略，于是 cargo-dist 回落到默认 runner。
 # - macos-13 已退役；x86_64 mac 用 macos-15-intel（官方 Intel Mac runner）。
 # - macos-14 镜像已于 2026-11-02 从 GitHub Actions 全部下线（runner-images #15226），
 #   aarch64 mac 必须用 macos-15（arm64）。用 macos-14 会让 release job 立刻被取消：
 #   "The configuration 'macos-14-arm64-us-default' is not supported"。
-github-runners = [
-  "aarch64-apple-darwin = macos-15",
-  "x86_64-apple-darwin = macos-15-intel",
-  "x86_64-unknown-linux-gnu = ubuntu-22.04",
-  "aarch64-unknown-linux-gnu = ubuntu-22.04",
-  "x86_64-pc-windows-msvc = windows-2022",
-]
+github-custom-runners = { "aarch64-apple-darwin" = "macos-15", "x86_64-apple-darwin" = "macos-15-intel", "x86_64-unknown-linux-gnu" = "ubuntu-22.04", "aarch64-unknown-linux-gnu" = "ubuntu-22.04-arm", "x86_64-pc-windows-msvc" = "windows-2022" }
 
 # npm：scoped 包名 @xlight-oss/visionary-server（npm 组织 xlight-oss，token 已授权该组织发布权限）
 # 注意：键必须是 `npm-scope`（不是 scope），位于 [dist] 段——cargo-dist 0.32 的 npm installer 配置
