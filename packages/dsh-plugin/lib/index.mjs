@@ -1,7 +1,9 @@
 // DeepSeek Visionary — DeepSeek Harness native plugin.
 //
-// Registers `deepseek_vision` / `deepseek_vision_status` / `deepseek_vision_login`
-// / `deepseek_vision_logout` as native tools on `ctx.tools`. Every tool spawns the
+// Registers 6 native tools on `ctx.tools`:
+// `deepseek_vision` / `deepseek_ocr` / `deepseek_vision_status` /
+// `deepseek_vision_login` / `deepseek_vision_logout` / `deepseek_vision_accounts`.
+// Every tool spawns the
 // `visionary-server` binary (CLI; `--json` atomic output where the subcommand
 // supports it), so the heavy vision pipeline (PoW → upload → fork → HIF → SSE)
 // stays in Rust. Tools run in the DSH host process — not through the bash
@@ -32,7 +34,7 @@ const SETTINGS_NAMESPACE = "visionary-vision";
 
 // Keep in lockstep with the Rust binary's minor version: tools rely on the
 // CLI's `--json` output shape. Bump when the binary's contract changes.
-const COMPAT_MINOR = "0.7";
+const COMPAT_MINOR = "0.8";
 
 // `.volatile()` 标记使字段进入 DSH 0.2.0 设置面（`settings.describe()` 只投影
 // volatile 字段，表单由 entry Config 自动派生；DSH 自 0.2.0 起使用该契约，
@@ -62,6 +64,13 @@ const Config = z.object({
     .default(60000)
     .volatile()
     .description("Per deepseek_vision_status / deepseek_vision_logout timeout in ms."),
+  accountsTimeoutMs: z
+    .number()
+    .default(30000)
+    .volatile()
+    .description(
+      "Account-pool health refresh budget in ms (DEEPSEEK_ACCOUNTS_TIMEOUT on the CLI side). The plugin adds a safety margin on top of it, so the CLI's own budget expires first and is reported as such."
+    ),
   modelType: z
     .union([z.const("vision"), z.const("ocr")])
     .default("vision")
@@ -217,6 +226,18 @@ function runCli(binary, args, { timeoutMs, signal }) {
   });
 }
 
+
+// 启动一个**不等待**的 CLI 子进程（立即返回）。
+// 用于「添加账号」：浏览器登录是分钟级操作，不能占住 Remote 调用——
+// 客户端沿用 dashboard 既有的 status 轮询呈现「等待登录完成」。
+export function spawnDetached(binary, args, { env } = {}) {
+  const child = spawn(binary, args, {
+    stdio: "ignore",
+    env: env ? { ...process.env, ...env } : process.env,
+  });
+  child.unref?.();
+  return { started: true };
+}
 // --- image input -------------------------------------------------------------
 
 // Mirror the CLI's read_image semantics: "-" (stdin) is not passed by this
@@ -312,6 +333,107 @@ function parseMinor(v) {
   return m ? `${m[1]}.${m[2]}` : null;
 }
 
+
+// --- account pool (accounts subcommand group) --------------------------------
+
+// 账号池子命令的 argv 映射（纯函数，便于测试）。
+// 与 MCP 侧 `accounts_cli_argv` 同一张映射表：账号标识走**位置参数**
+// （CLI 没有 --account-id 参数，用了会失败）。
+export function buildAccountsCliArgs(action, accountId, pinned) {
+  const act = String(action ?? "").trim().toLowerCase();
+  const id = typeof accountId === "string" ? accountId.trim() : "";
+  if (act === "list") return ["accounts", "list", "--json"];
+  if (act === "refresh") return ["accounts", "status", "--json"];
+  if (act === "remove") {
+    if (!id) throw new Error("action=remove requires account_id");
+    return ["accounts", "remove", "--json", id];
+  }
+  if (act === "pin") {
+    if (!id) throw new Error("action=pin requires account_id");
+    if (pinned === false) return ["accounts", "use", "--json", "--clear"];
+    return ["accounts", "use", "--json", id];
+  }
+  throw new Error(
+    `unknown action: ${act || "(empty)"} (expected list | refresh | remove | pin)`
+  );
+}
+
+// 把 CLI 的 PoolView 形状渲染成人类可读的一行行摘要。
+export function formatAccountsResult(action, data) {
+  const lines = [];
+  const pool = data?.pool ?? data;
+  if (data?.removed) {
+    lines.push(
+      `Removed account ${data.removed.label ?? data.removed.id} (${data.removed.id}).`
+    );
+  }
+  if (pool && typeof pool === "object") {
+    const accounts = Array.isArray(pool.accounts) ? pool.accounts : [];
+    lines.push(
+      `Account pool: ${pool.total ?? accounts.length} account(s) — healthy ${pool.healthy ?? 0}, muted ${pool.muted ?? 0}, expired ${pool.expired ?? 0}.`
+    );
+    if (pool.current) lines.push(`Current account: ${pool.current}.`);
+    if (pool.pinned) lines.push(`Pinned account: ${pool.pinned} (rotation suspended).`);
+    if (pool.env_ignored) {
+      lines.push(
+        "Environment credentials ignored — the account pool is used for rotation."
+      );
+    }
+    for (const a of accounts) {
+      const until = a.mute_until ? ` (until ${a.mute_until})` : "";
+      lines.push(
+        `- ${a.label ?? a.id} (${a.id}) [${a.status ?? "unknown"}]${until}${a.pinned ? " (pinned)" : ""}`
+      );
+    }
+  }
+  if (lines.length === 0) lines.push(`accounts ${action}: done.`);
+  return lines.join("\n");
+}
+
+// 渲染 `status --json` 的结果（纯函数，便于测试三端状态语义一致）。
+// 池模式下 SHALL NOT 引导用户设置被忽略的 DEEPSEEK_USER_TOKEN。
+export function formatStatusResult(parsed) {
+  const pool = parsed?.pool || {};
+  const state = parsed?.token_valid
+    ? "authenticated, token valid"
+    : parsed?.authenticated
+      ? "authenticated (live probe pending)"
+      : "not logged in";
+  const lines = [`DeepSeek Vision status: ${state}`];
+  if (pool.enabled) {
+    lines.push(
+      `Account pool: ${pool.total ?? 0} account(s) — healthy ${pool.healthy ?? 0}, muted ${pool.muted ?? 0}, expired ${pool.expired ?? 0}.`
+    );
+    if (pool.current) lines.push(`Current account: ${pool.current}.`);
+    if (pool.env_ignored) {
+      lines.push("Environment credentials ignored — rotation uses the account pool only.");
+    }
+  }
+  const hint = parsed?.token_valid
+    ? ""
+    : pool.enabled
+      ? "\nInspect the pool with `deepseek_vision_accounts` (action=list / refresh), or add an account via the plugin panel / `visionary-server accounts add`."
+      : "\nRun `deepseek_vision_login` to auto-login, or set DEEPSEEK_USER_TOKEN.";
+  lines.push(hint);
+  return lines.filter(Boolean).join("\n");
+}
+const accountsToolParams = {
+  action: {
+    type: "string",
+    enum: ["list", "refresh", "remove", "pin"],
+    description:
+      "list (show the pool), refresh (re-probe every account), remove (drop an account), pin (pin/unpin an account).",
+  },
+  account_id: {
+    type: "string",
+    description: "Account id — required for action=remove and action=pin.",
+  },
+  pinned: {
+    type: "boolean",
+    description:
+      "For action=pin: true pins the account (rotation suspended), false unpins it.",
+  },
+};
 // --- tools -------------------------------------------------------------------
 
 function apply(ctx, config) {
@@ -332,6 +454,17 @@ function apply(ctx, config) {
     if (Number.isFinite(raw) && raw > 0) return raw;
     const loginSecondsValue = cfg("loginTimeoutSeconds");
     return loginSecondsValue > 0 ? loginSecondsValue : 600;
+  })();
+
+  // 账号池批量探测的**客户端**超时：必须大于 CLI 侧的 DEEPSEEK_ACCOUNTS_TIMEOUT
+  //（默认 30s），否则插件会先掐断仍在 CLI 预算内的探测——且用户无法区分
+  //「CLI 自己超时」和「客户端先掐断」。取 max(配置值, CLI 预算) + 15s。
+  const accountsTimeout = (() => {
+    const raw = Number(process.env.DEEPSEEK_ACCOUNTS_TIMEOUT);
+    const cliBudgetMs = Number.isFinite(raw) && raw > 0 ? raw * 1000 : 30000;
+    const configured = Number(cfg("accountsTimeoutMs"));
+    const base = Number.isFinite(configured) && configured > 0 ? configured : 30000;
+    return Math.max(base, cliBudgetMs) + 15000;
   })();
 
   // 版本探测：apply 时 fire-and-forget（仅用于结果附带版本警告）。
@@ -373,6 +506,7 @@ function apply(ctx, config) {
         "- `deepseek_vision_status` — check login state",
         "- `deepseek_vision_login` — browser auto-login",
         "- `deepseek_vision_logout` — clear saved credentials",
+        "- `deepseek_vision_accounts` — manage the account pool (action: list | refresh | remove | pin)",
         "",
         "Use `deepseek_vision` for understanding an image; use `deepseek_ocr` when the user wants the text content of an image verbatim.",
         "Prefer these native tools over invoking `visionary-server` through the shell: native tools run in the host process, so session continuation and login are not restricted by the bash sandbox.",
@@ -519,15 +653,7 @@ function apply(ctx, config) {
           parsed = null;
         }
         if (parsed) {
-          const state = parsed.token_valid
-            ? "authenticated, token valid"
-            : parsed.authenticated
-              ? "authenticated (live probe pending)"
-              : "not logged in";
-          const hint = parsed.token_valid
-            ? ""
-            : "\nRun `deepseek_vision_login` to auto-login, or set DEEPSEEK_USER_TOKEN.";
-          return withVersionWarning(`DeepSeek Vision status: ${state}${hint}`);
+          return withVersionWarning(formatStatusResult(parsed));
         }
         throw new Error(
           `status failed (exit ${r.code}): ${(r.stderr || r.stdout).trim() || "unknown error"}`
@@ -569,7 +695,8 @@ function apply(ctx, config) {
   ctx.tools.register(
     defineTool({
       name: "deepseek_vision_logout",
-      description: "Clear saved DeepSeek Vision credentials.",
+      description:
+        "Clear the saved single-account credentials. When the account pool is enabled this does NOT remove pooled accounts and does NOT stop rotation — remove a specific account with deepseek_vision_accounts (action=remove).",
       parameters: {},
       output: {
         schema: { type: "string" },
@@ -587,6 +714,48 @@ function apply(ctx, config) {
           throw new Error(`logout failed (exit ${r.code}): ${(r.stderr || r.stdout).trim()}`);
         }
         return withVersionWarning(r.stdout.trim() || "Logged out.");
+      },
+    })
+  );
+
+  ctx.tools.register(
+    defineTool({
+      name: "deepseek_vision_accounts",
+      description:
+        "Manage the DeepSeek account pool: action=list (show accounts), action=refresh (re-probe every account's health), action=remove (drop an account by id), action=pin (pin/unpin an account by id).",
+      parameters: accountsToolParams,
+      output: {
+        schema: { type: "string" },
+        render: (_args, value) => [{ type: "text", text: value }],
+      },
+      timeoutMs: accountsTimeout,
+      async execute(args, exec) {
+        const bin = requireBinary();
+        const cliArgs = buildAccountsCliArgs(args.action, args.account_id, args.pinned);
+        const r = await runCli(bin, cliArgs, {
+          timeoutMs: accountsTimeout,
+          signal: exec.signal,
+        });
+        if (r.killed) {
+          throw new Error(
+            "deepseek_vision_accounts was aborted or timed out before the CLI finished"
+          );
+        }
+        // JSON 输出是权威结果（SHALL NOT 仅凭退出码判定成败）：CLI 失败时也会
+        // 打印结构化 JSON，退出码只说明「有东西失败了」。
+        let parsed = null;
+        try {
+          parsed = JSON.parse(r.stdout);
+        } catch {
+          parsed = null;
+        }
+        if (!parsed || typeof parsed !== "object") {
+          throw new Error(
+            `deepseek_vision_accounts failed (exit ${r.code}): ${(r.stderr || r.stdout).trim() || "unknown error"}`
+          );
+        }
+        if (typeof parsed.error === "string") throw new Error(parsed.error);
+        return withVersionWarning(formatAccountsResult(args.action, parsed));
       },
     })
   );

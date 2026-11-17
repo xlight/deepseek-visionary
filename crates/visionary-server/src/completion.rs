@@ -131,6 +131,7 @@ impl CompletionTransport for ReqwestTransport {
 pub async fn vision_completion<F>(
     client: &ApiClient,
     hif: &HifAuth,
+    account_id: &str,
     session_id: &str,
     vision_file_ids: &[String],
     prompt: &str,
@@ -142,7 +143,10 @@ where
     F: FnMut(&str) + Send,
 {
     let config = &client.config;
-    let token = config.credentials().user_token;
+    // 凭据归属明确化：token 与 cookie 都取**当前账号自己**的凭据，
+    // 而不是隐式依赖"内存里刚好是这一组"的时序（轮询换号时两者会错位）。
+    let creds = config.credentials_for(account_id);
+    let token = creds.user_token.clone();
 
     // completion 前 PoW（对应 `_run_vision_pipeline` 中的第三步）
     let envelope = client
@@ -161,7 +165,7 @@ where
     .context("parse pow challenge")?;
     let pow_header = pow::PoWSolver::solve_challenge(&challenge)?;
 
-    let hif_headers = hif.get_headers().await?;
+    let hif_headers = hif.get_headers(account_id).await?;
 
     let mut headers: Vec<(String, String)> = vec![
         ("accept".into(), "*/*".into()),
@@ -207,7 +211,12 @@ where
     // 先以普通 reqwest 跑通（若 completion 被 403，再切 impersonate）。
     let transport = ReqwestTransport::new()?;
     let url = format!("{}/api/v0/chat/completion", config.base_url);
-    let cookies = config.cookies();
+    // completion 请求只带 smidV2（上传类请求才带 cf_clearance，见 client.rs）。
+    let cookies: Vec<(String, String)> = if creds.smid_v2.is_empty() {
+        Vec::new()
+    } else {
+        vec![("smidV2".to_string(), creds.smid_v2.clone())]
+    };
     let mut stream = transport
         .post_stream(&url, &headers, &cookies, &body)
         .await?;

@@ -105,18 +105,19 @@ test("buildImageCliArgs: ocr subcommand never exposes --model-type", () => {
 
 // ------------------------------------------------------------ deepseek_ocr tool
 
-test("apply: registers 5 native tools incl. deepseek_ocr with the vision schema", async () => {
+test("apply: registers 6 native tools incl. deepseek_ocr with the vision schema", async () => {
   const { registered } = await bootApply();
   const names = registered.map((t) => t.name).sort();
   assert.deepEqual(names, [
     "deepseek_ocr",
     "deepseek_vision",
+    "deepseek_vision_accounts",
     "deepseek_vision_login",
     "deepseek_vision_logout",
     "deepseek_vision_status",
   ]);
   const ocr = registered.find((t) => t.name === "deepseek_ocr");
-  assert.ok(ocr, "deepseek_ocr must be registered as the 5th native tool");
+  assert.ok(ocr, "deepseek_ocr must be registered as a native tool");
   // schema 对齐 deepseek_vision 完整形态（defineTool 将参数转为 JSON-schema object）
   const imageProps = [
     "images",
@@ -246,3 +247,106 @@ test("apply: system prompt guides deepseek_ocr for text-extraction scenarios", a
   assert.ok(text.includes("deepseek_ocr"), "prompt should mention deepseek_ocr");
   assert.ok(text.includes("raw text"), "prompt should explain OCR text extraction");
 });
+// ── account pool tool (change: account-management-ui) ──────────────────────
+
+test("buildAccountsCliArgs maps actions to CLI argv with positional ids", () => {
+  const { buildAccountsCliArgs } = plugin;
+  assert.deepEqual(buildAccountsCliArgs("list"), ["accounts", "list", "--json"]);
+  assert.deepEqual(buildAccountsCliArgs("refresh"), ["accounts", "status", "--json"]);
+  assert.deepEqual(buildAccountsCliArgs("remove", "acc-1"), ["accounts", "remove", "--json", "acc-1"]);
+  assert.deepEqual(buildAccountsCliArgs("pin", "acc-1", true), ["accounts", "use", "--json", "acc-1"]);
+  assert.deepEqual(buildAccountsCliArgs("pin", "acc-1", false), ["accounts", "use", "--json", "--clear"]);
+  assert.throws(() => buildAccountsCliArgs("remove", ""), /requires account_id/);
+  assert.throws(() => buildAccountsCliArgs("pin"), /requires account_id/);
+  assert.throws(() => buildAccountsCliArgs("add"), /unknown action/);
+  assert.throws(() => buildAccountsCliArgs("migrate"), /unknown action/);
+});
+
+test("formatAccountsResult renders the shared PoolView shape", () => {
+  const { formatAccountsResult } = plugin;
+  const text = formatAccountsResult("list", {
+    enabled: true,
+    total: 2,
+    healthy: 1,
+    muted: 1,
+    expired: 0,
+    current: "a",
+    pinned: null,
+    env_ignored: true,
+    accounts: [
+      { id: "a", label: "a@x", status: "healthy" },
+      { id: "b", label: "b@x", status: "muted", mute_until: 1794738505 },
+    ],
+  });
+  assert.match(text, /2 account/);
+  assert.match(text, /healthy 1, muted 1, expired 0/);
+  assert.match(text, /Current account: a/);
+  assert.match(text, /ignored/);
+  assert.match(text, /1794738505/);
+});
+
+test("spawnDetached starts a child without waiting", { skip: SPAWN_SKIP }, () => {
+  const { spawnDetached } = plugin;
+  const result = spawnDetached(process.execPath, ["-e", "setTimeout(()=>{},1000)"]);
+  assert.deepEqual(result, { started: true });
+});
+
+
+test("three-end consistency: the CLI PoolView shape renders identically here", () => {
+  // 与 crates/visionary-server/src/accounts.rs::PoolView 序列化形状一致：
+  // CLI `accounts list --json` / MCP deepseek_vision_accounts / 插件面板共用。
+  const { formatAccountsResult } = plugin;
+  const poolView = {
+    enabled: true,
+    accounts: [
+      { id: "acc-1", label: "a@b.c", status: "healthy", mute_until: null, last_used: "2026-11-08T12:20:00Z", pinned: false },
+      { id: "acc-2", label: "x@y.z", status: "muted", mute_until: 1794738505, last_used: null, pinned: true },
+    ],
+    total: 2,
+    healthy: 1,
+    muted: 1,
+    expired: 0,
+    pinned: "acc-2",
+    current: "acc-2",
+    env_ignored: true,
+  };
+  const text = formatAccountsResult("list", poolView);
+  assert.match(text, /2 account/);
+  assert.match(text, /healthy 1, muted 1, expired 0/);
+  assert.match(text, /Current account: acc-2/);
+  assert.match(text, /Pinned account: acc-2/);
+  assert.match(text, /a@b\.c \(acc-1\)/);
+  assert.match(text, /x@y\.z \(acc-2\)/);
+  assert.match(text, /1794738505/);
+  assert.match(text, /ignored/);
+  // 视图不含 token 明文
+  assert.doesNotMatch(text, /user_token|tok-/);
+});
+
+
+test("formatStatusResult: pool sub-object and env hint follow the CLI shape", () => {
+  const { formatStatusResult } = plugin;
+  const poolMode = formatStatusResult({
+    authenticated: true,
+    token_configured: true,
+    token_valid: false,
+    pool: {
+      enabled: true, total: 2, healthy: 1, muted: 1, expired: 0,
+      current: "acc-2", env_ignored: true,
+    },
+  });
+  assert.match(poolMode, /Account pool: 2 account/);
+  assert.match(poolMode, /healthy 1, muted 1, expired 0/);
+  assert.match(poolMode, /Current account: acc-2/);
+  assert.match(poolMode, /ignored/);
+  assert.match(poolMode, /deepseek_vision_accounts/);
+  assert.doesNotMatch(poolMode, /set DEEPSEEK_USER_TOKEN/, "pool mode must not suggest the ignored env var");
+
+  const single = formatStatusResult({
+    authenticated: false, token_valid: false,
+    pool: { enabled: false, total: 0, healthy: 0, muted: 0, expired: 0, current: null, env_ignored: false },
+  });
+  assert.doesNotMatch(single, /Account pool:/);
+  assert.match(single, /set DEEPSEEK_USER_TOKEN/);
+});
+

@@ -285,3 +285,29 @@ test("getStatus bridge.pastedCount counts files in pastedDir", { skip: skipBin }
   const status = await svc.getStatus();
   assert.equal(status.bridge.pastedCount, 3);
 });
+
+test("the five account-pool Remote methods are exposed on the prototype", { skip }, async () => {
+  for (const name of [
+    "getAccounts",
+    "refreshAccounts",
+    "addAccount",
+    "removeAccount",
+    "pinAccount",
+  ]) {
+    assert.equal(
+      typeof VisionaryDashboard.prototype[name],
+      "function",
+      `Remote method ${name} must exist`
+    );
+  }
+  // Gateway 从 Function.prototype.toString 解析参数名：单标识符、无解构 / 默认值。
+  assert.match(
+    VisionaryDashboard.prototype.removeAccount.toString(),
+    /async removeAccount\(id\)/
+  );
+  assert.match(
+    VisionaryDashboard.prototype.pinAccount.toString(),
+    /async pinAccount\(id\)/
+  );
+});
+

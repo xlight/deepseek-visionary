@@ -81,7 +81,12 @@
 - **THEN** 程序在 stderr 报参数冲突错误，退出码非零（`--json` 恒为原子输出，不与流式开关组合）
 
 ### Requirement: status 子命令
+
 `visionary-server` SHALL 提供 `status` 子命令，输出轻量鉴权状态：token 是否配置、smidV2 cookie、Base URL，并通过真实校验探针验证 token 有效性。默认输出 SHALL 为可读文本到 stdout；`status --json` SHALL 输出原子 JSON `{"authenticated", "token_configured", "smid_v2", "base_url", "token_valid"}`。token 未配置或探针失败时 SHALL 提示重新登录并退出非零（无论是否 `--json`，`--json` 模式下 stdout 仍输出完整状态 JSON 含 `token_valid: false`）。
+
+启用账号池时（见 `account-pool`），`status` SHALL 额外报告账号池概况：账号总数、各状态计数（健康 / 已静音 / 凭据失效）与当前使用的账号。既有字段 SHALL 保持不变。 `--json` 模式下该概况 SHALL 作为**新增子对象** `pool` 呈现（`enabled` / `total` / `healthy` / `muted` / `expired` / `current`），既有顶层字段 SHALL 保持不变、SHALL NOT 被平铺覆盖。
+
+启用账号池时（见 `account-pool`），上文「token 未配置或探针失败时 SHALL 提示重新登录并退出非零」的判据 SHALL 改以**账号池中是否有可用账号**为准：兼容配置为空或探针失败、但池中有可用账号时 SHALL NOT 退出非零。池模式下 `token_valid` SHALL 反映当前使用账号的探针结果；提示文案 SHALL NOT 引导设置 `DEEPSEEK_USER_TOKEN`（该环境变量在池模式下按设计被忽略）。
 
 #### Scenario: token 有效
 - **WHEN** 用户执行 `visionary-server status` 且已配置有效 token
@@ -89,7 +94,11 @@
 
 #### Scenario: token 失效
 - **WHEN** 用户执行 `visionary-server status` 且 token 缺失或校验失败
-- **THEN** stdout 显示未认证并提示运行 `visionary-server login`，退出码非零
+- **THEN** stdout 显示未认证并提示运行 `visionary-server login`，退出码非零（账号池已启用且池中有可用账号时 SHALL NOT 适用本场景，见「池模式下退出登录后状态仍正常」）
+
+#### Scenario: 池模式下退出登录后状态仍正常
+- **WHEN** 账号池中有可用账号，用户执行退出登录（只清兼容配置）后执行 `status --json`
+- **THEN** 退出码为 0，stdout 仍输出完整状态 JSON（含池概况子对象），SHALL NOT 报「未登录」
 
 #### Scenario: status --json 有效
 - **WHEN** 用户执行 `visionary-server status --json` 且 token 有效
@@ -99,8 +108,15 @@
 - **WHEN** 用户执行 `visionary-server status --json` 且 token 缺失或校验失败
 - **THEN** stdout 输出单个 JSON 文档（token_valid 为 false），退出码非零，调用方可凭退出码判断可用性
 
+#### Scenario: status 报告账号池概况
+- **WHEN** 账号池启用且用户执行 `visionary-server status`
+- **THEN** 输出包含账号总数、各状态计数与当前使用的账号，既有 token 有效性字段保持不变
+
 ### Requirement: login 子命令
-`visionary-server` SHALL 提供 `login` 子命令，复用 CDP 浏览器自动登录流程（打开浏览器 → 等待登录 → 抓取凭据 → 保存）。成功时 SHALL 输出凭据摘要（脱敏）；已配置 token 时 SHALL 幂等提示不重复登录；超时或失败时 SHALL 输出错误与继续路径（浏览器保持打开），退出码非零。
+
+`visionary-server` SHALL 提供 `login` 子命令，复用 CDP 浏览器自动登录流程（打开浏览器 → 等待登录 → 抓取凭据 → 探测账号健康 → 保存）。成功时 SHALL 输出凭据摘要（脱敏）；已配置 token 时 SHALL 幂等提示不重复登录；超时或失败时 SHALL 输出错误与继续路径（浏览器保持打开），退出码非零。
+
+账号被静音时，`login` SHALL NOT 呈现为普通登录失败：SHALL 保持浏览器打开，向 stderr 输出换号指引与静音截止时间，并继续等待用户换号（见 `account-health` 的「登录时静音感知」）。
 
 #### Scenario: 登录成功
 - **WHEN** 用户执行 `visionary-server login` 并在浏览器中完成登录
@@ -113,6 +129,14 @@
 #### Scenario: 登录超时
 - **WHEN** 用户在等待超时内未完成登录
 - **THEN** 程序输出错误提示（浏览器保持打开，可重跑 `visionary-server login`），退出码非零
+
+#### Scenario: 登录到被静音账号
+- **WHEN** 用户完成登录但账号被静音
+- **THEN** stderr 输出换号指引与静音截止时间，浏览器保持打开并等待换号；SHALL NOT 以普通登录失败收尾
+
+#### Scenario: 登录中判定为静音
+- **WHEN** 用户在浏览器中登录的账号被探测为静音
+- **THEN** 浏览器窗口保持打开，stderr 输出换号指引与静音截止时间，程序继续等待用户在同一窗口换号；换号后自动保存新账号凭据并退出码为 0
 
 ### Requirement: logout 子命令
 `visionary-server` SHALL 提供 `logout` 子命令，清除保存的凭据并输出结果。成功时退出码为 0。

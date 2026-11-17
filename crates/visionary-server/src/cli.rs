@@ -51,6 +51,8 @@ pub enum Command {
     Logout,
     /// Install the agent-calling-contract skill (embedded in the binary).
     Skill(SkillArgs),
+    /// Manage the account pool (list / status / add / remove / use / migrate).
+    Accounts(AccountsArgs),
 }
 
 /// `vision` 子命令参数：一张或多张图片 + 提示词/思考/会话续聊 + 输出模式开关。
@@ -158,6 +160,61 @@ pub struct StatusArgs {
     pub json: bool,
 }
 
+/// `accounts` 子命令组参数。
+#[derive(Debug, Args)]
+pub struct AccountsArgs {
+    #[command(subcommand)]
+    pub action: AccountsAction,
+}
+
+/// `accounts` 子命令组。
+#[derive(Debug, Subcommand)]
+pub enum AccountsAction {
+    /// List accounts in the pool (pure read, no network requests).
+    List(AccountsJsonArgs),
+    /// Probe every account concurrently and report health.
+    Status(AccountsJsonArgs),
+    /// Add an account through browser login (bypasses the "token already configured" guard).
+    Add(AccountsJsonArgs),
+    /// Remove an account from the pool by id.
+    Remove(AccountsRemoveArgs),
+    /// Pin an account (or unpin with --clear).
+    Use(AccountsUseArgs),
+    /// Import the existing single-account credentials into the pool (one-off, idempotent).
+    Migrate(AccountsJsonArgs),
+}
+
+/// `accounts` 子命令的通用参数。
+#[derive(Debug, Args)]
+pub struct AccountsJsonArgs {
+    /// Atomic JSON output (same shape as PoolView).
+    #[arg(long)]
+    pub json: bool,
+}
+
+/// `accounts remove` 参数。
+#[derive(Debug, Args)]
+pub struct AccountsRemoveArgs {
+    /// Account id (as shown by `accounts list`).
+    pub id: String,
+    /// Atomic JSON output.
+    #[arg(long)]
+    pub json: bool,
+}
+
+/// `accounts use` 参数。
+#[derive(Debug, Args)]
+pub struct AccountsUseArgs {
+    /// Account id to pin (omit together with --clear to unpin).
+    pub id: Option<String>,
+    /// Clear the pinned account (rotation resumes).
+    #[arg(long, conflicts_with = "id")]
+    pub clear: bool,
+    /// Atomic JSON output.
+    #[arg(long)]
+    pub json: bool,
+}
+
 /// `skill` 子命令参数。
 #[derive(Debug, Args)]
 pub struct SkillArgs {
@@ -208,6 +265,7 @@ pub async fn run() -> Result<()> {
         Some(Command::Login) => cmd_login().await,
         Some(Command::Logout) => cmd_logout().await,
         Some(Command::Skill(args)) => cmd_skill(args),
+        Some(Command::Accounts(args)) => cmd_accounts(args).await,
         // 无参数由 clap 的 arg_required_else_help 拦截（输出 help 并 exit 2），不可达
         None => unreachable!("no-args invocation is rejected by arg_required_else_help"),
     }
@@ -271,37 +329,118 @@ async fn cmd_doctor() -> Result<()> {
         }
     }
 
+    // 进程完整性级别：低于 Medium 时派生出的浏览器会立刻崩溃（0x80000003）。
+    match crate::integrity::current_level() {
+        Some(level) if level.is_below_medium() => {
+            lines.push(format!(
+                "- Integrity: [FAIL] {} — 浏览器会以相同低完整性启动并立即退出（0x80000003）。修复：icacls \"{exe}\" /setintegritylevel M",
+                level.name(),
+                exe = std::env::current_exe()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|_| "<当前可执行文件>".to_string()),
+            ));
+            issues += 1;
+        }
+        Some(level) => lines.push(format!("- Integrity: [OK] {}", level.name())),
+        None => {}
+    }
+
     // 凭据：本地检查 + 真实 token 探针
     let config = crate::config::Config::load()?;
-    let authenticated = config.is_authenticated();
+    let pool_mode = config.pool_mode();
+    let pool = config.pool();
+    let authenticated = if pool_mode {
+        pool.usable_count() > 0
+    } else {
+        config.is_authenticated()
+    };
     lines.push(format!(
         "- Authenticated: {}",
         if authenticated { "[OK]" } else { "[FAIL]" }
     ));
 
-    if authenticated {
-        match tokio::time::timeout(Duration::from_secs(15), crate::auth::probe_token(&config)).await
-        {
-            Ok(Ok(())) => lines.push(format!(
-                "- Token validation: [OK] (live probe passed at {})",
-                config.base_url
-            )),
-            Ok(Err(e)) => {
+    if pool_mode {
+        // 池模式 doctor 只报告**池概况与当前使用账号**：逐账号联网探测是
+        // `accounts status` 的职责（doctor 是排障入口，批量探针会拖慢诊断）。
+        lines.push(format!(
+            "- Account pool: {} account(s), {} usable",
+            pool.accounts().len(),
+            pool.usable_count()
+        ));
+        // 在克隆的池上试选：不推进游标、不写盘。
+        let mut probe_pool = pool.clone();
+        match probe_pool.next_usable() {
+            crate::accounts::AccountSelection::Selected(a) => {
+                let label = if a.label.is_empty() {
+                    a.account_id.clone()
+                } else {
+                    a.label.clone()
+                };
+                lines.push(format!("- Current account: {label}"));
+            }
+            crate::accounts::AccountSelection::PinnedUnavailable { label, reason } => {
+                lines.push(format!(
+                    "- Current account: {label} [WARN] {}",
+                    reason.message()
+                ));
+            }
+            crate::accounts::AccountSelection::None => {
+                lines.push("- Current account: none usable".into());
+            }
+        }
+        let ignored = ignored_env_vars(&config);
+        if !ignored.is_empty() {
+            lines.push(format!(
+                "- Environment ignored (pool mode): {}",
+                ignored.join(", ")
+            ));
+        }
+    }
+
+    // 池模式下只探「当前凭据」（兼容配置）对应的那一个账号，不逐账号探测。
+    if config.is_authenticated() {
+        // 只读探针（GET /api/v0/users/current）：不发起上传、不求解 PoW、不消耗配额。
+        match crate::account_health::probe_config(&config, Duration::from_secs(15)).await {
+            Ok(health) => {
+                lines.push(format!(
+                    "- Token validation: [OK] (read-only probe passed at {}, account {})",
+                    config.base_url,
+                    if health.label.is_empty() {
+                        &health.account_id
+                    } else {
+                        &health.label
+                    }
+                ));
+                if health.muted {
+                    let until = health
+                        .mute_until_utc()
+                        .unwrap_or_else(|| "unknown".to_string());
+                    lines.push(format!(
+                        "- Account muted: [WARN] uploads are muted until {until}"
+                    ));
+                }
+            }
+            Err(e) => {
                 lines.push(format!("- Token validation: [FAIL] probe failed: {e}"));
                 issues += 1;
-            }
-            Err(_) => {
-                lines.push("- Token validation: [WARN] probe timed out".to_string());
             }
         }
     }
 
     if issues > 0 {
         lines.push(String::new());
-        lines.push(
-            "To fix: run `visionary-server login` to auto-login, or set the DEEPSEEK_USER_TOKEN environment variable."
-                .into(),
-        );
+        if pool_mode {
+            // 池模式下环境变量被忽略，提示不得引导用户去设置它。
+            lines.push(
+                "To fix: run `visionary-server accounts list` to inspect the pool, or `visionary-server accounts add` to add an account."
+                    .into(),
+            );
+        } else {
+            lines.push(
+                "To fix: run `visionary-server login` to auto-login, or set the DEEPSEEK_USER_TOKEN environment variable."
+                    .into(),
+            );
+        }
         lines.push("Install Chrome / Chromium / Edge for auto-login support.".into());
     }
 
@@ -313,6 +452,25 @@ async fn cmd_doctor() -> Result<()> {
         std::process::exit(1);
     }
     Ok(())
+}
+
+/// 账号池模式下**被忽略**的环境变量。
+///
+/// 池存在时 env 不参与选号（也不登记为账号）：用户以为指定了它、实际多数请求用的
+/// 是别的号，比忽略更容易误导——因此 SHALL 在 status / accounts list 里明确提示。
+pub(crate) fn ignored_env_vars(config: &crate::config::Config) -> Vec<String> {
+    if !config.pool_mode() {
+        return Vec::new();
+    }
+    [
+        "DEEPSEEK_USER_TOKEN",
+        "DEEPSEEK_SMIDV2",
+        "DEEPSEEK_CF_CLEARANCE",
+    ]
+    .iter()
+    .filter(|k| std::env::var(k).map(|v| !v.is_empty()).unwrap_or(false))
+    .map(|k| k.to_string())
+    .collect()
 }
 
 /// 配置文件权限的可读描述（Unix 下显示八进制 mode）。
@@ -390,7 +548,16 @@ async fn cmd_vision(args: VisionArgs, forced: ModelType) -> Result<()> {
     };
 
     let config = crate::config::Config::load()?;
-    if !config.is_authenticated() {
+    // 准入判定：账号池模式以「池中有无可用账号」为准（兼容配置可为空）；
+    // 单账号模式维持既有 token 判定。
+    if config.pool_mode() {
+        if config.pool().usable_count() == 0 {
+            fail(
+                mode,
+                "No usable account in the pool: run `visionary-server accounts list` to inspect the pool, or `visionary-server accounts add` to add an account.",
+            );
+        }
+    } else if !config.is_authenticated() {
         fail(
             mode,
             "Not logged in: run `visionary-server login` to auto-login, or set the DEEPSEEK_USER_TOKEN environment variable.",
@@ -417,20 +584,16 @@ async fn cmd_vision(args: VisionArgs, forced: ModelType) -> Result<()> {
         }
     }
 
-    // 会话连续性（与 MCP handler 共用同一解析）
-    let session_store = SessionStore::new();
-    let (reuse_session_id, reuse_parent_message_id) = pipeline::resolve_session_reuse(
-        &session_store,
-        args.session_id.as_deref(),
-        args.continue_conversation,
-    );
+    // 会话连续性：由流水线在**选号之后**统一解析（会话绑定账号，换号即断链），
+    // 调用方不再预填 session_id / parent_message_id。
+    let session_store = SessionStore::with_legacy_owner(pipeline::legacy_session_owner(&config));
 
     let request = VisionRequest {
         images_data,
         prompt: args.prompt,
         thinking: args.thinking,
-        session_id: reuse_session_id,
-        parent_message_id: reuse_parent_message_id,
+        session_id: args.session_id.clone(),
+        parent_message_id: None,
         model_type,
     };
     let hif = HifAuth::new(config.clone());
@@ -450,6 +613,7 @@ async fn cmd_vision(args: VisionArgs, forced: ModelType) -> Result<()> {
                     &hif,
                     &session_store,
                     request,
+                    args.continue_conversation,
                     Some(&mut on_token),
                 )
                 .await
@@ -471,6 +635,7 @@ async fn cmd_vision(args: VisionArgs, forced: ModelType) -> Result<()> {
                 &hif,
                 &session_store,
                 request,
+                args.continue_conversation,
                 None,
             )
             .await
@@ -503,17 +668,41 @@ async fn cmd_vision(args: VisionArgs, forced: ModelType) -> Result<()> {
 /// `status`：轻量鉴权检查（design 决策 5）。token 未配置或探针失败时退出非零。
 async fn cmd_status(args: StatusArgs) -> Result<()> {
     let config = crate::config::Config::load()?;
-    let creds = config.credentials();
-    let authenticated = config.is_authenticated();
-    let token_valid = if authenticated {
-        matches!(
-            tokio::time::timeout(Duration::from_secs(15), crate::auth::probe_token(&config)).await,
-            Ok(Ok(()))
-        )
-    } else {
-        false
+    let pool_mode = config.pool_mode();
+    let pool = config.pool();
+    let usable = pool.usable_count();
+    // 凭据字段的口径：池模式描述**当前使用账号**（固定 > 最近使用 > 无）；
+    // 单账号模式描述兼容配置（config.json / 环境变量）。
+    let current_id = pool.current_account_id();
+    let creds = match current_id.as_deref() {
+        Some(id) => config.credentials_for(id),
+        None => config.credentials(),
     };
-
+    // 池模式：「已登录」= 池中有可用账号（兼容配置可为空）；单账号模式 = token 已配置。
+    let authenticated = if pool_mode {
+        usable > 0
+    } else {
+        config.is_authenticated()
+    };
+    // token_valid 反映**当前使用账号**的探针结果（只读 GET /api/v0/users/current：
+    // 与 doctor / MCP 状态工具同一判定语义，纯 GET、无 PoW、无配额消耗）。
+    let token_valid = match current_id.as_deref() {
+        Some(id) => crate::account_health::probe_account_id(&config, id, Duration::from_secs(15))
+            .await
+            .is_ok(),
+        None => {
+            if config.is_authenticated() {
+                crate::account_health::probe_config(&config, Duration::from_secs(15))
+                    .await
+                    .is_ok()
+            } else {
+                false
+            }
+        }
+    };
+    // 退出判据：池模式以「池中有无可用账号」为准——兼容配置为空或探针失败，
+    // 但池里有可用账号时 SHALL NOT 退出非零。
+    let ok = if pool_mode { usable > 0 } else { token_valid };
     if args.json {
         println!(
             "{}",
@@ -523,9 +712,19 @@ async fn cmd_status(args: StatusArgs) -> Result<()> {
                 "smid_v2": !creds.smid_v2.is_empty(),
                 "base_url": config.base_url,
                 "token_valid": token_valid,
+                // 账号池概况作为**新增子对象**呈现（既有顶层字段保持不变）。
+                "pool": {
+                    "enabled": pool_mode,
+                    "total": pool_view(&config).total,
+                    "healthy": pool_view(&config).healthy,
+                    "muted": pool_view(&config).muted,
+                    "expired": pool_view(&config).expired,
+                    "current": pool_view(&config).current,
+                    "env_ignored": !ignored_env_vars(&config).is_empty(),
+                },
             })
         );
-        if !token_valid {
+        if !ok {
             std::process::exit(1);
         }
         return Ok(());
@@ -556,6 +755,20 @@ async fn cmd_status(args: StatusArgs) -> Result<()> {
         ),
         format!("- Base URL: {}", config.base_url),
     ];
+    if pool_mode {
+        lines.push(format!(
+            "- Account pool: {} account(s), {} usable",
+            pool.accounts().len(),
+            usable
+        ));
+        let ignored = ignored_env_vars(&config);
+        if !ignored.is_empty() {
+            lines.push(format!(
+                "- Environment ignored (pool mode): {}",
+                ignored.join(", ")
+            ));
+        }
+    }
     if authenticated {
         lines.push(format!(
             "- Token validation: {}",
@@ -566,17 +779,25 @@ async fn cmd_status(args: StatusArgs) -> Result<()> {
             }
         ));
     }
-    if !token_valid {
+    if !ok {
         lines.push(String::new());
-        lines.push(
-            "Not logged in: run `visionary-server login` to auto-login, or set the DEEPSEEK_USER_TOKEN environment variable."
-                .into(),
-        );
+        if pool_mode {
+            // 池模式：环境变量被忽略，SHALL NOT 引导用户去设置 DEEPSEEK_USER_TOKEN。
+            lines.push(
+                "No usable account in the pool: run `visionary-server accounts list` to inspect the pool, or `visionary-server accounts add` to add an account."
+                    .into(),
+            );
+        } else {
+            lines.push(
+                "Not logged in: run `visionary-server login` to auto-login, or set the DEEPSEEK_USER_TOKEN environment variable."
+                    .into(),
+            );
+        }
     }
     for line in &lines {
         println!("{line}");
     }
-    if !token_valid {
+    if !ok {
         std::process::exit(1);
     }
     Ok(())
@@ -654,6 +875,352 @@ fn cmd_skill(args: SkillArgs) -> Result<()> {
     Ok(())
 }
 
+/// `accounts` 子命令组入口。
+async fn cmd_accounts(args: AccountsArgs) -> Result<()> {
+    match args.action {
+        AccountsAction::List(a) => cmd_accounts_list(a),
+        AccountsAction::Status(a) => cmd_accounts_status(a).await,
+        AccountsAction::Add(a) => cmd_accounts_add(a).await,
+        AccountsAction::Remove(a) => cmd_accounts_remove(a),
+        AccountsAction::Use(a) => cmd_accounts_use(a),
+        AccountsAction::Migrate(a) => cmd_accounts_migrate(a).await,
+    }
+}
+
+/// 重新读取磁盘上的账号池并同步到内存（写操作后调用）。
+///
+/// 账号池的**权威**是磁盘上的 accounts.json；CLI 进程内的 Config 是启动时的快照——
+/// 写操作（remove / use / migrate / add）后必须重载，否则同一进程里紧接着输出的
+/// 视图仍是旧数据。
+fn reload_pool(config: &crate::config::Config) {
+    if let Ok(pool) = crate::accounts::load_pool() {
+        if let Ok(mut guard) = config.pool.write() {
+            *guard = pool;
+        }
+    }
+}
+
+/// 池视图（三端同源口径）+ 环境变量忽略标记。
+fn pool_view(config: &crate::config::Config) -> crate::accounts::PoolView {
+    let pool = config.pool();
+    let env_ignored = !ignored_env_vars(config).is_empty();
+    pool.view(env_ignored)
+}
+
+/// 池未启用时的提示（区分「有兼容凭据 → 可迁移」与「完全未配置」）。
+fn pool_disabled_notice(config: &crate::config::Config) -> String {
+    if config.is_authenticated() {
+        "The account pool is not enabled yet, but config.json still holds credentials.\n  Run `visionary-server accounts migrate` to import it into the pool (idempotent, non-destructive)."
+            .to_string()
+    } else {
+        "The account pool is not enabled. Run `visionary-server accounts add` to add the first account."
+            .to_string()
+    }
+}
+
+/// 状态标签（healthy / muted / expired）。
+fn status_label(status: crate::accounts::AccountStatus) -> &'static str {
+    use crate::accounts::AccountStatus;
+    match status {
+        AccountStatus::Healthy => "healthy",
+        AccountStatus::Muted => "muted",
+        AccountStatus::Expired => "expired",
+    }
+}
+
+/// 环境变量被忽略的提示（池模式下 env 不参与选号）。
+fn env_ignored_notice(config: &crate::config::Config) -> Option<String> {
+    let ignored = ignored_env_vars(config);
+    if ignored.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "- Environment ignored (pool mode): {} — rotation uses the account pool only.",
+        ignored.join(", ")
+    ))
+}
+
+/// `accounts list`：纯读（**不发起任何网络请求**）。
+fn cmd_accounts_list(args: AccountsJsonArgs) -> Result<()> {
+    let config = crate::config::Config::load()?;
+    let view = pool_view(&config);
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&view)?);
+        return Ok(());
+    }
+
+    let mut lines = vec![
+        format!("DeepSeek Vision v{}", env!("CARGO_PKG_VERSION")),
+        String::new(),
+    ];
+    if !view.enabled {
+        lines.push("- Account pool: not enabled".to_string());
+        lines.push(pool_disabled_notice(&config));
+    } else {
+        lines.push(format!(
+            "- Account pool: {} account(s) — healthy {}, muted {}, expired {}",
+            view.total, view.healthy, view.muted, view.expired
+        ));
+        match &view.current {
+            Some(id) => {
+                let label = view
+                    .accounts
+                    .iter()
+                    .find(|a| &a.id == id)
+                    .map(|a| a.label.clone())
+                    .unwrap_or_else(|| id.clone());
+                lines.push(format!("- Current account: {label} ({id})"));
+            }
+            None => {
+                lines.push("- Current account: none (no account has been used yet)".to_string())
+            }
+        }
+        if let Some(pinned) = &view.pinned {
+            lines.push(format!(
+                "- Pinned account: {pinned} (rotation is suspended for it)"
+            ));
+        }
+        lines.push(String::new());
+        for account in &view.accounts {
+            let mut line = format!(
+                "  [{}] {} ({})",
+                status_label(account.status),
+                account.label,
+                account.id
+            );
+            if let Some(until) = account.mute_until {
+                line.push_str(&format!(
+                    " — muted until {}",
+                    crate::client::format_epoch_utc(until as i64)
+                ));
+            }
+            if let Some(last) = &account.last_used {
+                line.push_str(&format!(" — last used {last}"));
+            }
+            if account.pinned {
+                line.push_str(" — pinned");
+            }
+            lines.push(line);
+        }
+    }
+    if let Some(notice) = env_ignored_notice(&config) {
+        lines.push(notice);
+    }
+    for line in &lines {
+        println!("{line}");
+    }
+    Ok(())
+}
+
+/// `accounts status`：对池中每个账号并发发一次只读探针后输出。
+async fn cmd_accounts_status(args: AccountsJsonArgs) -> Result<()> {
+    let config = crate::config::Config::load()?;
+    if !config.pool_mode() {
+        let view = pool_view(&config);
+        if args.json {
+            println!("{}", serde_json::to_string_pretty(&view)?);
+            return Ok(());
+        }
+        println!("DeepSeek Vision v{}", env!("CARGO_PKG_VERSION"));
+        println!();
+        println!("- Account pool: not enabled");
+        println!("{}", pool_disabled_notice(&config));
+        return Ok(());
+    }
+
+    // 并发只读探针：整体耗时 ≈ 单次探针（预算见 DEEPSEEK_ACCOUNTS_TIMEOUT）。
+    let outcomes =
+        crate::account_health::refresh_pool(&config, crate::account_health::accounts_budget())
+            .await;
+    // 结论落盘（合并写回：不会覆盖其它进程的并发变更）。
+    let path = crate::accounts::pool_file()?;
+    crate::accounts::merge_and_save(&path, |disk| {
+        crate::account_health::apply_probe_outcomes(disk, &outcomes);
+        Ok(())
+    })?;
+    // 同步内存态（本进程后续的视图与选号立即可见）。
+    if let Ok(mut pool) = config.pool.write() {
+        crate::account_health::apply_probe_outcomes(&mut pool, &outcomes);
+    }
+
+    let view = pool_view(&config);
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&view)?);
+        return Ok(());
+    }
+
+    let mut lines = vec![
+        format!("DeepSeek Vision v{}", env!("CARGO_PKG_VERSION")),
+        String::new(),
+        format!(
+            "- Account pool: {} account(s) — healthy {}, muted {}, expired {}",
+            view.total, view.healthy, view.muted, view.expired
+        ),
+    ];
+    for (id, outcome) in &outcomes {
+        let detail = match outcome {
+            crate::account_health::ProbeOutcome::Healthy => "healthy".to_string(),
+            crate::account_health::ProbeOutcome::Muted { until } => match until {
+                Some(ts) => format!(
+                    "muted until {}",
+                    crate::client::format_epoch_utc(*ts as i64)
+                ),
+                None => "muted (unknown deadline)".to_string(),
+            },
+            crate::account_health::ProbeOutcome::Expired => "expired".to_string(),
+            crate::account_health::ProbeOutcome::Failed(reason) => {
+                format!("probe failed (status unchanged): {reason}")
+            }
+        };
+        lines.push(format!("  - {id}: {detail}"));
+    }
+    if view.healthy == 0 && view.total > 0 {
+        lines.push(String::new());
+        lines.push(
+            "No usable account in the pool. Recovery paths: wait for a muted account to expire, add a new account with `visionary-server accounts add`, or configure credentials manually."
+                .to_string(),
+        );
+    }
+    if let Some(notice) = env_ignored_notice(&config) {
+        lines.push(notice);
+    }
+    for line in &lines {
+        println!("{line}");
+    }
+    Ok(())
+}
+
+/// `accounts add`：浏览器登录并登记进池。
+///
+/// **绕过** `run_login` 的「已配置 token」幂等检查——否则「已有账号时添加第二个号」
+/// 永远开不了浏览器。
+async fn cmd_accounts_add(args: AccountsJsonArgs) -> Result<()> {
+    let config = crate::config::Config::load()?;
+    let text = crate::login::run_login_add_account(&config).await?;
+    // 登记写回磁盘后重载内存快照，否则 --json 输出的仍是登录前的旧池。
+    reload_pool(&config);
+    if args.json {
+        let view = pool_view(&config);
+        println!("{}", serde_json::to_string_pretty(&view)?);
+        return Ok(());
+    }
+    println!("{text}");
+    Ok(())
+}
+
+/// `accounts remove <id>`：按 id 移除账号（墓碑传播，其它进程不会把它写回）。
+fn cmd_accounts_remove(args: AccountsRemoveArgs) -> Result<()> {
+    let path = crate::accounts::pool_file()?;
+    let pool = crate::accounts::load_pool_from(&path)?;
+    let target = pool.find(&args.id).cloned();
+    let Some(target) = target else {
+        let msg = format!("No such account in the pool: {}", args.id);
+        if args.json {
+            println!("{}", serde_json::json!({ "error": msg }));
+        } else {
+            eprintln!("{msg}");
+        }
+        std::process::exit(1);
+    };
+
+    crate::accounts::merge_and_save(&path, |disk| {
+        disk.remove(&args.id);
+        Ok(())
+    })?;
+
+    let config = crate::config::Config::load()?;
+    reload_pool(&config);
+    if args.json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "removed": {
+                    "id": target.account_id,
+                    "label": target.label,
+                },
+                "pool": pool_view(&config),
+            })
+        );
+        return Ok(());
+    }
+    println!("Removed account {} ({}).", target.label, target.account_id);
+    Ok(())
+}
+
+/// `accounts use <id>` / `accounts use --clear`：固定 / 取消固定账号。
+fn cmd_accounts_use(args: AccountsUseArgs) -> Result<()> {
+    let path = crate::accounts::pool_file()?;
+    if args.clear {
+        crate::accounts::merge_and_save(&path, |disk| {
+            disk.set_pinned(None);
+            Ok(())
+        })?;
+        if args.json {
+            let config = crate::config::Config::load()?;
+            println!("{}", serde_json::to_string_pretty(&pool_view(&config))?);
+            return Ok(());
+        }
+        println!("Unpinned the account — rotation resumed.");
+        return Ok(());
+    }
+
+    let Some(id) = args.id.as_deref() else {
+        let msg = "`accounts use` needs an account id, or `--clear` to unpin the current account.";
+        if args.json {
+            println!("{}", serde_json::json!({ "error": msg }));
+        } else {
+            eprintln!("{msg}");
+        }
+        std::process::exit(2);
+    };
+
+    let pool = crate::accounts::load_pool_from(&path)?;
+    if pool.find(id).is_none() {
+        let msg = format!("No such account in the pool: {id}");
+        if args.json {
+            println!("{}", serde_json::json!({ "error": msg }));
+        } else {
+            eprintln!("{msg}");
+        }
+        std::process::exit(1);
+    }
+    crate::accounts::merge_and_save(&path, |disk| {
+        disk.set_pinned(Some(id));
+        Ok(())
+    })?;
+    let config = crate::config::Config::load()?;
+    reload_pool(&config);
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&pool_view(&config))?);
+        return Ok(());
+    }
+    println!("Pinned account {id} — rotation is suspended for it.");
+    Ok(())
+}
+
+/// `accounts migrate`：把 config.json 里的存量凭据一次性导入账号池。
+///
+/// 幂等、非破坏、**显式触发**（绝不在启动路径自动跑）。
+async fn cmd_accounts_migrate(args: AccountsJsonArgs) -> Result<()> {
+    let config = crate::config::Config::load()?;
+    let path = crate::accounts::pool_file()?;
+    let report = crate::accounts::migrate_from_config(&config, &path).await?;
+    reload_pool(&config);
+    if args.json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "imported": report.imported,
+                "skipped": report.skipped,
+                "reasons": report.reasons,
+                "pool": pool_view(&config),
+            })
+        );
+        return Ok(());
+    }
+    println!("{}", report.summary());
+    Ok(())
+}
 /// 按输出模式输出失败信息并退出非零（design 决策 6）。
 ///
 /// `--json` 模式：stdout 输出原子 `{"error"}`；文本模式：stderr 输出错误文本。

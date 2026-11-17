@@ -267,6 +267,7 @@ test("integration: without a settings service the rows load and tools use the en
   assert.deepEqual(names, [
     "deepseek_ocr",
     "deepseek_vision",
+    "deepseek_vision_accounts",
     "deepseek_vision_login",
     "deepseek_vision_logout",
     "deepseek_vision_status",

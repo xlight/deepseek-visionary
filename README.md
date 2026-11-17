@@ -14,7 +14,7 @@ graph TD
         AG -->|spawn 独立进程| SRV
     end
     subgraph DSH[DeepSeek Harness]
-        DP["@xlight-oss/visionary-dsh 插件<br/>deepseek_vision 等 5 个原生工具<br/>+ 文本模型图片桥接"]
+        DP["@xlight-oss/visionary-dsh 插件<br/>deepseek_vision 等 6 个原生工具<br/>+ 文本模型图片桥接 + 账号池面板"]
         DP -->|宿主进程 spawn| SRV
     end
     subgraph visionary-server 原生二进制
@@ -27,7 +27,7 @@ graph TD
 ```
 
 - **visionary-server**：单二进制，默认 CLI 模式（`vision` / `ocr` / `status` / `login` / `logout` / `skill` / `init` / `doctor`），`mcp-stdio` 子命令显式启动 MCP stdio 服务；实现完整 vision / OCR 流水线（PoW → 上传 → fork → HIF 签名 → SSE 流式 completion）与 CDP 自动登录
-- **@xlight-oss/visionary-dsh**：DSH 原生插件包（npm，纯 ESM 无构建，单包双插件行），经 `ctx.tools` 注册 `deepseek_vision` / `deepseek_ocr` 等 5 个原生工具，宿主进程内 spawn `visionary-server` 复用 Rust 管道（续聊/登录不受 bash 沙箱限制）；内置文本模型图片桥接（纯文本模型会话粘贴图片自动放行 + 改写为文本引导）
+- **@xlight-oss/visionary-dsh**：DSH 原生插件包（npm，纯 ESM 无构建，单包三插件行），经 `ctx.tools` 注册 `deepseek_vision` / `deepseek_ocr` 等 6 个原生工具，宿主进程内 spawn `visionary-server` 复用 Rust 管道（续聊/登录不受 bash 沙箱限制）；内置文本模型图片桥接（纯文本模型会话粘贴图片自动放行 + 改写为文本引导）
 - **visionary-zed-ext**：Zed 扩展壳（仅 Zed 需要），按平台从 GitHub Releases 下载/缓存 visionary-server 并启动
 
 ## 安装
@@ -129,12 +129,12 @@ dsh plugin --profile web add @xlight-oss/visionary-dsh
 dsh plugin --profile web add /path/to/packages/dsh-plugin
 ```
 
-`dsh plugin` 经包内 `dsh.bundle.patch` 声明自动注册 `visionary-vision`、`visionary-image-bridge` 两个插件行，重启 DSH 后 5 个原生工具出现在工具目录，桥接同时生效（模型可直接调用，无需手写任何配置）；两行的配置页由包自身 `dsh.client` 声明、随主行下发，在 设置 → 插件 → Plugins 打开（不额外占插件行）。验证：`dsh --profile web --dump-config` 应出现单个 `@xlight-oss/visionary-dsh` 层。要求 **DSH ≥ 0.1.7-rc.1**（0.1.5 线请固定 `@xlight-oss/visionary-dsh@0.7.3`，更早的装 0.7.2）。详见 [packages/dsh-plugin/README.md](packages/dsh-plugin/README.md)。
+`dsh plugin` 经包内 `dsh.bundle.patch` 声明自动注册 `visionary-vision`、`visionary-image-bridge` 两个插件行（外加 `visionary-dashboard`），重启 DSH 后 6 个原生工具出现在工具目录，桥接同时生效（模型可直接调用，无需手写任何配置）；配置段由包自身 `dsh.client` 声明、随主行下发，在**插件面板**（Plugins panel）的 `@xlight-oss/visionary-dsh` 卡片内联渲染（不额外占插件行）。验证：`dsh --profile web --dump-config` 应出现单个 `@xlight-oss/visionary-dsh` 层。要求 **DSH ≥ 0.2.0-rc.1**（含 0.2.1 线；0.1.5 线请固定 `@xlight-oss/visionary-dsh@0.7.3`，更早的装 0.7.2）。详见 [packages/dsh-plugin/README.md](packages/dsh-plugin/README.md)。
 
 > **文本模型下粘贴图片被拒绝？** 本插件已内置图片桥接（`visionary-image-bridge` 插件行，无需额外安装）：
 > 纯文本模型会话中粘贴的图片经桥接**放行 → 落盘 → 改写为文本引导**，
 > agent 用 `deepseek_vision` 完成分析，模型只收到文本；VL 模型原生看图不受干扰。
-> 配置/隐私说明见 [packages/dsh-plugin/README.md](packages/dsh-plugin/README.md) 的「工具」与「图片桥接」节（设置面板 **设置 → 插件 → Plugins** 下的两个行配置页，对应 `visionary-vision:` / `visionary-image-bridge:` settings 命名空间，热重载）。
+> 配置/隐私说明见 [packages/dsh-plugin/README.md](packages/dsh-plugin/README.md) 的「工具」与「图片桥接」节（**插件面板** → `@xlight-oss/visionary-dsh` 卡片内的配置段，对应 `visionary-vision:` / `visionary-image-bridge:` settings 命名空间，volatile 热生效）。
 
 ### 5. 登录
 
@@ -142,6 +142,28 @@ dsh plugin --profile web add /path/to/packages/dsh-plugin
 
 - CLI：`visionary-server login`（可先 `status --json` 预检）
 - MCP / DSH 原生工具：调用 `deepseek_vision_login`
+
+登录成功后 CLI / MCP 会用**只读探针**（`GET /api/v0/users/current`）判定账号健康。若账号被上传风控静音
+（`chat.is_muted = 1`），**浏览器窗口不会直接关闭**：CLI 会在 stderr 打印换号指引（含静音截止的绝对 UTC 时间），
+页面顶部注入提示横幅，然后继续等待——在同一窗口里换登另一个账号后，登录会自动继续并保存新凭据。
+MCP 工具 `deepseek_vision_login` 会把同一段换号指引即时返回给调用方，浏览器流程在后台继续等待换号。
+
+个别 Windows 环境下程序直接拉起 Chrome 会「启动即崩溃」；此时 `login` 会自动改为**接管**已在运行的
+Chrome 调试实例（读取本机 DevTools 端点，兜底端口 `9222`），手动先起一次带 `--remote-debugging-port=9222`
+的浏览器即可（详见 [docs/cli.md](docs/cli.md#chrome-无法被自动启动时的接管模式)）。
+
+### 5.1 多账号池（轮询）
+
+除 `config.json` 外，程序还维护账号池 `~/.deepseek-visionary/accounts.json`：
+
+- 每次浏览器登录成功后，账号按稳定标识（探针返回的 uuid）**登记**进池；同一账号重复登录只更新凭据，不产生重复条目
+- **轮询 = 换凭据，不开浏览器**：每次分析请求前从池中取下一个可用账号，仅在内存里热替换凭据
+- 账号被上传风控静音（`biz_code=14`）或凭据失效（`40003`）时自动标记不可用并换下一个账号重试该次请求
+- 会话按账号隔离存储，换号不会串会话；显式传入的 session id 原样复用
+- 池存在时 `DEEPSEEK_USER_TOKEN` 等环境变量**不参与选号**（`status` 会提示"环境变量已忽略"）
+- 存量用户可执行一次 `visionary-server accounts migrate` 把既有凭据导入池（幂等、非破坏、需联网）
+
+没有 `accounts.json` 时行为与单账号版本完全一致。详见 [docs/cli.md](docs/cli.md#账号池与轮询)。
 
 > 手动兜底：登录 chat.deepseek.com 后，DevTools → Application → Local Storage →
 > `userToken` → 复制 `JSON.parse(value).value`，写入 `~/.deepseek-visionary/config.json`：
@@ -243,15 +265,17 @@ visionary-server skill install
 
 | 变量 | 说明 |
 |------|------|
-| `DEEPSEEK_USER_TOKEN` | 覆盖 config.json 中的 token（可选） |
-| `DEEPSEEK_SMIDV2` / `DEEPSEEK_CF_CLEARANCE` | 覆盖对应 cookie（可选） |
+| `DEEPSEEK_USER_TOKEN` | 覆盖 config.json 中的 token（可选；**账号池模式下被忽略**——不参与选号、不登记为账号） |
+| `DEEPSEEK_SMIDV2` / `DEEPSEEK_CF_CLEARANCE` | 覆盖对应 cookie（可选；账号池模式下同样被忽略） |
 | `DEEPSEEK_BASE_URL` | API 基地址（默认 `https://chat.deepseek.com`） |
 | `DEEPSEEK_LOGIN_TIMEOUT` | 登录等待超时秒数（默认 600） |
 | `DEEPSEEK_VISIONARY_MODEL_TYPE` | 默认上传管道模型类型（`vision` 或 `ocr`，默认 `vision`；CLI `--model-type` 优先于该变量） |
 | `DEEPSEEK_VISIONARY_BIN` | DSH 插件解析二进制路径（`Config.binaryPath` → 此变量 → PATH） |
 | `DEEPSEEK_AUTO_REFRESH` | token 失效时自动用浏览器 profile 续期并重试一次（默认开启，`0` 关闭） |
 | `DEEPSEEK_REFRESH_TIMEOUT` | 自动续期的登录等待超时秒数（默认 90） |
-| `DEEPSEEK_UPLOAD_MIN_INTERVAL` | 两次上传之间的最小间隔秒数（默认 5，`0` 关闭限速；防上传风控） |
+| `DEEPSEEK_UPLOAD_MIN_INTERVAL` | 两次上传之间的最小间隔秒数（默认 5，`0` 关闭限速；防上传风控；**全局限速**，换账号不重置） |
+| `DEEPSEEK_ACCOUNTS_TIMEOUT` | 账号池批量健康刷新的整体预算秒数（默认 30；单次探针 ≤15s，各探针并发执行） |
+| — | 账号健康探针无独立开关：`status` / `doctor` / MCP 状态工具与登录流程共用只读探针 `GET /api/v0/users/current`（纯 GET，不上传、不解 PoW、不耗配额） |
 
 ## 开发
 
@@ -305,8 +329,10 @@ python3 scripts/update_server_json.py <version> v<version> dist/
 - **PoW**：wasmtime 加载 DeepSeek 站内 `sha3_wasm_bg.*.wasm`（随仓库分发），调用 `wasm_solve` 求解 `upload_file` 与 `completion` 的 challenge
 - **TLS 指纹**：completion 端点与 Python 版（curl_cffi chrome131）对齐；Rust 侧默认普通 reqwest，若被 403 再启用指纹模拟（见 design.md spike 记录）
 - **登录**：CDP 控制 Chrome 系浏览器（专用 profile `~/.deepseek-visionary/browser/`），读取 `localStorage.userToken` 与 `smidV2` / `cf_clearance` cookie
-- **凭据安全**：`~/.deepseek-visionary/config.json` 权限 0600，浏览器 profile 0700
-
+- **账号健康探针**：`GET /api/v0/users/current`（纯只读——不上传、不解 PoW、不耗配额）是「token 是否有效」与「账号是否被静音」的唯一判定入口；`status` / `doctor` / MCP 状态工具 / 登录流程共用它
+- **账号池轮询**：池存在时每次分析请求前选一个账号、仅在内存热替换凭据（不开浏览器）；账号静音/失效自动换号；会话按账号分桶
+- **上传限速是全局的**：`DEEPSEEK_UPLOAD_MIN_INTERVAL` 是进程级单例，换账号不等于换配额
+- **凭据安全**：`~/.deepseek-visionary/config.json` 与 `accounts.json` 权限 0600，浏览器 profile 0700
 ## License
 
 MIT

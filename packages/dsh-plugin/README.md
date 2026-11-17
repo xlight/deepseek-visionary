@@ -33,7 +33,7 @@ dsh plugin --profile web add /path/to/packages/dsh-plugin
 
 | 插件版本 | 支持的 DSH |
 |---------|-----------|
-| 0.7.4（本版） | **≥ 0.2.0-rc.1**（0.2.0 线：volatile 配置表单 + 插件面板 `plugins.bundle.config` 内联配置段） |
+| 0.7.4（本版） | **≥ 0.2.0-rc.1**（0.2.0 / 0.2.1 线：volatile 配置表单 + 插件面板 `plugins.bundle.config` 内联配置段） |
 | 0.7.3 | 0.1.5 线（rc.1 / rc.2；`settings.plugin.item` 卡片） |
 | 0.7.2 及更早 | 0.1.0-rc.x / 0.1.1 / 0.1.2-alpha.2 之前（**已不再支持**） |
 
@@ -64,6 +64,7 @@ visionary-vision:
   loginTimeoutSeconds: 900        # 不设则读 DEEPSEEK_LOGIN_TIMEOUT env（默认 600）
   visionTimeoutMs: 300000
   statusTimeoutMs: 60000
+  accountsTimeoutMs: 30000        # 账号池批量探测预算（插件自动加 15s 余量）
 ```
 
 也可以直接在 DSH profile 的 `cordis.patch.yml`（或 `$DSH_HOME/cordis.patch.yml`）给 `visionary-vision` 行补 `config`：
@@ -76,6 +77,7 @@ visionary-vision:
     loginTimeoutSeconds: 900        # 不设则读 DEEPSEEK_LOGIN_TIMEOUT env（默认 600）
     visionTimeoutMs: 300000
     statusTimeoutMs: 60000
+    accountsTimeoutMs: 30000     # 账号池批量探测预算（插件自动加 15s 余量）
 ```
 
 > patch 层按 `id` 整行替换 `config`（不做键级深合并）：覆盖 `visionary-vision` 时，未写出的字段回退到下方表格中的 schema 默认值，而非保留插件包内的配置。插件面板表单（volatile，经 `settings` 服务写入）作用于该行的 profile patch `config`（user 层），叠加在组合层之上、写入即覆盖；旧 `settings.yaml` 由 0.2.0 首次启动时一次性导入。
@@ -87,6 +89,7 @@ visionary-vision:
 | `loginTimeoutSeconds` | 600（`DEEPSEEK_LOGIN_TIMEOUT` env 优先） | 登录等待超时（秒） |
 | `visionTimeoutMs` | 300000 | `deepseek_vision` / `deepseek_ocr` 单次超时 |
 | `statusTimeoutMs` | 60000 | status / logout 超时 |
+| `accountsTimeoutMs` | 30000 | 账号池批量探测客户端预算；实际超时取 `max(本值, DEEPSEEK_ACCOUNTS_TIMEOUT×1000) + 15000`，保证 CLI 预算先到期 |
 
 ### 图片桥接（visionary-image-bridge）
 
@@ -164,8 +167,11 @@ visionary-image-bridge:
 | 登录 / 会话 | 已登录 / 未登录 / 查询失败标记 + 错误详情 |
 | 桥接运行态 | 启用 / 禁用标记 + scope + mode + 落盘副本数 |
 | 诊断 | [重探测二进制] [重新登录] [清理落盘] [自检] 四个动作按钮 |
+| 账号池 | 各账号状态徽标（正常 / 静音 / 失效）、当前使用账号、固定标记；[刷新健康] [添加账号] 以及每个账号的 [固定/取消固定] [移除] 按钮 |
 
-数据来源：host 侧 `VisionaryDashboard` Service（`lib/dashboard.mjs`）经 Typert Remote 暴露给浏览器；client 侧 `VisionaryDashboardSection` 组件（`lib/client.js`）通过 `ctx.remote.visionaryDashboard` 调用。仪表盘在两个 entry（vision + bridge）均加载时才渲染（`whileServed` 门控）。
+数据来源：host 侧 `VisionaryDashboard` Service（`lib/dashboard.mjs`）经 Typert Remote 暴露给浏览器；client 侧 `VisionaryDashboardSummary` 与 `AccountPoolSection` 组件（`lib/client.js`）通过 `ctx.remote.visionaryDashboard` 调用。仪表盘在两个 entry（vision + bridge）均加载时才渲染（`whileServed` 门控）；dashboard row 未启用（remote 为 undefined）时组件静默隐藏，不抛错。
+
+账号池与 CLI / MCP 共用同一份 `~/.deepseek-visionary/accounts.json`：`getAccounts` / `refreshAccounts` 分别对应 `accounts list --json` / `accounts status --json`；`addAccount()` 是**非阻塞**的「启动」语义（立即返回 `{started:true}`，浏览器登录继续进行），客户端沿用既有 status 轮询呈现「等待登录完成」；`removeAccount(id)` / `pinAccount(id|null)` 走位置参数。Remote 传输只序列化 JSON，`mute_until` 为 epoch 整数。池模式下 `DEEPSEEK_USER_TOKEN` 不参与选号，面板会提示「已忽略环境变量凭据」。
 
 ## 工具
 
@@ -175,7 +181,8 @@ visionary-image-bridge:
 | `deepseek_ocr` | 纯文字提取（等价 CLI `visionary-server ocr`，恒为 ocr 管道）：截图 / 文档 / 代码 / 表格中的原文，非理解式分析；参数面与 `deepseek_vision` 完全一致；无文字图片以错误提示返回「图片中未提取到文字」 |
 | `deepseek_vision_status` | 登录状态检查（含真实 token 探针） |
 | `deepseek_vision_login` | 浏览器自动登录（阻塞，超时可配） |
-| `deepseek_vision_logout` | 清除保存的凭据 |
+| `deepseek_vision_logout` | 清除保存的单账号凭据（账号池启用时**不**移除池中账号、**不**停止轮询；彻底移除请用 `deepseek_vision_accounts` 的 `remove`） |
+| `deepseek_vision_accounts` | 账号池管理：`action` 取 `list` / `refresh` / `remove` / `pin`；`account_id` 用于 remove/pin，`pinned=false` 取消固定。不暴露 `add` / `migrate` |
 
 ## 与其他接入路径的关系
 

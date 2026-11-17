@@ -1,7 +1,7 @@
 //! 鉴权头与 cookies 构造（对照 Python 版 `auth.py`）。
 
 use crate::config::Config;
-use anyhow::{Context, Result};
+use anyhow::Result;
 
 /// 与 Python `AuthManager` 对齐：构造 DeepSeek API 请求头。
 pub struct AuthManager<'a> {
@@ -53,14 +53,13 @@ impl<'a> AuthManager<'a> {
     }
 }
 
-/// 真实 token 校验探针：调用流水线首个需鉴权端点 create_pow_challenge。
-/// 401 即 token 失效。`deepseek_vision_status` 工具与 `doctor` 子命令共用。
-pub async fn probe_token(config: &Config) -> Result<()> {
-    let client =
-        crate::client::ApiClient::new(config.clone()).context("init api client for probe")?;
-    crate::upload::create_pow_challenge(&client, "/api/v0/chat/completion").await?;
-    Ok(())
-}
+// 「token 是否有效」的**唯一**判定入口。
+//
+// 旧的 `probe_token` 走 `POST /api/v0/chat/create_pow_challenge`（取 PoW 挑战），
+// **不是只读**：它会发起写侧请求并求解 PoW。
+// 现已由 `account_health::probe_config`（`GET /api/v0/users/current`）取代——
+// 全局只保留一种判定方式：纯 GET、无 PoW、无配额消耗。
+// `status` / `doctor` / MCP 状态工具 / 登录流程共用它。
 
 /// token 自动续期开关（`DEEPSEEK_AUTO_REFRESH=0` 关闭，默认开启）。
 ///

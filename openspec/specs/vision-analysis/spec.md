@@ -19,7 +19,10 @@ MCP 服务 SHALL 暴露 `deepseek_vision` 工具，接受本地图片路径或 b
 - **THEN** 服务返回明确的"图片未找到"错误信息
 
 ### Requirement: Vision 流水线
+
 服务 SHALL 按 modelType 选择上传管道执行完整流水线：**vision** 管道按"上传（含上传前 PoW 挑战，携带 `x-model-type: vision`）→ completion（含 completion 前 PoW 挑战）流式请求"执行（fork 已从服务端移除，`x-model-type: vision` 直接完成多模态图像理解，不再有 fork 步骤）；**ocr** 管道按"上传（不携带 `x-model-type`，走服务端 OCR 文本提取）→ completion 流式请求"执行。两种管道均解析 SSE 流返回文本。
+
+启用账号池时（见 `account-pool`），服务 SHALL 在流水线发起前按轮询策略选择可用账号并切换凭据；当前账号在流水线中被判定为静音或鉴权失败时，SHALL 标记该账号不可用、自动切换到下一个可用账号并重试该次请求。账号选择 SHALL 发生在会话解析之前（见 `account-pool` 的「选号先于会话解析」）。
 
 #### Scenario: 完整分析成功
 - **WHEN** modelType 为 vision，上传、completion 各步骤均成功
@@ -41,6 +44,10 @@ MCP 服务 SHALL 暴露 `deepseek_vision` 工具，接受本地图片路径或 b
 - **WHEN** completion 端点因 TLS 指纹校验返回 403
 - **THEN** 服务返回可诊断的错误信息而非静默失败
 
+#### Scenario: 账号不可用时自动切换重试
+- **WHEN** 账号池启用且当前账号在流水线中被判定为静音或鉴权失败
+- **THEN** 该账号被标记不可用，服务切换到下一个可用账号并重试该次请求
+
 ### Requirement: 状态检查
 MCP 服务 SHALL 暴露 `deepseek_vision_status` 工具，报告认证状态，并通过轻量鉴权接口真实校验 token 有效性。
 
@@ -53,7 +60,10 @@ MCP 服务 SHALL 暴露 `deepseek_vision_status` 工具，报告认证状态，�
 - **THEN** 状态报告提示需要执行登录
 
 ### Requirement: 会话续聊
+
 服务 SHALL 将会话 id 与 parent_message_id 持久化到 `~/.deepseek-visionary/session.json`，支持在同一会话内继续多轮对话，或通过显式 session_id 切换会话。
+
+启用账号池时（见 `account-pool`），会话持久化 SHALL 按账号隔离存储：**内存态与文件态都**按账号分桶（进程内切账号 SHALL NOT 复用前一账号的会话）。续聊 SHALL 命中所选账号自己的会话记录，SHALL NOT 命中其它账号的记录。显式传入的 session_id SHALL 仍可跨账号使用。同一请求内换号重试时，服务 SHALL 以新账号重新解析会话，父消息 id SHALL NOT 跨账号沿用；显式传入的 session_id 原样复用。 解析结果 SHALL 由服务写入本次请求的父消息 id；调用方 SHALL NOT 预先填入父消息 id（否则会覆盖解析结果）。
 
 #### Scenario: 继续上次会话
 - **WHEN** 用户以 continue_conversation 调用并存在持久化会话
@@ -66,6 +76,18 @@ MCP 服务 SHALL 暴露 `deepseek_vision_status` 工具，报告认证状态，�
 #### Scenario: 显式会话无持久化记录
 - **WHEN** 用户传入显式 session_id 但本地无对应持久化记录
 - **THEN** 行为对齐 Python 版：仅复用该 session_id，不携带 parent_message_id
+
+#### Scenario: 换账号后续聊不串会话
+- **WHEN** 账号池轮询切换到另一个账号后用户请求续聊
+- **THEN** 服务不命中前一账号的本地会话记录
+
+#### Scenario: 同进程内切账号不串会话
+- **WHEN** 同一进程内轮询切换到另一个账号后用户请求续聊
+- **THEN** 内存态与文件态均按账号隔离，SHALL NOT 命中前一账号的会话记录
+
+#### Scenario: 换号重试重新解析会话
+- **WHEN** 同一请求内账号失败导致切换到另一个账号并重试
+- **THEN** 服务以新账号重新解析会话，父消息 id 不沿用前一账号的值
 
 ### Requirement: 上传路径配置（modelType）
 服务 SHALL 提供 `modelType` 配置项，合法值 `vision`（默认）与 `ocr`。`vision` 上传时携带 `x-model-type: vision` 并跳过 fork（直接 vision 管道）；`ocr` 上传时不携带 `x-model-type`（走服务端 OCR 文本提取管道）。配置默认值 SHALL 位于 CLI 配置层，DSH 插件 SHALL 可覆盖（settings 面板）。`x-model-type: ocr` 为非法值（服务端返回 HTTP 500），不提供该选项。

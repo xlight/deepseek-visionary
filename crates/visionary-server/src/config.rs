@@ -20,7 +20,7 @@ use std::time::Duration;
 ///
 /// 用户目录解析走 `onboarding::home_dir()`（Unix: HOME，Windows: USERPROFILE），
 /// 保证无 `HOME` 环境变量的 Windows PowerShell/cmd 环境下同样可用。
-fn data_dir() -> Result<PathBuf> {
+pub(crate) fn data_dir() -> Result<PathBuf> {
     let home = crate::onboarding::home_dir()?;
     Ok(home.join(".deepseek-visionary"))
 }
@@ -108,6 +108,10 @@ pub struct Credentials {
 #[derive(Debug, Clone)]
 pub struct Config {
     pub credentials: std::sync::Arc<RwLock<Credentials>>,
+    /// 账号池（`~/.deepseek-visionary/accounts.json`）。与 `credentials` 同构：
+    /// `Config` 是 derive(Clone)，克隆共享同一个 Arc。
+    /// 池为空 → 单账号模式（行为与旧版一致）；池非空 → 按池轮询。
+    pub pool: std::sync::Arc<RwLock<crate::accounts::AccountPool>>,
     pub base_url: String,
     pub poll_timeout: Duration,
     pub poll_interval: Duration,
@@ -163,8 +167,12 @@ impl Config {
         if let Some(mt) = &model_type {
             validate_model_type(mt)?;
         }
+        // 账号池：文件不存在 → 空池（单账号模式）；损坏 → 报错并保留原文件
+        // （池损坏不能静默吞掉：否则用户会以为还在轮询，实际用的是旧账号）。
+        let pool = crate::accounts::load_pool()?;
         Ok(Self {
             credentials: std::sync::Arc::new(RwLock::new(credentials)),
+            pool: std::sync::Arc::new(RwLock::new(pool)),
             base_url: env::var("DEEPSEEK_BASE_URL")
                 .unwrap_or_else(|_| "https://chat.deepseek.com".into()),
             poll_timeout: Duration::from_secs(env_u64("DEEPSEEK_POLL_TIMEOUT", 60)),
@@ -208,14 +216,54 @@ impl Config {
         Ok(())
     }
 
-    /// 热重载：仅替换内存中的凭据（login 工具写入磁盘后调用）。
-    /// 注：`save_credentials` 内部已做原子替换热重载，此方法仅保留供
-    /// 外部已写入磁盘的场景手动同步（当前无调用方）。
-    #[allow(dead_code)]
+    /// 用**独立的凭据容器**构造一份配置副本。
+    ///
+    /// 用于「用候选凭据探测账号健康」：候选 token 尚未写入配置，
+    /// 若沿用当前凭据，探测判定会属于上一个账号（首次登录则是空 token → 误报鉴权失败）。
+    ///
+    /// SHARD NOT 直接用 `self.clone()`：`Config` 是 derive(Clone)，克隆共享**同一个** `Arc`，
+    /// 写入副本会连带改掉正在生效的凭据。这里克隆后**替换** `credentials` 字段为新的 `Arc`，
+    /// 原配置不受影响。
+    pub fn with_credentials(&self, creds: Credentials) -> Config {
+        let mut copy = self.clone();
+        copy.credentials = std::sync::Arc::new(RwLock::new(creds));
+        copy
+    }
+    /// 热重载：**仅替换内存中的凭据**，SHALL NOT 写磁盘。
+    ///
+    /// 两种用途：
+    /// - 账号池轮询期的**内存热替换**（每次分析请求换账号）：只改 RwLock，
+    ///   不写 `config.json`（写盘是「登记写回」的职责，不是轮询的）；
+    /// - 外部已写入磁盘后的同步（`save_credentials` 内部已做同样的热替换）。
     pub fn reload_credentials(&self, creds: Credentials) {
         if let Ok(mut guard) = self.credentials.write() {
             *guard = creds;
         }
+    }
+
+    /// 账号池快照（克隆）。
+    pub fn pool(&self) -> crate::accounts::AccountPool {
+        self.pool.read().map(|g| g.clone()).unwrap_or_default()
+    }
+
+    /// 是否处于账号池模式（池中有账号）。
+    pub fn pool_mode(&self) -> bool {
+        self.pool.read().map(|g| g.is_pool_mode()).unwrap_or(false)
+    }
+
+    /// 取**指定账号**自己的凭据。
+    ///
+    /// 池模式下每个账号有独立的 token / cookie，必须按账号取——
+    /// 凭据读取点（`client.rs` / `completion.rs` / `hif.rs`）全部走这里，
+    /// 不再依赖「内存里刚好是这一组」的隐式时序。
+    /// 池中找不到该 id（单账号模式 / 账号刚被移除）→ 回退到当前凭据。
+    pub fn credentials_for(&self, account_id: &str) -> Credentials {
+        if let Ok(guard) = self.pool.read() {
+            if let Some(account) = guard.find(account_id) {
+                return account.credentials();
+            }
+        }
+        self.credentials()
     }
 
     pub fn credentials(&self) -> Credentials {
@@ -228,16 +276,6 @@ impl Config {
     /// 当前是否已配置 token（对应 Python `Config.is_authenticated`）。
     pub fn is_authenticated(&self) -> bool {
         !self.credentials().user_token.is_empty()
-    }
-
-    /// 构造请求 cookies（对应 Python `Config.cookies`：仅 smidV2）。
-    pub fn cookies(&self) -> Vec<(String, String)> {
-        let c = self.credentials();
-        let mut out = Vec::new();
-        if !c.smid_v2.is_empty() {
-            out.push(("smidV2".into(), c.smid_v2));
-        }
-        out
     }
 }
 

@@ -45,7 +45,7 @@ window.__ModuleLoader__.load({
 
     var LOCALE_ZH = {
       visionTitle: "Visionary · 视觉工具",
-      visionDescription: "deepseek_vision / deepseek_ocr 等 5 个原生工具：上传管道、超时与二进制路径，修改即时生效",
+      visionDescription: "deepseek_vision / deepseek_ocr 等 6 个原生工具：上传管道、超时与二进制路径，修改即时生效",
       bridgeTitle: "Visionary · 图片桥接",
       bridgeDescription: "纯文本模型粘贴图片时自动放行并改写为文本引导；VL 模型默认不受干预",
       advanced: "高级",
@@ -58,6 +58,8 @@ window.__ModuleLoader__.load({
       visionTimeoutHint: "deepseek_vision / deepseek_ocr 单次调用超时",
       visionStatusTimeoutLabel: "状态超时（毫秒）",
       visionStatusTimeoutHint: "deepseek_vision_status / deepseek_vision_logout 超时",
+      visionAccountsTimeoutLabel: "账号探测超时（毫秒）",
+      visionAccountsTimeoutHint: "账号池批量探测预算；插件会在 CLI 预算之上留出余量",
       sharedBinaryPathLabel: "二进制路径",
       sharedBinaryPathHint: "visionary-server 路径，工具与桥接（deterministic 模式）共用；空 = DEEPSEEK_VISIONARY_BIN → PATH",
       enabledLabel: "桥接启用",
@@ -110,11 +112,29 @@ window.__ModuleLoader__.load({
       dashboardSelfCheck: "自检",
       dashboardLoading: "加载中…",
       dashboardError: "出错",
+      // ── 账号池区块 ────────────────────────────────────────────────────────
+      accountsTitle: "账号池",
+      accountsSummary: "共 {total} 个账号：正常 {healthy}、静音 {muted}、失效 {expired}",
+      accountsCurrent: "当前使用",
+      accountsHealthy: "正常",
+      accountsMuted: "静音",
+      accountsExpired: "失效",
+      accountsPinned: "已固定",
+      accountsLoading: "加载中…",
+      accountsError: "出错",
+      accountsEmpty: "未启用账号池。运行 visionary-server accounts add 添加第一个账号。",
+      accountsEnvIgnored: "已忽略环境变量凭据，当前按账号池轮询。",
+      accountsRefresh: "刷新健康",
+      accountsAdd: "添加账号",
+      accountsAddStarted: "已启动添加账号流程，请在浏览器里完成登录；完成后刷新列表。",
+      accountsRemove: "移除",
+      accountsPin: "固定",
+      accountsUnpin: "取消固定",
     };
 
     var LOCALE_EN = {
       visionTitle: "Visionary · Vision Tools",
-      visionDescription: "deepseek_vision / deepseek_ocr and 3 more native tools: upload pipeline, timeouts and binary path. Changes apply immediately",
+      visionDescription: "deepseek_vision / deepseek_ocr and 4 more native tools: upload pipeline, timeouts and binary path. Changes apply immediately",
       bridgeTitle: "Visionary · Image Bridge",
       bridgeDescription: "Transparent image admission and rewrite for text-only models; VL models keep their native handling",
       advanced: "Advanced",
@@ -127,6 +147,8 @@ window.__ModuleLoader__.load({
       visionTimeoutHint: "per deepseek_vision / deepseek_ocr call timeout",
       visionStatusTimeoutLabel: "Status timeout (ms)",
       visionStatusTimeoutHint: "deepseek_vision_status / deepseek_vision_logout timeout",
+      visionAccountsTimeoutLabel: "Accounts timeout (ms)",
+      visionAccountsTimeoutHint: "Account-pool health refresh budget; the plugin adds a safety margin over the CLI budget",
       sharedBinaryPathLabel: "Binary path",
       sharedBinaryPathHint: "visionary-server binary, shared by the tools and the bridge (deterministic mode); empty = DEEPSEEK_VISIONARY_BIN → PATH",
       enabledLabel: "Bridge enabled",
@@ -179,6 +201,24 @@ window.__ModuleLoader__.load({
       dashboardSelfCheck: "Self-check",
       dashboardLoading: "Loading…",
       dashboardError: "Error",
+      // ── account pool section ─────────────────────────────────────────────
+      accountsTitle: "Account pool",
+      accountsSummary: "{total} account(s): healthy {healthy}, muted {muted}, expired {expired}",
+      accountsCurrent: "Current account",
+      accountsHealthy: "Healthy",
+      accountsMuted: "Muted",
+      accountsExpired: "Expired",
+      accountsPinned: "Pinned",
+      accountsLoading: "Loading…",
+      accountsError: "Error",
+      accountsEmpty: "Account pool not enabled. Run visionary-server accounts add to add the first account.",
+      accountsEnvIgnored: "Environment credentials ignored — rotation uses the account pool only.",
+      accountsRefresh: "Refresh health",
+      accountsAdd: "Add account",
+      accountsAddStarted: "Add-account flow started. Finish logging in in the browser, then refresh the list.",
+      accountsRemove: "Remove",
+      accountsPin: "Pin",
+      accountsUnpin: "Unpin",
     };
 
     /** Copy the frame labels the shared SettingsForm wants from this page. */
@@ -247,6 +287,9 @@ window.__ModuleLoader__.load({
       label: { minWidth: 0, flex: 1, color: "var(--dsw-alias-label-primary)", fontSize: 13, fontWeight: 500, lineHeight: 1.5 },
       badges: { display: "inline-flex", alignItems: "center", gap: 8 },
       tag: { borderRadius: 999, padding: "1px 8px", fontSize: 11, lineHeight: "17px", fontWeight: 500, whiteSpace: "nowrap", background: "var(--dsw-alias-bg-module-platform)", color: "var(--dsw-alias-label-secondary)" },
+      // 账号池状态徽标：沿用 dashboard 手写 styles 族（宿主没有 warning / neutral 徽标 token）。
+      tagWarning: { borderRadius: 999, padding: "1px 8px", fontSize: 11, lineHeight: "17px", fontWeight: 500, whiteSpace: "nowrap", background: "var(--dsw-alias-bg-warning, var(--dsw-alias-bg-module-platform))", color: "var(--dsw-alias-label-warning, var(--dsw-alias-label-secondary))" },
+      tagNeutral: { borderRadius: 999, padding: "1px 8px", fontSize: 11, lineHeight: "17px", fontWeight: 500, whiteSpace: "nowrap", background: "transparent", border: "1px solid var(--dsw-alias-border-l2)", color: "var(--dsw-alias-label-tertiary)" },
       reset: { font: "inherit", color: "var(--dsw-alias-label-secondary)", cursor: "pointer", background: "0 0", border: "none", padding: 0, fontSize: 12, lineHeight: 1.5 },
       hint: { margin: 0, fontSize: 12, lineHeight: 1.5, color: "var(--dsw-alias-label-tertiary)" },
       invalid: { margin: 0, fontSize: 12, lineHeight: 1.5, color: "var(--dsw-alias-label-error)" },
@@ -502,6 +545,7 @@ window.__ModuleLoader__.load({
         var advancedVision = [
           { key: "statusTimeoutMs", label: t("visionStatusTimeoutLabel"), hint: t("visionStatusTimeoutHint"), field: snapshot.statusTimeoutMs, edit: "statusTimeoutMs", numeric: true, invalidLabel: t("invalidNumber") },
           { key: "loginTimeoutSeconds", label: t("visionLoginTimeoutLabel"), hint: t("visionLoginTimeoutHint"), field: snapshot.loginTimeoutSeconds, edit: "loginTimeoutSeconds", numeric: true, invalidLabel: t("invalidNumber") },
+          { key: "accountsTimeoutMs", label: t("visionAccountsTimeoutLabel"), hint: t("visionAccountsTimeoutHint"), field: snapshot.accountsTimeoutMs, edit: "accountsTimeoutMs", numeric: true, invalidLabel: t("invalidNumber") },
         ];
         for (var i = 0; i < advancedVision.length; i++) {
           children.push(advanceRow(advancedVision[i], "visionary-", t, props.visionEdit, props.visionResetField, disabled));
@@ -643,6 +687,11 @@ window.__ModuleLoader__.load({
 
       function refresh() {
         setSnap(function (prev) { return Object.assign({}, prev, { loading: true, error: null }); });
+        // dashboard row 未启用时 remote 可能是 undefined——判空后静默返回，绝不抛错。
+        if (!remote) {
+          setSnap(function (prev) { return Object.assign({}, prev, { loading: false }); });
+          return;
+        }
         remote.getStatus().then(
           function (status) { setSnap({ status: status, error: null, loading: false, action: null, actionError: null }); },
           function (err) { setSnap({ status: null, error: String(err?.message ?? err), loading: false, action: null, actionError: null }); }
@@ -653,10 +702,12 @@ window.__ModuleLoader__.load({
 
       function runAction(name, fn) {
         setSnap(function (prev) { return Object.assign({}, prev, { action: name, actionError: null }); });
-        fn().then(
-          function () { refresh(); },
-          function (err) { setSnap(function (prev) { return Object.assign({}, prev, { action: null, actionError: String(err?.message ?? err) }); }); }
-        );
+        Promise.resolve()
+          .then(function () { return fn(); })
+          .then(
+            function () { refresh(); },
+            function (err) { setSnap(function (prev) { return Object.assign({}, prev, { action: null, actionError: String(err?.message ?? err) }); }); }
+          );
       }
 
       var children = [];
@@ -750,10 +801,175 @@ window.__ModuleLoader__.load({
       return React.createElement("section", { style: styles.fieldRow }, children);
     }
 
+    // Account pool section — renders the pooled accounts (label / status badge /
+    // current & pinned markers) plus four actions: refresh health, add account,
+    // remove account, pin/unpin account. Data comes from the host
+    // VisionaryDashboard Remote (getAccounts / refreshAccounts / addAccount /
+    // removeAccount / pinAccount) — no plugin-owned HTTP route.
+    function AccountPoolSection(props) {
+      var t = props.t;
+      var remote = props.remote;
+      var st = React.useState({ pool: null, error: null, loading: true, busy: null, notice: null });
+      var snap = st[0];
+      var setSnap = st[1];
+
+      // 传方法名（而非取出的函数引用）——gateway 的 Remote 方法需要正确的 this，
+      // 解绑后调用会丢上下文。
+      // gateway 可能把 Remote 返回值包成 {ok:true,value} / {ok:false,error}，
+      // 也可能直接给裸值 / reject——两种形状都要兼容。
+      function unwrap(res) {
+        if (res && typeof res === "object" && "ok" in res) {
+          if (res.ok) return res.value;
+          throw new Error(String(res.error ?? "remote call failed"));
+        }
+        return res;
+      }
+
+      // 所有 Remote 调用都经这里：绑定 this + 兼容 {ok,value} 包络。
+      function remoteCall(method, arg) {
+        return Promise.resolve()
+          .then(function () { return arg === undefined ? remote[method]() : remote[method](arg); })
+          .then(unwrap);
+      }
+
+      // `notice` 可选：添加账号是「启动」语义，启动提示要保留到用户下次刷新，
+      // 不能被这次读列表立刻清掉。
+      function load(method, notice) {
+        setSnap(function (prev) { return Object.assign({}, prev, { loading: true, error: null }); });
+        remoteCall(method || "getAccounts").then(
+            function (data) { setSnap({ pool: data, error: null, loading: false, busy: null, notice: notice ?? null }); },
+            function (err) { setSnap(function (prev) { return Object.assign({}, prev, { loading: false, error: String(err?.message ?? err), busy: null }); }); }
+          );
+      }
+
+      React.useEffect(function () {
+        // dashboard row 未启用时 remote 可能是 undefined——此时静默隐藏整块，
+        // 绝不抛错（既有 dashboard 汇总也有同样的保护）。
+        if (!remote) { setSnap(function (prev) { return Object.assign({}, prev, { loading: false }); }); return; }
+        load();
+      }, []);
+
+      var children = [];
+
+      children.push(React.createElement("div", { style: styles.head }, [
+        React.createElement("span", { style: styles.label }, t("accountsTitle")),
+      ]));
+
+      if (!remote) return React.createElement("section", { style: styles.fieldRow }, children);
+
+      if (snap.loading && !snap.pool) {
+        children.push(React.createElement("p", { style: styles.hint }, t("accountsLoading")));
+        return React.createElement("section", { style: styles.fieldRow }, children);
+      }
+
+      if (snap.error) {
+        children.push(React.createElement("p", { style: styles.invalid }, t("accountsError") + ": " + snap.error));
+        children.push(React.createElement("button", { key: "retry", type: "button", style: styles.trigger, onClick: function () { load(); } }, t("accountsRefresh")));
+        return React.createElement("section", { style: styles.fieldRow }, children);
+      }
+
+      var pool = snap.pool || {};
+      var accounts = Array.isArray(pool.accounts) ? pool.accounts : [];
+
+      if (!pool.enabled || accounts.length === 0) {
+        children.push(React.createElement("p", { style: styles.hint }, t("accountsEmpty")));
+      } else {
+        var summary = t("accountsSummary")
+          .replace("{total}", String(pool.total ?? accounts.length))
+          .replace("{healthy}", String(pool.healthy ?? 0))
+          .replace("{muted}", String(pool.muted ?? 0))
+          .replace("{expired}", String(pool.expired ?? 0));
+        children.push(React.createElement("p", { style: styles.hint }, summary));
+        if (pool.current) {
+          children.push(React.createElement("p", { style: styles.hint }, t("accountsCurrent") + ": " + pool.current));
+        }
+        if (pool.env_ignored) {
+          children.push(React.createElement("p", { style: styles.hint }, t("accountsEnvIgnored")));
+        }
+        accounts.forEach(function (a) {
+          var badgeStyle = a.status === "healthy" ? styles.tag : (a.status === "muted" ? styles.tagWarning : styles.tagNeutral);
+          var badgeText = a.status === "healthy" ? t("accountsHealthy") : (a.status === "muted" ? t("accountsMuted") : t("accountsExpired"));
+          var row = [
+            React.createElement("span", { key: "label", style: styles.label }, a.label || a.id),
+            React.createElement("span", { key: "badge", style: badgeStyle }, badgeText),
+          ];
+          if (a.pinned || pool.pinned === a.id) {
+            row.push(React.createElement("span", { key: "pin", style: styles.tagNeutral }, t("accountsPinned")));
+          }
+          children.push(React.createElement("div", { key: "acc-" + a.id, style: styles.head }, row));
+        });
+      }
+
+      if (snap.notice) {
+        children.push(React.createElement("p", { style: styles.hint }, snap.notice));
+      }
+
+      var poolActions = [
+        { key: "refresh", label: t("accountsRefresh"), method: "refreshAccounts" },
+        { key: "add", label: t("accountsAdd"), method: "addAccount" },
+      ];
+      var poolButtons = poolActions.map(function (a) {
+        return React.createElement("button", {
+          key: a.key,
+          type: "button",
+          style: styles.trigger,
+          disabled: snap.busy === a.key,
+          onClick: function () {
+            setSnap(function (prev) { return Object.assign({}, prev, { busy: a.key, error: null }); });
+            remoteCall(a.method).then(
+              function (res) {
+                var notice = a.key === "add" ? t("accountsAddStarted") : null;
+                setSnap(function (prev) { return Object.assign({}, prev, { busy: null, notice: notice }); });
+                // 不另造轮询机制：沿用既有 status 查询（dashboard 汇总 / 本区块刷新按钮）。
+                load(a.key === "refresh" ? "refreshAccounts" : "getAccounts", notice);
+              },
+              function (err) { setSnap(function (prev) { return Object.assign({}, prev, { busy: null, error: String(err?.message ?? err) }); }); }
+            );
+          },
+        }, snap.busy === a.key ? t("accountsLoading") : a.label);
+      });
+
+      accounts.forEach(function (a) {
+        var pinned = a.pinned || pool.pinned === a.id;
+        poolButtons.push(React.createElement("button", {
+          key: "pin-" + a.id,
+          type: "button",
+          style: styles.trigger,
+          disabled: snap.busy === "pin-" + a.id,
+          onClick: function () {
+            setSnap(function (prev) { return Object.assign({}, prev, { busy: "pin-" + a.id, error: null }); });
+            remoteCall("pinAccount", pinned ? null : a.id).then(
+              function () { setSnap(function (prev) { return Object.assign({}, prev, { busy: null }); }); load("getAccounts"); },
+              function (err) { setSnap(function (prev) { return Object.assign({}, prev, { busy: null, error: String(err?.message ?? err) }); }); }
+            );
+          },
+        }, pinned ? t("accountsUnpin") : t("accountsPin")));
+        poolButtons.push(React.createElement("button", {
+          key: "rm-" + a.id,
+          type: "button",
+          style: styles.trigger,
+          disabled: snap.busy === "rm-" + a.id,
+          onClick: function () {
+            setSnap(function (prev) { return Object.assign({}, prev, { busy: "rm-" + a.id, error: null }); });
+            remoteCall("removeAccount", a.id).then(
+              function () { setSnap(function (prev) { return Object.assign({}, prev, { busy: null }); }); load("getAccounts"); },
+              function (err) { setSnap(function (prev) { return Object.assign({}, prev, { busy: null, error: String(err?.message ?? err) }); }); }
+            );
+          },
+        }, t("accountsRemove")));
+      });
+
+      children.push(React.createElement("div", { key: "accountsActions", style: { display: "flex", flexWrap: "wrap", gap: 8 } }, poolButtons));
+
+      return React.createElement("section", { style: styles.fieldRow }, children);
+    }
     function VisionaryBundleConfig(props) {
       return React.createElement("div", { key: "visionary-bundle-config" }, [
         React.createElement(VisionaryDashboardSummary, {
           key: "summary", t: props.t, remote: props.remote,
+        }),
+        React.createElement(AccountPoolSection, {
+          key: "accounts", t: props.t, remote: props.remote,
         }),
         React.createElement(VisionaryCard, {
           key: "vision", t: props.t, view: "page",

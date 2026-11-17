@@ -1,6 +1,7 @@
 # @xlight-oss/visionary-dsh bundle patch.
-# Registers two DSH plugin rows from the single package: the DeepSeek Visionary
-# native tools (main entry) and the text-model image bridge (subpath entry).
+# Registers three DSH plugin rows from the single package: the DeepSeek Visionary
+# native tools (main entry), the text-model image bridge, and the dashboard
+# Remote service (browser panel) — the dashboard is the third entry.
 # The browser half (Plugins panel → @xlight-oss/visionary-dsh bundle detail →
 # inline plugins.bundle.config section) is declared by this package's own `dsh.client` +
 # `exports["./client"]`, so it needs no row of its own: dsh-client-modules

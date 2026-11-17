@@ -5,7 +5,10 @@
 
 ## Requirements
 ### Requirement: 浏览器自动登录
+
 MCP 服务 SHALL 提供 `deepseek_vision_login` 工具：启动 Chrome 系浏览器（专用 profile + 远程调试端口）打开 chat.deepseek.com，等待用户登录完成后，通过 CDP 读取 `localStorage.userToken` 与 `smidV2`、`cf_clearance` cookie，并持久化到 `~/.deepseek-visionary/config.json`（键名 `user_token` / `smid_v2` / `cf_clearance`）。
+
+抓取到凭据后，服务 SHALL 先探测账号健康（见 `account-health` 的「账号健康只读探针」）：账号健康则关闭浏览器并返回成功；账号被静音则 SHALL 保持浏览器打开、提示用户换号，并继续等待用户在同一窗口换号登录——换号后重新探测，健康则正常保存并关闭浏览器。
 
 #### Scenario: 首次登录
 - **WHEN** 用户调用登录工具且本地无登录会话
@@ -19,6 +22,10 @@ MCP 服务 SHALL 提供 `deepseek_vision_login` 工具：启动 Chrome 系浏览
 - **WHEN** 专用浏览器 profile 已存在有效登录
 - **THEN** 直接读取 token，无需再次登录
 
+#### Scenario: 程序无法直接拉起 Chrome 时接管已有调试实例
+- **WHEN** 直接启动 Chrome 失败（如 Chrome 以断点异常退出），但本机调试端口上已有用户手动启动的带 `--remote-debugging-port` 的 Chrome
+- **THEN** 登录流程 SHALL 连接该实例继续完成登录，且 SHALL NOT 关闭用户手动启动的浏览器窗口
+
 #### Scenario: 无可用浏览器
 - **WHEN** 系统未找到 Chrome 系浏览器
 - **THEN** 登录工具返回指引，回退到手动配置路径
@@ -26,6 +33,18 @@ MCP 服务 SHALL 提供 `deepseek_vision_login` 工具：启动 Chrome 系浏览
 #### Scenario: 抓取 cf_clearance cookie
 - **WHEN** 浏览器会话中存在 cf_clearance cookie
 - **THEN** 该 cookie 随凭据一并持久化到配置文件
+
+#### Scenario: 登录到被静音账号
+- **WHEN** 用户完成登录但探测显示该账号被静音
+- **THEN** 登录工具保持浏览器打开、向 CLI stderr / MCP 通道输出换号指引，并**在浏览器页面内注入醒目的提示横幅**（说明当前账号、静音截止时间、需登出并换用其他账号），等待用户在同一窗口换号；换号后自动完成凭据保存
+
+#### Scenario: 静音提示出现在用户可见的浏览器页面
+- **WHEN** 检测到账号静音，且浏览器为「接管用户手动启动的 Chrome」模式
+- **THEN** 提示横幅 SHALL 注入到该浏览器**所有**页面（不只程序新建的标签页），确保用户正在操作的页面也能看到换号提示；页面为 SPA 时 SHALL 每轮重新注入以对抗导航/重载清空
+
+#### Scenario: 自动续期遇静音不等待换号
+- **WHEN** 自动续期流程探测到账号被静音
+- **THEN** 立即以静音错误失败并关闭浏览器，SHALL NOT 保持窗口等待换号
 
 ### Requirement: 凭据安全存储
 服务 SHALL 将凭据写入 `~/.deepseek-visionary/config.json` 并设置限制性权限（0600），日志中 SHALL NOT 输出 token 明文。

@@ -1,7 +1,7 @@
 {
   "name": "@xlight-oss/visionary-dsh",
-  "version": "0.7.8",
-  "description": "DeepSeek Visionary native plugin for DeepSeek Harness: deepseek_vision / status / login / logout native tools plus the text-model image bridge, all backed by the visionary-server CLI (DeepSeek web vision model, no API key).",
+  "version": "0.8.0",
+  "description": "DeepSeek Visionary native plugin for DeepSeek Harness: 6 native tools (deepseek_vision / deepseek_ocr / deepseek_vision_status / deepseek_vision_login / deepseek_vision_logout / deepseek_vision_accounts) plus the text-model image bridge and account-pool dashboard, all backed by the visionary-server CLI (DeepSeek web vision model, no API key).",
   "type": "module",
   "main": "lib/index.mjs",
   "exports": {
@@ -47,24 +47,24 @@
     "access": "public"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.4",
-    "@deepseek-ai/dsh-tools": "^0.2.0-rc.1",
-    "@deepseek-ai/dsh-llm": "^0.2.0-rc.1",
-    "@deepseek-ai/dsh-attachment": "^0.2.0-rc.1",
-    "@deepseek-ai/dsh-settings": "^0.2.0-rc.1",
-    "@deepseek-ai/dsh-typert-protocol": "^0.2.0-rc.1",
-    "@deepseek-ai/dsh-api-remotes": "^0.2.0-rc.1",
-    "@deepseek-ai/schemastery": "^3.18.4"
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-tools": "^0.2.1-rc.1",
+    "@deepseek-ai/dsh-llm": "^0.2.1-rc.1",
+    "@deepseek-ai/dsh-attachment": "^0.2.1-rc.1",
+    "@deepseek-ai/dsh-settings": "^0.2.1-rc.1",
+    "@deepseek-ai/dsh-typert-protocol": "^0.2.1-rc.1",
+    "@deepseek-ai/dsh-api-remotes": "^0.2.1-rc.1",
+    "@deepseek-ai/schemastery": "^3.18.5"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "4.0.4",
-    "@deepseek-ai/dsh-tools": "0.2.0-rc.1",
-    "@deepseek-ai/dsh-llm": "0.2.0-rc.1",
-    "@deepseek-ai/dsh-attachment": "0.2.0-rc.1",
-    "@deepseek-ai/dsh-settings": "0.2.0-rc.1",
-    "@deepseek-ai/dsh-typert-protocol": "0.2.0-rc.1",
-    "@deepseek-ai/dsh-api-remotes": "0.2.0-rc.1",
-    "@deepseek-ai/schemastery": "3.18.4"
+    "@deepseek-ai/cordis": "4.0.5",
+    "@deepseek-ai/dsh-tools": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-llm": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-attachment": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-settings": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-typert-protocol": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-api-remotes": "0.2.1-rc.2",
+    "@deepseek-ai/schemastery": "3.18.5"
   },
   "repository": {
     "type": "git",

@@ -75,6 +75,45 @@ impl std::fmt::Display for TransientFailure {
 
 impl std::error::Error for TransientFailure {}
 
+/// 账号被风控静音的可识别错误（与 `AuthFailure` 并列的独立类型）。
+///
+/// 与鉴权失败**必须**区分：静音账号刷新 token 完全无效（token 有效，只是账号被限），
+/// 归入鉴权失败会触发 `pipeline.rs` 的自动续期路径——拉起浏览器、换 token、再撞静音。
+#[derive(Debug)]
+pub struct MutedFailure {
+    /// 错误描述（含 biz_code 与服务端文案）。
+    pub message: String,
+    /// 静音截止时间（unix 秒）；缺失表示「未知截止时间」。
+    pub mute_until: Option<u64>,
+}
+
+impl MutedFailure {
+    /// 构造静音错误（截止时间可选，缺失时降级为「未知截止时间」）。
+    pub fn new(message: impl Into<String>, mute_until: Option<u64>) -> Self {
+        Self {
+            message: message.into(),
+            mute_until,
+        }
+    }
+}
+
+impl std::fmt::Display for MutedFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)?;
+        if let Some(until) = self.mute_until {
+            write!(
+                f,
+                "; account uploads are muted until {} (unix {})",
+                format_epoch_utc(until as i64),
+                until
+            )?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for MutedFailure {}
+
 /// 判断 HTTP 状态 + 响应体是否表示鉴权失败。
 ///
 /// 只认 401 与明确的鉴权文案：**不把 403 当鉴权失败**——上传接口在 PoW 校验失败时
@@ -105,12 +144,12 @@ impl ApiEnvelope {
             .unwrap_or(0)
     }
 
-    /// 业务错误描述（无业务错误时返回 `None`）。
+    /// 业务错误描述（**不含**静音截止时间后缀）。
     ///
     /// DeepSeek 的业务码有两个位置：顶层 `biz_code`/`code`，以及 `data.biz_code`。
     /// 线上响应实际把业务码放在 `data` 里（顶层 `code` 恒为 0），
     /// 只读顶层会漏判业务错误，最终报出 `file missing id` 这类难以定位的下游错误。
-    pub fn biz_error_message(&self, context: &str) -> Option<String> {
+    pub fn biz_error_text(&self, context: &str) -> Option<String> {
         let biz = self.effective_biz_code();
         if biz == 0 {
             return None;
@@ -126,18 +165,32 @@ impl ApiEnvelope {
                     .filter(|m| !m.is_empty())
             })
             .unwrap_or("unknown error");
-        let mut out = format!("{context} failed: biz_code={biz}, msg={msg}");
-        if biz == MUTED_CODE {
-            if let Some(until) = self
-                .data
-                .as_ref()
-                .and_then(|d| d.biz_data.get("mute_until"))
-                .and_then(|v| v.as_f64())
-            {
+        Some(format!("{context} failed: biz_code={biz}, msg={msg}"))
+    }
+
+    /// 静音截止时间（上传响应的 `data.biz_data.mute_until`，unix 秒）。
+    ///
+    /// 取不到时返回 `None`（「未知截止时间」）——SHALL NOT 影响静音判定本身。
+    pub fn muted_until(&self) -> Option<u64> {
+        self.data
+            .as_ref()
+            .and_then(|d| d.biz_data.get("mute_until"))
+            .and_then(|v| v.as_f64())
+            .filter(|v| *v > 0.0)
+            .map(|v| v as u64)
+    }
+
+    /// 业务错误描述（无业务错误时返回 `None`）。
+    ///
+    /// 静音场景会在末尾追加绝对 UTC 截止时间（与 v0.7.8 的文案保持一致）。
+    pub fn biz_error_message(&self, context: &str) -> Option<String> {
+        let mut out = self.biz_error_text(context)?;
+        if self.effective_biz_code() == MUTED_CODE {
+            if let Some(until) = self.muted_until() {
                 out.push_str(&format!(
                     "; account uploads are muted until {} (unix {})",
                     format_epoch_utc(until as i64),
-                    until as i64
+                    until
                 ));
             }
         }
@@ -146,6 +199,15 @@ impl ApiEnvelope {
 
     /// 校验业务码为 0，返回 `data.biz_data`。
     pub fn into_biz_data(self, context: &str) -> Result<serde_json::Value> {
+        // 静音（biz_code=14）走**独立错误类型**，SHALL NOT 与鉴权失败混为一谈：
+        // 对静音账号刷新 token 无效，混同会触发无谓的浏览器续期。
+        if self.effective_biz_code() == MUTED_CODE {
+            let message = self
+                .biz_error_text(context)
+                .unwrap_or_else(|| format!("{context} failed: biz_code={MUTED_CODE}"));
+            let mute_until = self.muted_until();
+            return Err(MutedFailure::new(message, mute_until).into());
+        }
         if let Some(msg) = self.biz_error_message(context) {
             return Err(anyhow!("{msg}"));
         }
@@ -209,14 +271,20 @@ impl ApiClient {
         AuthManager::new(&self.config).cookies()
     }
 
-    /// 把 (String, String) cookie 列表应用到请求构建器。
+    /// 把 (String, String) cookie 列表合并为单个 Cookie 头后应用到请求构建器。
     fn apply_cookies(
         req: reqwest::RequestBuilder,
         cookies: &[(String, String)],
     ) -> reqwest::RequestBuilder {
-        cookies.iter().fold(req, |r, (k, v)| {
-            r.header(reqwest::header::COOKIE, format!("{k}={v}"))
-        })
+        if cookies.is_empty() {
+            return req;
+        }
+        let value = cookies
+            .iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect::<Vec<_>>()
+            .join("; ");
+        req.header(reqwest::header::COOKIE, value)
     }
 
     /// GET 并返回 JSON 响应壳。
@@ -386,7 +454,35 @@ pub(crate) fn apply_headers(
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_headers, format_epoch_utc, looks_like_auth_failure, ApiEnvelope};
+    use super::{
+        apply_headers, format_epoch_utc, looks_like_auth_failure, ApiClient, ApiEnvelope,
+        AuthFailure, MutedFailure,
+    };
+
+    /// 多个 cookie 必须合并成单个 Cookie 头，不能发出多个独立 Cookie 头。
+    #[test]
+    fn apply_cookies_merges_into_single_cookie_header() {
+        let req = reqwest::Client::new().get("http://127.0.0.1:1/api/v0/test");
+        let req = ApiClient::apply_cookies(
+            req,
+            &[
+                ("smidV2".to_string(), "smid-value".to_string()),
+                ("cf_clearance".to_string(), "cf-value".to_string()),
+            ],
+        );
+        let req = req.build().expect("build request");
+        let values = req.headers().get_all(reqwest::header::COOKIE);
+        assert_eq!(
+            values.iter().count(),
+            1,
+            "cookie header must appear exactly once, got {:?}",
+            values.iter().collect::<Vec<_>>()
+        );
+        assert_eq!(
+            req.headers()[reqwest::header::COOKIE],
+            "smidV2=smid-value; cf_clearance=cf-value"
+        );
+    }
 
     /// 回归测试：completion 请求同时经过 `.json()` 和显式 `content-type` 时，
     /// 最终请求只能带一个 content-type 头（重复会被服务端判为 HTTP 415）。
@@ -538,5 +634,53 @@ mod tests {
         assert_eq!(format_epoch_utc(0), "1970-01-01 00:00 UTC");
         assert_eq!(format_epoch_utc(1_700_000_000), "2023-11-14 22:13 UTC");
         assert_eq!(format_epoch_utc(1794738505), "2026-11-15 10:28 UTC");
+    }
+
+    /// 静音响应 SHALL 以独立错误类型（MutedFailure）呈现，而非普通 anyhow 错误。
+    #[test]
+    fn muted_biz_code_yields_muted_failure() {
+        let env: ApiEnvelope = serde_json::from_str(
+            r#"{"code":0,"data":{"biz_code":14,"biz_msg":"user is muted","biz_data":{"is_muted":1,"mute_until":1794738505}}}"#,
+        )
+        .unwrap();
+        let err = env.into_biz_data("upload").unwrap_err();
+        let muted = err
+            .downcast_ref::<MutedFailure>()
+            .expect("muted biz code must surface as MutedFailure");
+        assert_eq!(muted.mute_until, Some(1794738505));
+        let text = err.to_string();
+        assert!(text.contains("biz_code=14"), "{text}");
+        assert!(text.contains("2026-11-15 10:28 UTC"), "{text}");
+    }
+
+    /// 静音错误 SHALL NOT 被判为鉴权失败（否则会触发无谓的浏览器续期）。
+    #[test]
+    fn muted_failure_is_not_auth_failure() {
+        let env: ApiEnvelope = serde_json::from_str(
+            r#"{"code":0,"data":{"biz_code":14,"biz_msg":"user is muted","biz_data":{"mute_until":1794738505}}}"#,
+        )
+        .unwrap();
+        assert!(!env.is_auth_failure());
+
+        let err = env.into_biz_data("upload").unwrap_err();
+        assert!(err.downcast_ref::<MutedFailure>().is_some());
+        assert!(err.downcast_ref::<AuthFailure>().is_none());
+        assert!(!looks_like_auth_failure(
+            reqwest::StatusCode::OK,
+            r#"{"code":0,"data":{"biz_code":14,"biz_msg":"user is muted"}}"#
+        ));
+    }
+
+    /// 静音截止时间缺失时 SHALL 降级为「未知截止时间」，SHALL NOT 影响静音判定。
+    #[test]
+    fn muted_failure_without_deadline() {
+        let env: ApiEnvelope = serde_json::from_str(
+            r#"{"code":0,"data":{"biz_code":14,"biz_msg":"user is muted","biz_data":{}}}"#,
+        )
+        .unwrap();
+        let err = env.into_biz_data("upload").unwrap_err();
+        let muted = err.downcast_ref::<MutedFailure>().unwrap();
+        assert_eq!(muted.mute_until, None);
+        assert!(err.to_string().contains("biz_code=14"));
     }
 }

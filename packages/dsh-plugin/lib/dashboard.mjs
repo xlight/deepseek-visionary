@@ -17,6 +17,7 @@ import { Remote, RemoteError, TypertRemoteService } from "@deepseek-ai/dsh-typer
 import {
   resolveBinaryPath,
   runCli,
+  spawnDetached,
   volGet,
   binaryMissingHelp,
   COMPAT_MINOR,
@@ -87,6 +88,11 @@ let VisionaryDashboard = (() => {
   let _relogin_decorators;
   let _cleanPasted_decorators;
   let _selfCheck_decorators;
+  let _getAccounts_decorators;
+  let _refreshAccounts_decorators;
+  let _addAccount_decorators;
+  let _removeAccount_decorators;
+  let _pinAccount_decorators;
   return class VisionaryDashboard extends _classSuper {
     static {
       const _metadata =
@@ -98,12 +104,22 @@ let VisionaryDashboard = (() => {
       _relogin_decorators = [Remote];
       _cleanPasted_decorators = [Remote];
       _selfCheck_decorators = [Remote];
+      _getAccounts_decorators = [Remote];
+      _refreshAccounts_decorators = [Remote];
+      _addAccount_decorators = [Remote];
+      _removeAccount_decorators = [Remote];
+      _pinAccount_decorators = [Remote];
       for (const [name, decorators] of [
         ["getStatus", _getStatus_decorators],
         ["reprobeBinary", _reprobeBinary_decorators],
         ["relogin", _relogin_decorators],
         ["cleanPasted", _cleanPasted_decorators],
         ["selfCheck", _selfCheck_decorators],
+        ["getAccounts", _getAccounts_decorators],
+        ["refreshAccounts", _refreshAccounts_decorators],
+        ["addAccount", _addAccount_decorators],
+        ["removeAccount", _removeAccount_decorators],
+        ["pinAccount", _pinAccount_decorators],
       ]) {
         __esDecorate(
           this,
@@ -288,6 +304,95 @@ let VisionaryDashboard = (() => {
       ]);
       return { binary, login };
     }
+
+    // --- account pool ---------------------------------------------------------
+
+    /** 账号池概况（纯读：`accounts list --json`）。 */
+    async getAccounts() {
+      return this.#accountsJson(["accounts", "list", "--json"]);
+    }
+
+    /** 刷新账号健康（并发只读探针：`accounts status --json`）。 */
+    async refreshAccounts() {
+      return this.#accountsJson(["accounts", "status", "--json"]);
+    }
+
+    /**
+     * 添加账号：**非阻塞**的「启动」语义——立即返回 { started: true }，
+     * 客户端沿用既有的 status 轮询呈现「等待登录完成」（不另造轮询机制）。
+     */
+    async addAccount() {
+      const bin = resolveBinaryPath({ binaryPath: this.#visionBinaryPath() });
+      if (!bin) throw new RemoteError("visionary/binary-missing", binaryMissingHelp());
+      spawnDetached(bin, ["accounts", "add"], {
+        env: { DEEPSEEK_LOGIN_TIMEOUT: String(this.#loginTimeoutSeconds()) },
+      });
+      return { started: true };
+    }
+
+    /** 移除账号（`accounts remove --json <id>`）。 */
+    async removeAccount(id) {
+      const target = String(id ?? "").trim();
+      if (!target) {
+        throw new RemoteError("visionary/accounts-invalid", "account id is required");
+      }
+      return this.#accountsJson(["accounts", "remove", "--json", target]);
+    }
+
+    /** 固定 / 取消固定账号（`id` 为 null 表示取消固定）。 */
+    async pinAccount(id) {
+      const target = id === null || id === undefined ? null : String(id).trim();
+      const args = target
+        ? ["accounts", "use", "--json", target]
+        : ["accounts", "use", "--json", "--clear"];
+      return this.#accountsJson(args);
+    }
+
+    async #accountsJson(args) {
+      const bin = resolveBinaryPath({ binaryPath: this.#visionBinaryPath() });
+      if (!bin) throw new RemoteError("visionary/binary-missing", binaryMissingHelp());
+      const timeoutMs = this.#accountsTimeout();
+      const r = await runCli(bin, args, { timeoutMs });
+      if (r.killed) {
+        throw new RemoteError(
+          "visionary/accounts-timeout",
+          `accounts command timed out after ${timeoutMs}ms`,
+        );
+      }
+      let parsed = null;
+      try {
+        parsed = JSON.parse(r.stdout);
+      } catch {
+        parsed = null;
+      }
+      if (!parsed || typeof parsed !== "object") {
+        throw new RemoteError(
+          "visionary/accounts-failed",
+          (r.stderr || r.stdout || `exit ${r.code}`).trim() || `exit ${r.code}`,
+        );
+      }
+      if (typeof parsed.error === "string") {
+        throw new RemoteError("visionary/accounts-failed", parsed.error);
+      }
+      return parsed;
+    }
+
+    // 账号池批量探测的客户端超时：必须大于 CLI 侧预算（见 index.mjs 同名逻辑）。
+    #accountsTimeout() {
+      const raw = Number(process.env.DEEPSEEK_ACCOUNTS_TIMEOUT);
+      const cliBudgetMs = Number.isFinite(raw) && raw > 0 ? raw * 1000 : 30000;
+      const configured = Number(volGet(this.#visionConfig.accountsTimeoutMs));
+      const base = Number.isFinite(configured) && configured > 0 ? configured : 30000;
+      return Math.max(base, cliBudgetMs) + 15000;
+    }
+
+    #loginTimeoutSeconds() {
+      const raw = Number(process.env.DEEPSEEK_LOGIN_TIMEOUT);
+      if (Number.isFinite(raw) && raw > 0) return raw;
+      const configured = Number(volGet(this.#visionConfig.loginTimeoutSeconds));
+      return Number.isFinite(configured) && configured > 0 ? configured : 600;
+    }
+
   };
 })();
 

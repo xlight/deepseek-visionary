@@ -324,7 +324,18 @@ function bootPages({ vision, bridge } = {}) {
       inject: (name, callback) => { injections.push({ name, callback }); return () => {}; },
       register: (options, component) => { registrations.push({ options, component }); return () => {}; },
     },
-    remote: { visionaryDashboard: { getStatus: async () => ({}), reprobeBinary: async () => ({}), relogin: async () => ({}), cleanPasted: async () => ({}), selfCheck: async () => ({}) } },
+    remote: { visionaryDashboard: {
+      getStatus: async () => ({}),
+      reprobeBinary: async () => ({}),
+      relogin: async () => ({}),
+      cleanPasted: async () => ({}),
+      selfCheck: async () => ({}),
+      getAccounts: async () => ({ enabled: false, accounts: [], total: 0, healthy: 0, muted: 0, expired: 0, pinned: null, current: null, env_ignored: false }),
+      refreshAccounts: async () => ({ enabled: false, accounts: [], total: 0, healthy: 0, muted: 0, expired: 0, pinned: null, current: null, env_ignored: false }),
+      addAccount: async () => ({ started: true }),
+      removeAccount: async () => ({}),
+      pinAccount: async () => ({}),
+    } },
     effect: (fn) => { fn(); return () => {}; },
   };
   bundle.exports.apply(ctx);
@@ -355,8 +366,14 @@ function bootPages({ vision, bridge } = {}) {
       useBridgeCard: () => face.hooks.bridgeCard.getSnapshot(),
     });
     const fullTree = bundle.react.render(bundleConfig.component, props);
-    const childIndex = which === "vision" ? 1 : 2;
-    const childNode = fullTree.props.children[childIndex];
+    // 按 key 查找（插入账号池区块后索引会移动，硬编码索引会静默取错组件）。
+    const wantedKey = which === "vision" ? "vision" : "bridge";
+    const children = Array.isArray(fullTree.props.children)
+      ? fullTree.props.children
+      : [fullTree.props.children];
+    // 测试用的 React shim 把 key 保留在 props 里（不提升到节点顶层）。
+    const childNode = children.find((c) => c && c.props && c.props.key === wantedKey);
+    assert.ok(childNode, `child with key ${wantedKey} must exist`);
     // For summary view, re-render the child component with view: "summary"
     // (VisionaryBundleConfig hardcodes view: "page" for inline display).
     const childProps = view === "summary" ? Object.assign({}, childNode.props, { view: "summary" }) : childNode.props;
@@ -535,3 +552,53 @@ test("degradation: a read-only deployment disables the controls", () => {
   const segs = collect(tree, (n) => n.type === primitivesStub.SegmentedControl);
   assert.ok(segs.length > 0 && segs.every((n) => n.props.disabled === true), "choice fields are disabled");
 });
+test("the account-pool section is rendered between summary and vision forms", () => {
+  const { bundle, bundleConfig } = bootPages();
+  const face = bundleConfig.options.inject();
+  const props = Object.assign({}, face, {
+    t: (key) => key,
+    useVisionCard: () => face.hooks.visionCard.getSnapshot(),
+    useBridgeCard: () => face.hooks.bridgeCard.getSnapshot(),
+  });
+  const tree = bundle.react.render(bundleConfig.component, props);
+  const children = Array.isArray(tree.props.children) ? tree.props.children : [tree.props.children];
+  const keys = children.map((c) => c && c.props && c.props.key).filter(Boolean);
+  assert.deepEqual(keys, ["summary", "accounts", "vision", "bridge"]);
+});
+
+test("account-pool section renders an empty-pool hint when remote is undefined", () => {
+  const { bundle, bundleConfig } = bootPages();
+  const face = bundleConfig.options.inject();
+  const noRemote = Object.assign({}, face, { remote: undefined, t: (key) => key });
+  const tree = bundle.react.render(bundleConfig.component, noRemote);
+  assert.ok(tree, "rendering must not throw with an undefined dashboard remote");
+});
+
+
+test("account-pool section degrades silently when the dashboard remote is absent", () => {
+  const { bundle, bundleConfig } = bootPages();
+  const face = bundleConfig.options.inject();
+  const props = Object.assign({}, face, { t: (key) => key, remote: undefined });
+  const composite = bundle.react.render(bundleConfig.component, props);
+  const children = Array.isArray(composite.props.children) ? composite.props.children : [composite.props.children];
+  const accountsNode = children.find((c) => c && c.props && c.props.key === "accounts");
+  assert.ok(accountsNode, "accounts section node exists");
+  // 实际执行子组件（不是懒节点），确认 effect 里的 remote 判空生效、不抛错。
+  const tree = bundle.react.render(accountsNode.type, Object.assign({}, accountsNode.props, { remote: undefined }));
+  assert.ok(tree, "AccountPoolSection renders without throwing");
+});
+
+test("account-pool section accepts gateway {ok:true,value} envelopes and bare values", () => {
+  const { bundle, bundleConfig } = bootPages();
+  const face = bundleConfig.options.inject();
+  const composite = bundle.react.render(bundleConfig.component, Object.assign({}, face, { t: (key) => key }));
+  const children = Array.isArray(composite.props.children) ? composite.props.children : [composite.props.children];
+  const accountsNode = children.find((c) => c && c.props && c.props.key === "accounts");
+  const pool = { enabled: true, accounts: [{ id: "a", label: "a@x", status: "healthy" }], total: 1, healthy: 1, muted: 0, expired: 0, pinned: null, current: "a", env_ignored: false };
+  for (const response of [pool, { ok: true, value: pool }]) {
+    const remote = { visionaryDashboard: { getAccounts: async () => response } };
+    const tree = bundle.react.render(accountsNode.type, Object.assign({}, accountsNode.props, { remote: remote.visionaryDashboard }));
+    assert.ok(tree, "renders for both bare and {ok,value} shapes");
+  }
+});
+

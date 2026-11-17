@@ -19,7 +19,7 @@ dsh plugin --profile web add @xlight-oss/visionary-dsh
 dsh plugin --profile web add /path/to/packages/dsh-plugin
 ```
 
-`dsh plugin` 会经包内 `dsh.bundle.patch` 声明自动把 `visionary-vision` 与 `visionary-image-bridge` 两个插件行追加到 profile 组合——**无需手写任何配置**。重启 DSH 后注册 5 个原生工具，同时启用文本模型图片桥接：
+`dsh plugin` 会经包内 `dsh.bundle.patch` 声明自动把 `visionary-vision` 与 `visionary-image-bridge` 两个插件行追加到 profile 组合——**无需手写任何配置**。重启 DSH 后注册 6 个原生工具，同时启用文本模型图片桥接：
 
 | 工具 | 说明 |
 |------|------|
@@ -27,9 +27,21 @@ dsh plugin --profile web add /path/to/packages/dsh-plugin
 | `deepseek_ocr` | 纯文字提取（截图 / 文档 / 代码 / 表格中的原文，非理解式分析） |
 | `deepseek_vision_status` | 登录状态检查 |
 | `deepseek_vision_login` | 浏览器自动登录（阻塞，超时可配） |
-| `deepseek_vision_logout` | 清除保存的凭据 |
+| `deepseek_vision_logout` | 清除保存的凭据（账号池里的账号不受影响） |
+| `deepseek_vision_accounts` | 账号池管理：`action` 取 `list` / `refresh` / `remove` / `pin`，账号标识走位置参数 |
 
-> **图片桥接**：会话模型为纯文本模型（如 `deepseek-v4-flash`）时，粘贴的图片经桥接**放行 → 落盘 → 改写为文本引导**，agent 用 `deepseek_vision` 完成分析，模型只收到文本；VL 模型原生看图不受干扰。配置见插件包 [README](../../packages/dsh-plugin/README.md) 的「工具」与「图片桥接」节（`settings.yaml` / 设置面板：**设置 → 插件 → Plugins** 下的两个行配置页，热重载；`visionary-vision: modelType: ocr` 可让 `deepseek_vision` 走 OCR 管道）。插件要求 **DSH ≥ 0.1.7-rc.1**。
+## 账号池（多账号轮询）
+
+插件、CLI 与 MCP 共用同一份账号池（`~/.deepseek-visionary/accounts.json`）。池存在时：
+
+- **插件面板**（dashboard 行）多出「账号池」区块：列出各账号与状态徽标（正常 / 静音 / 失效）、当前使用账号，并提供刷新健康 / 添加账号 / 移除账号 / 固定账号四个动作
+- **插件新增第 6 个原生工具** `deepseek_vision_accounts`：`action` 取 `list` / `refresh` / `remove` / `pin`，账号标识走**位置参数**；不暴露 `add` / `migrate`
+- **MCP 侧同名工具** `deepseek_vision_accounts` 行为一致（同样只有 `list` / `refresh` / `remove` / `pin`）
+- `deepseek_vision_status` 的输出附带账号池概况（总数、各状态计数、当前使用账号）
+- 池模式下环境变量 `DEEPSEEK_USER_TOKEN` **不参与选号**，插件与 CLI 都会提示「已忽略环境变量，当前按账号池轮询」
+
+账号池的完整语义（轮询、静音跳过、固定、一次性迁移）见 [CLI 文档的「账号池与轮询」](../cli.md#账号池与轮询)。
+> **图片桥接**：会话模型为纯文本模型（如 `deepseek-v4-flash`）时，粘贴的图片经桥接**放行 → 落盘 → 改写为文本引导**，agent 用 `deepseek_vision` 完成分析，模型只收到文本；VL 模型原生看图不受干扰。配置见插件包 [README](../../packages/dsh-plugin/README.md) 的「工具」与「图片桥接」节（设置面板：**插件面板**的 `@xlight-oss/visionary-dsh` 卡片内的配置段，volatile 热生效；`visionary-vision: modelType: ocr` 可让 `deepseek_vision` 走 OCR 管道）。插件要求 **DSH ≥ 0.2.0-rc.1**（含 0.2.1 线）。
 
 原生工具在 DSH **宿主进程**执行（不经 bash 沙箱），因此 `--continue-conversation` 续聊（写 `~/.deepseek-visionary/session.json`）与 `login`（起浏览器、写 config.json）不受 `workspace-write` 写限制。安装与配置详见插件包 [README](../../packages/dsh-plugin/README.md)。
 

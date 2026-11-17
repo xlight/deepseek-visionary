@@ -5,6 +5,11 @@
 # Zed dev extension 构建产物（Zed 在扩展目录内生成）
 crates/visionary-zed-ext/target/
 crates/visionary-zed-ext/extension.wasm
+# 子 crate 的构建产物（workspace 根 /target 只覆盖根级 target）
+crates/*/target/
+# 本机构建辅助目录（临时 TEMP、LNK1104 规避、ACL 修复留档）
+.tmp-build/
+.acl-recovery/
 
 # 登录调试日志
 mcp-login.log

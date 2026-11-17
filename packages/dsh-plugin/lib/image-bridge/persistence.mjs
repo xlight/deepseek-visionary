@@ -192,7 +192,25 @@ export class ImagePersistence {
     );
     try {
       await fs.writeFile(tmp, data, { mode: 0o600 });
-      await fs.rename(tmp, target);
+      // On Windows, concurrent rename() of two distinct temp files onto the
+      // same destination can fail with EPERM/EBUSY even though the destination
+      // is ultimately replaceable (the loser of the race). POSIX rename is
+      // atomic here and never needs this. Retry a few times with jitter — this
+      // is the "atomic write under concurrent first-writes" contract, and a
+      // transient EPERM must not surface as a persist() failure.
+      const attempts = process.platform === "win32" ? 6 : 1;
+      for (let i = 0; i < attempts; i += 1) {
+        try {
+          await fs.rename(tmp, target);
+          break;
+        } catch (err) {
+          const code = err && err.code;
+          const retryable = code === "EPERM" || code === "EBUSY" || code === "EACCES";
+          if (!retryable || i === attempts - 1) throw err;
+          // small, growing backoff so the other writer can finish its rename
+          await new Promise((res) => setTimeout(res, 2 * (i + 1)));
+        }
+      }
       await fs.chmod(target, 0o600).catch(() => {});
     } finally {
       await fs.rm(tmp, { force: true }).catch(() => {});

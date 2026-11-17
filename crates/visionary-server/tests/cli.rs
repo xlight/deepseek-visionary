@@ -360,3 +360,110 @@ fn vision_invalid_model_type_fails() {
         "stderr should mention the invalid value, got: {stderr}"
     );
 }
+
+/// 启动一个本地 mock HTTP 服务，返回 (base_url, 请求行接收端)。
+///
+/// 用于验证「状态查询走只读探针」：探针 SHALL 是 `GET /api/v0/users/current`，
+/// SHALL NOT 是旧的 `POST /api/v0/chat/create_pow_challenge`。
+fn spawn_mock_server(body: &'static str) -> (String, std::sync::mpsc::Receiver<String>) {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind mock");
+    let addr = listener.local_addr().expect("mock addr");
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let mut stream = match stream {
+                Ok(s) => s,
+                Err(_) => break,
+            };
+            let mut buf = [0u8; 8192];
+            let n = stream.read(&mut buf).unwrap_or(0);
+            let req = String::from_utf8_lossy(&buf[..n]).to_string();
+            let _ = tx.send(req.lines().next().unwrap_or("").to_string());
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = stream.write_all(resp.as_bytes());
+            let _ = stream.flush();
+        }
+    });
+    (format!("http://{addr}"), rx)
+}
+
+#[test]
+fn status_json_uses_read_only_probe_endpoint() {
+    // mock 返回一个健康账号：status --json 应判定 token_valid=true，
+    // 且请求 SHALL 是只读 GET /api/v0/users/current（不是 PoW 挑战 POST）。
+    let body = r#"{"code":0,"msg":"ok","data":{"biz_code":0,"biz_msg":"","biz_data":{"id":"acc-1","email":"a@b.c","chat":{"is_muted":0,"mute_until":0}}}}"#;
+    let (base, rx) = spawn_mock_server(body);
+    let out = isolated_cmd()
+        .env("DEEPSEEK_BASE_URL", &base)
+        .env("DEEPSEEK_USER_TOKEN", "test-token")
+        .args(["status", "--json"])
+        .output()
+        .expect("run");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value =
+        serde_json::from_str(&stdout).expect("status --json should be valid JSON");
+    assert_eq!(v["token_valid"], true, "stdout: {stdout}");
+    assert_eq!(v["authenticated"], true, "stdout: {stdout}");
+
+    let req = rx
+        .recv_timeout(std::time::Duration::from_secs(20))
+        .expect("mock should receive the probe request");
+    assert!(
+        req.starts_with("GET /api/v0/users/current"),
+        "probe must be a read-only GET, got: {req}"
+    );
+}
+
+#[test]
+fn doctor_uses_read_only_probe_endpoint() {
+    // doctor 同样 SHALL 走只读探针，并在诊断输出里标明。
+    let body = r#"{"code":0,"msg":"ok","data":{"biz_code":0,"biz_msg":"","biz_data":{"id":"acc-1","email":"a@b.c","chat":{"is_muted":0,"mute_until":0}}}}"#;
+    let (base, rx) = spawn_mock_server(body);
+    let out = isolated_cmd()
+        .env("DEEPSEEK_BASE_URL", &base)
+        .env("DEEPSEEK_USER_TOKEN", "test-token")
+        .arg("doctor")
+        .output()
+        .expect("run");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("read-only probe passed"),
+        "doctor should report the read-only probe, got: {stdout}"
+    );
+
+    let req = rx
+        .recv_timeout(std::time::Duration::from_secs(20))
+        .expect("mock should receive the probe request");
+    assert!(
+        req.starts_with("GET /api/v0/users/current"),
+        "probe must be a read-only GET, got: {req}"
+    );
+}
+
+#[test]
+fn status_json_reports_muted_account_via_probe() {
+    // mock 返回被静音账号：探针 SHALL 识别静音；status 仍以 token_valid=true 退出 0
+    //（token 本身有效，只是账号被限），诊断文本里 SHALL 给出静音警告。
+    let body = r#"{"code":0,"msg":"ok","data":{"biz_code":0,"biz_msg":"","biz_data":{"id":"acc-1","email":"a@b.c","chat":{"is_muted":1,"mute_until":1794738505}}}}"#;
+    let (base, _rx) = spawn_mock_server(body);
+    let out = isolated_cmd()
+        .env("DEEPSEEK_BASE_URL", &base)
+        .env("DEEPSEEK_USER_TOKEN", "test-token")
+        .arg("doctor")
+        .output()
+        .expect("run");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("Account muted"),
+        "doctor should report the muted account, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("2026-11-15 10:28 UTC"),
+        "doctor should report the mute deadline, got: {stdout}"
+    );
+}
