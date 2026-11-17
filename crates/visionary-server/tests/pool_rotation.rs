@@ -44,6 +44,19 @@ fn write_pool(home: &Path, accounts: &[&str]) {
     std::fs::write(dir.join("accounts.json"), body).expect("write pool");
 }
 
+/// 返回一个**确定在未来**的静音截止时间（Unix 秒）。
+///
+/// 不能用写死的时间戳：一旦真实时间越过该值，代码会正确地把账号判为可用，
+/// 依赖「仍静音」的断言就会假失败。用「当前时间 + 1 天」保证测试与运行日期无关。
+fn future_mute_until() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock after epoch")
+        .as_secs() as i64;
+    now + 86_400
+}
+
 fn account_json(id: &str, token: &str, status: &str, mute_until: Option<i64>) -> String {
     let mute = match mute_until {
         Some(v) => v.to_string(),
@@ -109,7 +122,7 @@ fn spawn_mock(muted_tokens: &[&str]) -> (String, mpsc::Receiver<String>) {
                 r#"{"code":0,"msg":"","data":{"biz_code":0,"biz_msg":"","biz_data":{"challenge":{"algorithm":"SHA3-256","challenge":"test-challenge-payload","salt":"test-salt","difficulty":2.0,"expire_at":1752000000,"signature":"test-signature","target_path":"/api/v0/file/upload_file"}}}}"#.to_string()
             } else if first_line.contains("/api/v0/file/upload_file") {
                 if muted.iter().any(|t| auth.contains(t.as_str())) {
-                    r#"{"code":0,"msg":"","data":{"biz_code":14,"biz_msg":"user is muted","biz_data":{"is_muted":1,"mute_until":1794738505}}}"#.to_string()
+                    r#"{"code":0,"msg":"","data":{"biz_code":14,"biz_msg":"user is muted","biz_data":{"is_muted":1,"mute_until":1893456000}}}"#.to_string()
                 } else {
                     r#"{"code":0,"msg":"","data":{"biz_code":0,"biz_msg":"","biz_data":{"id":"file-1"}}}"#.to_string()
                 }
@@ -226,7 +239,7 @@ fn muted_account_is_skipped() {
     write_pool(
         &home,
         &[
-            &account_json("acc-1", "tok-acc-1", "muted", Some(1794738505)),
+            &account_json("acc-1", "tok-acc-1", "muted", Some(future_mute_until())),
             &account_json("acc-2", "tok-acc-2", "healthy", None),
         ],
     );
@@ -268,7 +281,7 @@ fn all_accounts_unusable_reports_clear_error() {
     write_pool(
         &home,
         &[
-            &account_json("acc-1", "tok-acc-1", "muted", Some(1794738505)),
+            &account_json("acc-1", "tok-acc-1", "muted", Some(future_mute_until())),
             &account_json("acc-2", "tok-acc-2", "expired", None),
         ],
     );

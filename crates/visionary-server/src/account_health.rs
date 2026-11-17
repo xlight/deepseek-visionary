@@ -572,11 +572,23 @@ mod tests {
     /// 探测超时 SHALL 返回可区分错误，SHALL NOT 静默通过。
     #[tokio::test]
     async fn probe_timeout_is_distinguishable() {
-        let body = r#"{"code":0,"data":{"biz_code":0,"biz_data":{"id":"a"}}}"#;
-        let (base, _rx) = spawn_mock(body);
-        let config = test_config(&base, "test-token");
+        // 不能用 from_nanos(1)：CI 上 tokio 可能先把已完成的响应调度回来，
+        // 请求在 1ns 内「成功」，断言就假失败。这里让 mock 明确延迟 200ms，
+        // 超时设 20ms —— 任何机器上都稳定超时，又不拖慢测试。
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind mock");
+        let addr = listener.local_addr().expect("mock addr");
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                std::thread::sleep(Duration::from_millis(200));
+                use std::io::Write;
+                let _ = stream.write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                );
+            }
+        });
+        let config = test_config(&format!("http://{addr}"), "test-token");
         let client = ApiClient::new(config).expect("client");
-        let err = probe_account_with_timeout(&client, Duration::from_nanos(1))
+        let err = probe_account_with_timeout(&client, Duration::from_millis(20))
             .await
             .expect_err("probe should time out");
         assert!(err.to_string().contains("timed out"), "{err}");
