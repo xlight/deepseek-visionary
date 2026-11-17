@@ -19,6 +19,10 @@
 ///
 /// 取值与 Windows 的完整性 RID 对应（`TOKEN_MANDATORY_LABEL` 里 SID 的
 /// 最后一个子权限值）。
+// 变体完整映射 Windows 的完整性 RID，但只有 Windows 分支的 current_level()
+// 会真正构造它们；非 Windows 上该探针恒为 None，clippy -D warnings 会误报
+// dead_code。仅在非 Windows 放宽，Windows 下仍严格检查。
+#[cfg_attr(not(windows), allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum IntegrityLevel {
     /// 0x0000 — Untrusted。
