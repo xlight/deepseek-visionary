@@ -11,7 +11,7 @@
 行为:
     1. 校验版本号格式（x.y.z，不允许 v 前缀）
     2. 更新 Cargo.toml 中 [workspace.package] 的 version
-    3. 更新 Cargo.lock 中 visionary-server 包的 version
+    3. 更新 Cargo.lock 中 visionary-cli 包的 version
     4. 更新 packages/dsh-plugin/package.json 的 version（DSH 原生插件包；
        发布 workflow dsh-plugin-release.yml 要求 tag == package.json
        == workspace Cargo.toml 一致）

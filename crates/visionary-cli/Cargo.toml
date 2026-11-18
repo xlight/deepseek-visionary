@@ -22,14 +22,16 @@ pkg-url = "https://github.com/xlight/deepseek-visionary/releases/download/{ vers
 pkg-fmt = "txz"
 
 # 双名过渡：主二进制为 visionary-cli，同时产出旧名 visionary-server 作为别名。
-# 两者指向同一份代码（同一 main），老用户敲旧名仍可继续工作。
+# 两个 bin 都是薄入口，只调用 lib.rs 的 `run()`；不共享 main.rs——两个 target
+# 编译同一 main.rs 会让链接器产出两份 PDB 并报 LNK1318（PDB LIMIT），
+# 这是 v0.9.0 开发期实测踩到的坑。
 [[bin]]
 name = "visionary-cli"
-path = "src/main.rs"
+path = "src/bin/visionary-cli.rs"
 
 [[bin]]
 name = "visionary-server"
-path = "src/main.rs"
+path = "src/bin/visionary-server.rs"
 
 [dependencies]
 tokio.workspace = true

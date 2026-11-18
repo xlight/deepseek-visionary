@@ -788,12 +788,12 @@ async fn cmd_status(args: StatusArgs) -> Result<()> {
         if pool_mode {
             // 池模式：环境变量被忽略，SHALL NOT 引导用户去设置 DEEPSEEK_USER_TOKEN。
             lines.push(
-                "No usable account in the pool: run `visionary-server accounts list` to inspect the pool, or `visionary-server accounts add` to add an account."
+                "No usable account in the pool: run `visionary-cli accounts list` to inspect the pool, or `visionary-cli accounts add` to add an account."
                     .into(),
             );
         } else {
             lines.push(
-                "Not logged in: run `visionary-server login` to auto-login, or set the DEEPSEEK_USER_TOKEN environment variable."
+                "Not logged in: run `visionary-cli login` to auto-login, or set the DEEPSEEK_USER_TOKEN environment variable."
                     .into(),
             );
         }
@@ -1245,7 +1245,7 @@ mod tests {
     #[test]
     fn no_args_means_help() {
         // arg_required_else_help：无参数时 clap 拒绝解析并输出 help（对应退出码 2）
-        let err = Cli::try_parse_from(["visionary-server"])
+        let err = Cli::try_parse_from(["visionary-cli"])
             .expect_err("no args must be rejected by arg_required_else_help");
         assert_eq!(
             err.kind(),
@@ -1260,14 +1260,14 @@ mod tests {
 
     #[test]
     fn mcp_stdio_subcommand_parses() {
-        let cli = Cli::try_parse_from(["visionary-server", "mcp-stdio"]).expect("mcp-stdio parses");
+        let cli = Cli::try_parse_from(["visionary-cli", "mcp-stdio"]).expect("mcp-stdio parses");
         assert!(matches!(cli.command, Some(Command::McpStdio)));
     }
 
     #[test]
     fn version_flag_parses() {
         // clap `version` 属性自动提供 -V/--version；--version 短路输出版本号。
-        let err = Cli::try_parse_from(["visionary-server", "--version"])
+        let err = Cli::try_parse_from(["visionary-cli", "--version"])
             .expect_err("--version should short-circuit to version output");
         assert_eq!(err.kind(), clap::error::ErrorKind::DisplayVersion);
         let text = err.to_string();
@@ -1280,14 +1280,13 @@ mod tests {
 
     #[test]
     fn doctor_subcommand_parses() {
-        let cli = Cli::try_parse_from(["visionary-server", "doctor"]).expect("doctor parses");
+        let cli = Cli::try_parse_from(["visionary-cli", "doctor"]).expect("doctor parses");
         assert!(matches!(cli.command, Some(Command::Doctor)));
     }
 
     #[test]
     fn init_positional_parses() {
-        let cli =
-            Cli::try_parse_from(["visionary-server", "init", "opencode"]).expect("init parses");
+        let cli = Cli::try_parse_from(["visionary-cli", "init", "opencode"]).expect("init parses");
         let Some(Command::Init(args)) = cli.command else {
             panic!("expected init subcommand");
         };
@@ -1297,8 +1296,7 @@ mod tests {
 
     #[test]
     fn init_dsh_positional_parses() {
-        let cli =
-            Cli::try_parse_from(["visionary-server", "init", "dsh"]).expect("init dsh parses");
+        let cli = Cli::try_parse_from(["visionary-cli", "init", "dsh"]).expect("init dsh parses");
         let Some(Command::Init(args)) = cli.command else {
             panic!("expected init subcommand");
         };
@@ -1309,7 +1307,7 @@ mod tests {
     #[test]
     fn init_flags_parse() {
         let cli = Cli::try_parse_from([
-            "visionary-server",
+            "visionary-cli",
             "init",
             "--opencode",
             "--codex",
@@ -1327,7 +1325,7 @@ mod tests {
     #[test]
     fn init_dsh_flag_parses() {
         let cli =
-            Cli::try_parse_from(["visionary-server", "init", "--dsh"]).expect("init --dsh parses");
+            Cli::try_parse_from(["visionary-cli", "init", "--dsh"]).expect("init --dsh parses");
         let Some(Command::Init(args)) = cli.command else {
             panic!("expected init subcommand");
         };
@@ -1337,14 +1335,14 @@ mod tests {
 
     #[test]
     fn unknown_subcommand_rejected() {
-        assert!(Cli::try_parse_from(["visionary-server", "frobnicate"]).is_err());
+        assert!(Cli::try_parse_from(["visionary-cli", "frobnicate"]).is_err());
     }
 
     // ---- vision 子命令解析（task 4.1）----
 
     #[test]
     fn vision_basic_parses() {
-        let cli = Cli::try_parse_from(["visionary-server", "vision", "img.png"])
+        let cli = Cli::try_parse_from(["visionary-cli", "vision", "img.png"])
             .expect("vision with image parses");
         let Some(Command::Vision(args)) = cli.command else {
             panic!("expected vision subcommand");
@@ -1364,7 +1362,7 @@ mod tests {
     #[test]
     fn vision_all_flags_parse() {
         let cli = Cli::try_parse_from([
-            "visionary-server",
+            "visionary-cli",
             "vision",
             "img.png",
             "--prompt",
@@ -1387,7 +1385,7 @@ mod tests {
 
     #[test]
     fn vision_stdin_dash_parses() {
-        let cli = Cli::try_parse_from(["visionary-server", "vision", "-"])
+        let cli = Cli::try_parse_from(["visionary-cli", "vision", "-"])
             .expect("vision stdin dash parses");
         let Some(Command::Vision(args)) = cli.command else {
             panic!("expected vision subcommand");
@@ -1401,7 +1399,7 @@ mod tests {
 
     #[test]
     fn vision_multiple_images_parse() {
-        let cli = Cli::try_parse_from(["visionary-server", "vision", "a.png", "b.png", "c.png"])
+        let cli = Cli::try_parse_from(["visionary-cli", "vision", "a.png", "b.png", "c.png"])
             .expect("vision multiple images parses");
         let Some(Command::Vision(args)) = cli.command else {
             panic!("expected vision subcommand");
@@ -1411,14 +1409,14 @@ mod tests {
 
     #[test]
     fn vision_missing_image_rejected() {
-        assert!(Cli::try_parse_from(["visionary-server", "vision"]).is_err());
+        assert!(Cli::try_parse_from(["visionary-cli", "vision"]).is_err());
     }
 
     #[test]
     fn vision_stream_no_stream_conflict_rejected() {
         assert!(
             Cli::try_parse_from([
-                "visionary-server",
+                "visionary-cli",
                 "vision",
                 "x.png",
                 "--stream",
@@ -1432,7 +1430,7 @@ mod tests {
     #[test]
     fn vision_json_stream_conflict_rejected() {
         assert!(
-            Cli::try_parse_from(["visionary-server", "vision", "x.png", "--json", "--stream"])
+            Cli::try_parse_from(["visionary-cli", "vision", "x.png", "--json", "--stream"])
                 .is_err(),
             "--json and --stream are mutually exclusive"
         );
@@ -1440,7 +1438,7 @@ mod tests {
 
     #[test]
     fn status_subcommand_parses() {
-        let cli = Cli::try_parse_from(["visionary-server", "status"]).expect("status parses");
+        let cli = Cli::try_parse_from(["visionary-cli", "status"]).expect("status parses");
         let Some(Command::Status(args)) = cli.command else {
             panic!("expected status subcommand");
         };
@@ -1449,7 +1447,7 @@ mod tests {
 
     #[test]
     fn status_json_parses() {
-        let cli = Cli::try_parse_from(["visionary-server", "status", "--json"])
+        let cli = Cli::try_parse_from(["visionary-cli", "status", "--json"])
             .expect("status --json parses");
         let Some(Command::Status(args)) = cli.command else {
             panic!("expected status subcommand");
@@ -1460,13 +1458,13 @@ mod tests {
     #[test]
     fn login_logout_subcommands_parse() {
         assert!(matches!(
-            Cli::try_parse_from(["visionary-server", "login"])
+            Cli::try_parse_from(["visionary-cli", "login"])
                 .unwrap()
                 .command,
             Some(Command::Login)
         ));
         assert!(matches!(
-            Cli::try_parse_from(["visionary-server", "logout"])
+            Cli::try_parse_from(["visionary-cli", "logout"])
                 .unwrap()
                 .command,
             Some(Command::Logout)
@@ -1476,13 +1474,13 @@ mod tests {
     #[test]
     fn skill_subcommand_parses() {
         // `skill install` 可解析；action 省略时默认 install。
-        let cli = Cli::try_parse_from(["visionary-server", "skill", "install"])
+        let cli = Cli::try_parse_from(["visionary-cli", "skill", "install"])
             .expect("skill install parses");
         let Some(Command::Skill(args)) = cli.command else {
             panic!("expected skill subcommand");
         };
         assert_eq!(args.action.as_deref(), Some("install"));
-        let cli = Cli::try_parse_from(["visionary-server", "skill"]).expect("skill parses");
+        let cli = Cli::try_parse_from(["visionary-cli", "skill"]).expect("skill parses");
         let Some(Command::Skill(args)) = cli.command else {
             panic!("expected skill subcommand");
         };
@@ -1551,20 +1549,15 @@ mod tests {
 
     #[test]
     fn vision_model_type_ocr_parses() {
-        let cli = Cli::try_parse_from([
-            "visionary-server",
-            "vision",
-            "img.png",
-            "--model-type",
-            "ocr",
-        ])
-        .expect("vision --model-type ocr parses");
+        let cli =
+            Cli::try_parse_from(["visionary-cli", "vision", "img.png", "--model-type", "ocr"])
+                .expect("vision --model-type ocr parses");
         let Some(Command::Vision(args)) = cli.command else {
             panic!("expected vision subcommand");
         };
         assert_eq!(args.model_type, ModelType::Ocr);
         // 与 ocr 子命令共享 handler：等价于 forced=Ocr + 无 --model-type 面
-        let ocr = Cli::try_parse_from(["visionary-server", "ocr", "img.png"]).expect("ocr parses");
+        let ocr = Cli::try_parse_from(["visionary-cli", "ocr", "img.png"]).expect("ocr parses");
         let Some(Command::Ocr(ocr_args)) = ocr.command else {
             panic!("expected ocr subcommand");
         };
@@ -1579,14 +1572,9 @@ mod tests {
     #[test]
     fn vision_invalid_model_type_rejected() {
         // 非法 modelType 由 clap ValueEnum 拒绝（退出码 2，stderr 提到非法值）
-        let err = Cli::try_parse_from([
-            "visionary-server",
-            "vision",
-            "x.png",
-            "--model-type",
-            "bogus",
-        ])
-        .expect_err("invalid --model-type must be rejected");
+        let err =
+            Cli::try_parse_from(["visionary-cli", "vision", "x.png", "--model-type", "bogus"])
+                .expect_err("invalid --model-type must be rejected");
         assert_eq!(err.kind(), clap::error::ErrorKind::InvalidValue);
         assert!(err.to_string().contains("bogus"), "unexpected: {err}");
     }
@@ -1595,7 +1583,7 @@ mod tests {
     fn ocr_args_preserve_vision_flag_surface() {
         // ocr 子命令参数面对齐 vision（除 --model-type 外），From<OcrArgs> 完整映射
         let cli = Cli::try_parse_from([
-            "visionary-server",
+            "visionary-cli",
             "ocr",
             "a.png",
             "b.png",
