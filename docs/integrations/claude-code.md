@@ -5,7 +5,7 @@
 ## 一键接入（推荐）
 
 ```bash
-visionary-server init claude
+visionary-cli init claude
 ```
 
 优先调用 `claude mcp add` 注册到用户级配置；若 `claude` CLI 不可用，
@@ -16,13 +16,13 @@ visionary-server init claude
 ### 方式 A：CLI（推荐）
 
 ```bash
-claude mcp add --transport stdio deepseek-visionary -- visionary-server mcp-stdio
+claude mcp add --transport stdio deepseek-visionary -- visionary-cli mcp-stdio
 ```
 
 加 `--scope user` 写入用户级配置（`~/.claude.json`），而非项目级 `.mcp.json`：
 
 ```bash
-claude mcp add --transport stdio deepseek-visionary --scope user -- visionary-server mcp-stdio
+claude mcp add --transport stdio deepseek-visionary --scope user -- visionary-cli mcp-stdio
 ```
 
 ### 方式 B：直接编辑配置
@@ -33,7 +33,7 @@ claude mcp add --transport stdio deepseek-visionary --scope user -- visionary-se
 {
   "mcpServers": {
     "deepseek-visionary": {
-      "command": "visionary-server",
+      "command": "visionary-cli",
       "args": ["mcp-stdio"]
     }
   }
@@ -49,4 +49,4 @@ claude mcp list
 ## 常见问题
 
 - **未登录**：调用 `deepseek_vision` 前先调用 `deepseek_vision_login`，或用环境变量 `DEEPSEEK_USER_TOKEN`。
-- **二进制不在 PATH**：确认 `visionary-server` 在 PATH；或把 `command` 改为绝对路径。
+- **二进制不在 PATH**：确认 `visionary-cli` 在 PATH；或把 `command` 改为绝对路径。

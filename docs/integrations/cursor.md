@@ -5,7 +5,7 @@
 ## 一键接入（推荐）
 
 ```bash
-visionary-server init cursor
+visionary-cli init cursor
 ```
 
 写入用户级 `~/.cursor/mcp.json` 的 `mcpServers` 键。
@@ -20,7 +20,7 @@ visionary-server init cursor
 {
   "mcpServers": {
     "deepseek-visionary": {
-      "command": "visionary-server",
+      "command": "visionary-cli",
       "args": ["mcp-stdio"]
     }
   }
@@ -38,6 +38,6 @@ visionary-server init cursor
 
 ## 常见问题
 
-- **看不到工具**：在 MCP 面板点击刷新；确认 `visionary-server` 在 PATH。
+- **看不到工具**：在 MCP 面板点击刷新；确认 `visionary-cli` 在 PATH。
 - **未登录**：调用 `deepseek_vision_login` 自动登录；或设置环境变量 `DEEPSEEK_USER_TOKEN`。
 - **二进制不在 PATH**：把 `command` 改为绝对路径。

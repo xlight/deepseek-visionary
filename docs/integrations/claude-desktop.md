@@ -7,7 +7,7 @@
 ## 一键接入（macOS）
 
 ```bash
-visionary-server init claude-desktop
+visionary-cli init claude-desktop
 ```
 
 ## 手动配置
@@ -20,7 +20,7 @@ visionary-server init claude-desktop
 {
   "mcpServers": {
     "deepseek-visionary": {
-      "command": "visionary-server",
+      "command": "visionary-cli",
       "args": ["mcp-stdio"]
     }
   }
@@ -37,6 +37,6 @@ visionary-server init claude-desktop
 
 ## 常见问题
 
-- **看不到工具**：确认已完全退出重启；确认 `visionary-server` 在 PATH（Windows 下为 `visionary-server.exe`）。
+- **看不到工具**：确认已完全退出重启；确认 `visionary-cli` 在 PATH（Windows 下为 `visionary-cli.exe`）。
 - **未登录**：在 Claude Desktop 中调用 `deepseek_vision_login` 完成浏览器自动登录；或预先设置环境变量 `DEEPSEEK_USER_TOKEN`（需从启动器以该环境变量启动应用）。
-- **Mac 上 `command` 找不到**：用绝对路径，如 `"/usr/local/bin/visionary-server"`。
+- **Mac 上 `command` 找不到**：用绝对路径，如 `"/usr/local/bin/visionary-cli"`。

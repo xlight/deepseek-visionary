@@ -1,6 +1,6 @@
 # CLI 用法
 
-`visionary-server` 除 `mcp-stdio`（MCP stdio serve）子命令外，提供完整的命令行子命令面，覆盖与 MCP 工具等价的核心能力。适合终端交互、脚本与 AI agent 调用（配合 `skills/visionary-cli/SKILL.md`）。
+`visionary-cli` 除 `mcp-stdio`（MCP stdio serve）子命令外，提供完整的命令行子命令面，覆盖与 MCP 工具等价的核心能力。适合终端交互、脚本与 AI agent 调用（配合 `skills/visionary-cli/SKILL.md`）。
 
 ## 子命令一览
 
@@ -20,7 +20,7 @@
 ## `vision` 参数
 
 ```
-visionary-server vision <image>... [--prompt <q>] [--thinking] [--continue-conversation] [--session-id <id>] [--stream|--no-stream] [--model-type <vision|ocr>] [--json]
+visionary-cli vision <image>... [--prompt <q>] [--thinking] [--continue-conversation] [--session-id <id>] [--stream|--no-stream] [--model-type <vision|ocr>] [--json]
 ```
 
 - `image`：一个或多个本地路径 / base64 / data URI；多图一次上传、fork、联合分析（与网页端多图行为一致）。`-`（从 stdin 读取全部字节）仅限单图
@@ -61,13 +61,13 @@ visionary-server vision <image>... [--prompt <q>] [--thinking] [--continue-conve
 失败（未登录、图片读取失败、流水线错误）：
 
 ```json
-{ "error": "未登录：请先运行 `visionary-server login` 自动登录……" }
+{ "error": "未登录：请先运行 `visionary-cli login` 自动登录……" }
 ```
 
 ## `ocr` 子命令
 
 ```text
-visionary-server ocr <image>... [--prompt <q>] [--thinking] [--continue-conversation] [--session-id <id>] [--stream|--no-stream] [--json]
+visionary-cli ocr <image>... [--prompt <q>] [--thinking] [--continue-conversation] [--session-id <id>] [--stream|--no-stream] [--json]
 ```
 
 `ocr` 是纯文字提取管道（等价 `vision --model-type ocr`，共享同一 handler），参数面对齐 `vision`，但不暴露 `--model-type`（恒为 ocr）。语义差异：
@@ -78,20 +78,20 @@ visionary-server ocr <image>... [--prompt <q>] [--thinking] [--continue-conversa
 
 ```bash
 # 提取截图/文档图片中的文字
-visionary-server ocr screenshot.png
+visionary-cli ocr screenshot.png
 
 # 结构化提取
-visionary-server ocr scan.png --json
+visionary-cli ocr scan.png --json
 
 # 与 vision 等价
-visionary-server vision scan.png --model-type ocr --json
+visionary-cli vision scan.png --model-type ocr --json
 ```
 
 ## `status` 与 `--json`
 
 ```
-visionary-server status
-visionary-server status --json
+visionary-cli status
+visionary-cli status --json
 ```
 
 默认文本输出：Authenticated / Token configured / smidV2 / Base URL / Token validation。
@@ -121,7 +121,7 @@ token 未配置或探针失败时：`status` 退出码非零（无论是否 `--j
 - 流程继续等待——在同一窗口里登出该账号、换登另一个账号后，登录会自动继续并保存新凭据。
 
 ```
-$ visionary-server login
+$ visionary-cli login
 The account you signed in to is MUTED (upload risk control).
 - Account: xbl*****ht@gmail.com (id: df0b68f1-...)
 - Muted until: 2026-11-15 10:28 UTC (unix 1794738505)
@@ -142,7 +142,7 @@ the login continues automatically once a usable account is detected.
 若启动立刻以 `0x80000003`（STATUS_BREAKPOINT，stderr 为空）退出，几乎总是**完整性级别**问题：
 
 DSH / Codex 沙箱会给**工作区目录**打上 `Mandatory Label\Low`（带 `(OI)(CI)` 继承）。
-工作区里**新构建出来的** `visionary-server.exe` 因此继承同一个 Low 标签 → 进程以 Low 完整性运行 →
+工作区里**新构建出来的** `visionary-cli.exe` 因此继承同一个 Low 标签 → 进程以 Low 完整性运行 →
 它派生出的 `chrome.exe` 同样只能以 Low 完整性启动 → Chrome 初始化渲染进程沙箱时 CHECK 失败 →
 `__debugbreak()` 直接退出。
 
@@ -150,16 +150,16 @@ DSH / Codex 沙箱会给**工作区目录**打上 `Mandatory Label\Low`（带 `(
 
 ```powershell
 # Low 标签 → Chrome 以 0x80000003 崩溃
-icacls .\target\release\visionary-server.exe
+icacls .\target\release\visionary-cli.exe
 
 # 改成 Medium → Chrome 立刻能正常拉起
-icacls .\target\release\visionary-server.exe /setintegritylevel M
+icacls .\target\release\visionary-cli.exe /setintegritylevel M
 ```
 
 仓库里提供了现成脚本（不需要管理员权限，只需对源文件有读权限、对输出目录有写权限）：
 
 ```powershell
-# 默认：把 target\release\visionary-server.exe 复制成 target\release\visionary-server.medium.exe 并改标签
+# 默认：把 target\release\visionary-cli.exe 复制成 target\release\visionary-cli.medium.exe 并改标签
 powershell -ExecutionPolicy Bypass -File .\scripts\fix-integrity.ps1
 
 # 指定源与输出
@@ -176,7 +176,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\fix-integrity.ps1 -Path <源 
 > npm 全局安装的版本不在沙箱工作区内，不受此影响，因此**已发布的 v0.7.8 一直正常**。
 
 程序侧会自我诊断：`login` 启动浏览器失败且当前进程低于 Medium 完整性时，直接报出这个原因和修复命令；
-`visionary-server doctor` 也会把完整性级别列为一项检查。
+`visionary-cli doctor` 也会把完整性级别列为一项检查。
 
 ### 接管已有 Chrome 调试实例（备用路径）
 
@@ -199,7 +199,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\fix-integrity.ps1 -Path <源 
   --user-data-dir="$HOME/.deepseek-visionary/browser"
 ```
 
-保持该窗口打开，重跑 `visionary-server login` 即可完成登录。程序日志会打印实际端口与 profile 路径，请以输出为准。
+保持该窗口打开，重跑 `visionary-cli login` 即可完成登录。程序日志会打印实际端口与 profile 路径，请以输出为准。
 
 ## 账号池与轮询
 
@@ -256,14 +256,14 @@ powershell -ExecutionPolicy Bypass -File .\scripts\fix-integrity.ps1 -Path <源 
 ### `accounts` 子命令组
 
 ```bash
-visionary-server accounts list          # 纯读列出账号（不发起网络请求）
-visionary-server accounts list --json   # 机器可读（PoolView 形状）
-visionary-server accounts status        # 对每个账号并发只读探针，报告健康状态
-visionary-server accounts add           # 打开浏览器添加一个账号
-visionary-server accounts remove <id>   # 移除账号（写墓碑，防其它进程写回复活）
-visionary-server accounts use <id>      # 固定账号（暂停轮询，始终用这个号）
-visionary-server accounts use --clear   # 取消固定，恢复轮询
-visionary-server accounts migrate       # 存量用户一次性导入（幂等、非破坏）
+visionary-cli accounts list          # 纯读列出账号（不发起网络请求）
+visionary-cli accounts list --json   # 机器可读（PoolView 形状）
+visionary-cli accounts status        # 对每个账号并发只读探针，报告健康状态
+visionary-cli accounts add           # 打开浏览器添加一个账号
+visionary-cli accounts remove <id>   # 移除账号（写墓碑，防其它进程写回复活）
+visionary-cli accounts use <id>      # 固定账号（暂停轮询，始终用这个号）
+visionary-cli accounts use --clear   # 取消固定，恢复轮询
+visionary-cli accounts migrate       # 存量用户一次性导入（幂等、非破坏）
 ```
 
 所有子命令都支持 `--json`，输出形状统一为 `PoolView`（CLI / MCP / 插件三端同源）：
@@ -326,7 +326,7 @@ visionary-server accounts migrate       # 存量用户一次性导入（幂等�
 ### 存量用户的一次性迁移
 
 ```bash
-visionary-server accounts migrate
+visionary-cli accounts migrate
 ```
 
 - **幂等**：池中已有同一账号标识则跳过，不产生重复条目
@@ -347,26 +347,26 @@ visionary-server accounts migrate
 
 ```bash
 # 终端交互：流式输出（打字机效果）
-visionary-server vision screenshot.png
+visionary-cli vision screenshot.png
 
 # 指定问题 + DeepThink
-visionary-server vision img.png --prompt "图中有什么？" --thinking
+visionary-cli vision img.png --prompt "图中有什么？" --thinking
 
 # 脚本/agent：结构化输出
-visionary-server vision img.png --json
+visionary-cli vision img.png --json
 
 # 管道输入
-cat img.png | visionary-server vision - --json
+cat img.png | visionary-cli vision - --json
 
 # 会话续聊
-visionary-server vision img2.png --continue
-visionary-server vision img3.png --session-id <上一次的 session_id>
+visionary-cli vision img2.png --continue
+visionary-cli vision img3.png --session-id <上一次的 session_id>
 
 # 登录前预检
-visionary-server status --json || visionary-server login
+visionary-cli status --json || visionary-cli login
 
 # 强制原子输出（即使 stdout 是 TTY）
-visionary-server vision img.png --no-stream
+visionary-cli vision img.png --no-stream
 ```
 
 ## 环境变量

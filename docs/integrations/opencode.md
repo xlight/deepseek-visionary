@@ -5,7 +5,7 @@
 ## 一键接入（推荐）
 
 ```bash
-visionary-server init opencode
+visionary-cli init opencode
 ```
 
 该命令会向 `~/.config/opencode/opencode.json` 的顶层 `mcp` 键写入：
@@ -15,7 +15,7 @@ visionary-server init opencode
   "mcp": {
     "deepseek-visionary": {
       "type": "local",
-      "command": ["visionary-server", "mcp-stdio"],
+      "command": ["visionary-cli", "mcp-stdio"],
       "enabled": true,
       "timeout": 60000
     }
@@ -24,7 +24,7 @@ visionary-server init opencode
 ```
 
 > **为什么 `timeout: 60000`？** OpenCode 的 MCP 工具拉取超时默认 **5000ms**。
-> `visionary-server` 是原生二进制、启动很快，但若通过 `npx`/网络安装器首次冷启动，
+> `visionary-cli` 是原生二进制、启动很快，但若通过 `npx`/网络安装器首次冷启动，
 > 5 秒不够下载/解压，会导致"工具加载失败"。显式设 60000 规避该坑。
 
 ## 手动配置
@@ -37,7 +37,7 @@ visionary-server init opencode
   "mcp": {
     "deepseek-visionary": {
       "type": "local",
-      "command": ["visionary-server", "mcp-stdio"],
+      "command": ["visionary-cli", "mcp-stdio"],
       "enabled": true,
       "timeout": 60000
     }
@@ -58,7 +58,7 @@ opencode mcp list
 
 ## 常见问题
 
-- **首次启动超时 / 工具加载失败**：确认 `timeout` 已设为 60000；确认 `visionary-server` 在 PATH。
-- **`command` 解析失败**：OpenCode 要求 `command` 为数组（`["visionary-server", "mcp-stdio"]`），不是字符串。
+- **首次启动超时 / 工具加载失败**：确认 `timeout` 已设为 60000；确认 `visionary-cli` 在 PATH。
+- **`command` 解析失败**：OpenCode 要求 `command` 为数组（`["visionary-cli", "mcp-stdio"]`），不是字符串。
 - **未登录**：调用 `deepseek_vision` 前先调用 `deepseek_vision_login` 自动登录，或用环境变量 `DEEPSEEK_USER_TOKEN` 注入 token。
 - **二进制不在 PATH**：`init` 会检测并提示安装方式；也可在 `command` 中写绝对路径。

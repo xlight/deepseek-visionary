@@ -17,7 +17,7 @@ graph TD
         DP["@xlight-oss/visionary-dsh 插件<br/>deepseek_vision 等 6 个原生工具<br/>+ 文本模型图片桥接 + 账号池面板"]
         DP -->|宿主进程 spawn| SRV
     end
-    subgraph visionary-server 原生二进制
+    subgraph visionary-cli 原生二进制
         SRV["CLI + MCP stdio 服务<br/>vision / ocr / status / login / logout / skill / init / doctor<br/>mcp-stdio CLI"]
         CFG["~/.deepseek-visionary/config.json<br/>token + smidV2 + cf_clearance + 会话"]
         SRV --> CFG
@@ -26,7 +26,7 @@ graph TD
     SRV -->|CDP 启动 + 监听| BRO["Chrome 系浏览器<br/>仅登录时出现"]
 ```
 
-- **visionary-server**：单二进制，默认 CLI 模式（`vision` / `ocr` / `status` / `login` / `logout` / `skill` / `init` / `doctor`），`mcp-stdio` 子命令显式启动 MCP stdio 服务；实现完整 vision / OCR 流水线（PoW → 上传 → fork → HIF 签名 → SSE 流式 completion）与 CDP 自动登录
+- **visionary-cli**：单二进制（旧名 `visionary-server` 仍作为别名二进制产出），默认 CLI 模式（`vision` / `ocr` / `status` / `login` / `logout` / `skill` / `init` / `doctor`），`mcp-stdio` 子命令显式启动 MCP stdio 服务；实现完整 vision / OCR 流水线（PoW → 上传 → fork → HIF 签名 → SSE 流式 completion）与 CDP 自动登录
 - **@xlight-oss/visionary-dsh**：DSH 原生插件包（npm，纯 ESM 无构建，单包三插件行），经 `ctx.tools` 注册 `deepseek_vision` / `deepseek_ocr` 等 6 个原生工具，宿主进程内 spawn `visionary-server` 复用 Rust 管道（续聊/登录不受 bash 沙箱限制）；内置文本模型图片桥接（纯文本模型会话粘贴图片自动放行 + 改写为文本引导）
 
 ## 安装
@@ -35,21 +35,21 @@ graph TD
 
 ```bash
 # macOS / Linux 一键脚本
-curl -LsSf https://github.com/xlight/deepseek-visionary/releases/latest/download/visionary-server-installer.sh | sh
+curl -LsSf https://github.com/xlight/deepseek-visionary/releases/latest/download/visionary-cli-installer.sh | sh
 
 # Windows（PowerShell 一键，自动绕过执行策略）
-powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://github.com/xlight/deepseek-visionary/releases/latest/download/visionary-server-installer.ps1 | iex"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://github.com/xlight/deepseek-visionary/releases/latest/download/visionary-cli-installer.ps1 | iex"
 
 # 或 Homebrew
-brew install xlight/tap/visionary-server
+brew install xlight/tap/visionary-cli
 
 # 或 npm（全平台）
-npm install -g @xlight-oss/visionary-server
+npm install -g @xlight-oss/visionary-cli
 ```
 
-> 也可以直接从 GitHub Releases 下载对应平台的 `visionary-server-<target-triple>` 裸二进制加入 PATH（Windows 为 `.exe`，或 `.zip` 解压）。
+> 也可以直接从 GitHub Releases 下载对应平台的 `visionary-cli-<target-triple>` 裸二进制加入 PATH（Windows 为 `.exe`，或 `.zip` 解压）。
 > Windows 安装脚本默认装到 `$HOME\.cargo\bin` 并自动写入 PATH（加 `-NoModifyPath` 可跳过）；该目录只是 cargo-dist 的默认命名约定，**不要求安装 cargo**——非 Rust 用户可用 `VISIONARY_SERVER_INSTALL_DIR` 环境变量自定义安装目录，或直接用 npm 全局包。首次运行若遇 SmartScreen 弹窗，点「更多信息 → 仍要运行」即可。
-> **npm 全局包注意**：Windows 上 `npm install -g @xlight-oss/visionary-server` 的 PATH 里只有 shim（`.cmd` / `.ps1`），DSH 原生插件会自动解析 shim 定位真实 exe——安装后重启 DSH 即可用。
+> **npm 全局包注意**：Windows 上 `npm install -g @xlight-oss/visionary-cli` 的 PATH 里只有 shim（`.cmd` / `.ps1`），DSH 原生插件会自动解析 shim 定位真实 exe——安装后重启 DSH 即可用。
 
 ### 2. 快速开始（CLI + skill，推荐）
 
@@ -57,18 +57,18 @@ CLI 是零配置入口：安装后即可直接在终端 / 脚本 / AI agent 中�
 
 ```bash
 # 浏览器自动登录（后续无需重复）
-visionary-server login
+visionary-cli login
 
 # 识图（agent/脚本调用务必加 --json 原子输出）
-visionary-server vision screenshot.png
-visionary-server vision img.png --json --prompt "图中有什么？" --thinking
+visionary-cli vision screenshot.png
+visionary-cli vision img.png --json --prompt "图中有什么？" --thinking
 ```
 
 给 AI agent 使用时，把内嵌的调用契约 skill 装进 agent 的 skills 目录，agent 即学会以 `--json` 原子输出正确调用：
 
 ```bash
 # skill 内嵌于二进制，一条命令安装/更新
-visionary-server skill install
+visionary-cli skill install
 # → 写入 ~/.agents/skills/visionary-cli/SKILL.md
 # 可将该目录移动到所用 agent 的默认 skills 目录
 ```
@@ -79,33 +79,33 @@ visionary-server skill install
 
 ```bash
 # 一键检测并接入（列出已安装 agent）
-visionary-server init
+visionary-cli init
 
 # 接入指定 agent
-visionary-server init opencode
-visionary-server init codex
-visionary-server init claude
-visionary-server init cursor
-visionary-server init claude-desktop
-visionary-server init dsh   # DeepSeek Harness（skill + CLI 轻量接入）
+visionary-cli init opencode
+visionary-cli init codex
+visionary-cli init claude
+visionary-cli init cursor
+visionary-cli init claude-desktop
+visionary-cli init dsh   # DeepSeek Harness（skill + CLI 轻量接入）
 
 # 批量接入多个 agent（免交互）
-visionary-server init --opencode --codex --dsh --yes
+visionary-cli init --opencode --codex --dsh --yes
 
 # 先预览将写入的配置（不落盘）
-visionary-server init opencode --dry-run
+visionary-cli init opencode --dry-run
 ```
 
 各 agent 的详细接入文档见 [docs/integrations/](docs/integrations/)：
 
 | Agent | 文档 | 一键命令 |
 |-------|------|----------|
-| OpenCode | [opencode.md](docs/integrations/opencode.md) | `visionary-server init opencode` |
-| Codex | [codex.md](docs/integrations/codex.md) | `visionary-server init codex` |
-| Claude Code | [claude-code.md](docs/integrations/claude-code.md) | `visionary-server init claude` |
-| Cursor | [cursor.md](docs/integrations/cursor.md) | `visionary-server init cursor` |
-| Claude Desktop | [claude-desktop.md](docs/integrations/claude-desktop.md) | `visionary-server init claude-desktop` |
-| DeepSeek Harness | [deepseek-harness.md](docs/integrations/deepseek-harness.md) | 原生插件 `dsh plugin --profile web add @xlight-oss/visionary-dsh`（推荐）或 `visionary-server init dsh`（skill + CLI 轻量接入） |
+| OpenCode | [opencode.md](docs/integrations/opencode.md) | `visionary-cli init opencode` |
+| Codex | [codex.md](docs/integrations/codex.md) | `visionary-cli init codex` |
+| Claude Code | [claude-code.md](docs/integrations/claude-code.md) | `visionary-cli init claude` |
+| Cursor | [cursor.md](docs/integrations/cursor.md) | `visionary-cli init cursor` |
+| Claude Desktop | [claude-desktop.md](docs/integrations/claude-desktop.md) | `visionary-cli init claude-desktop` |
+| DeepSeek Harness | [deepseek-harness.md](docs/integrations/deepseek-harness.md) | 原生插件 `dsh plugin --profile web add @xlight-oss/visionary-dsh`（推荐）或 `visionary-cli init dsh`（skill + CLI 轻量接入） |
 
 > **DeepSeek Harness 原生插件**：DSH 用户还可安装 npm 插件包 `@xlight-oss/visionary-dsh`，把 `deepseek_vision` / `deepseek_ocr` / `deepseek_vision_status` / `deepseek_vision_login` / `deepseek_vision_logout` 注册为 DSH 原生工具（结构化 schema、宿主级执行，续聊/登录不受 bash 沙箱限制），安装详见 [packages/dsh-plugin/README.md](packages/dsh-plugin/README.md)。
 
@@ -138,7 +138,7 @@ dsh plugin --profile web add /path/to/packages/dsh-plugin
 
 登录凭据保存在 `~/.deepseek-visionary/config.json`，CLI / MCP / DSH 插件三路共享；浏览器自动登录会打开窗口导航到 chat.deepseek.com，登录后自动抓取 token 并保存：
 
-- CLI：`visionary-server login`（可先 `status --json` 预检）
+- CLI：`visionary-cli login`（可先 `status --json` 预检）
 - MCP / DSH 原生工具：调用 `deepseek_vision_login`
 
 登录成功后 CLI / MCP 会用**只读探针**（`GET /api/v0/users/current`）判定账号健康。若账号被上传风控静音
@@ -159,7 +159,7 @@ Chrome 调试实例（读取本机 DevTools 端点，兜底端口 `9222`），�
 - 账号被上传风控静音（`biz_code=14`）或凭据失效（`40003`）时自动标记不可用并换下一个账号重试该次请求
 - 会话按账号隔离存储，换号不会串会话；显式传入的 session id 原样复用
 - 池存在时 `DEEPSEEK_USER_TOKEN` 等环境变量**不参与选号**（`status` 会提示"环境变量已忽略"）
-- 存量用户可执行一次 `visionary-server accounts migrate` 把既有凭据导入池（幂等、非破坏、需联网）
+- 存量用户可执行一次 `visionary-cli accounts migrate` 把既有凭据导入池（幂等、非破坏、需联网）
 
 没有 `accounts.json` 时行为与单账号版本完全一致。详见 [docs/cli.md](docs/cli.md#账号池与轮询)。
 
@@ -172,7 +172,7 @@ Chrome 调试实例（读取本机 DevTools 端点，兜底端口 `9222`），�
 
 ### 6. 使用
 
-- **CLI**：`visionary-server vision <image>` 识图（详见下文「CLI 工具」）
+- **CLI**：`visionary-cli vision <image>` 识图（详见下文「CLI 工具」）
 - **MCP / DSH 原生工具**：调用 `deepseek_vision` 传入图片路径 / base64 / data URI 即可识图
 
 
@@ -180,17 +180,17 @@ Chrome 调试实例（读取本机 DevTools 端点，兜底端口 `9222`），�
 
 | 命令 | 说明 |
 |------|------|
-| `visionary-server`（无参数） | 输出 help 用法信息并退出码 2（不进入任何模式） |
-| `visionary-server --version` | 输出版本号 |
-| `visionary-server mcp-stdio` | 显式启动 MCP stdio 服务（MCP 模式入口，所有 agent 配置均以此启动） |
-| `visionary-server vision <image>...` | 用视觉模型分析一张或多张图片（CLI 版 `deepseek_vision`）。`image` 支持路径 / base64 / data URI / `-`（stdin，仅单图）；多图一次上传联合分析（与网页端多图行为一致）；`--prompt` / `--thinking` / `--continue-conversation` / `--session-id` / `--json` / `--stream` / `--no-stream` / `--model-type`（`vision` 或 `ocr`，默认 vision） |
-| `visionary-server ocr <image>...` | 用纯 OCR 管道原样提取图片中的文字（CLI 版 `deepseek_ocr`，等价 `vision --model-type ocr`）。参数面对齐 `vision`（无 `--model-type`，恒为 ocr）；默认提示词为文字提取语义；无文字图片输出业务提示并退出非零 |
-| `visionary-server status` | 轻量鉴权状态检查（CLI 版 `deepseek_vision_status`），`--json` 输出结构化状态 |
-| `visionary-server login` | 浏览器自动登录（CLI 版 `deepseek_vision_login`） |
-| `visionary-server logout` | 清除保存的凭据（CLI 版 `deepseek_vision_logout`） |
-| `visionary-server skill install` | 安装 agent 调用契约 skill 到 `~/.agents/skills/`（内嵌于二进制） |
-| `visionary-server doctor` | 诊断环境：config 路径/权限、浏览器、token 有效性、平台 |
-| `visionary-server init [agent]` | 检测并接入已安装的 AI agent（`--dry-run` / `--yes` / 多选 flags，含 `dsh`） |
+| `visionary-cli`（无参数） | 输出 help 用法信息并退出码 2（不进入任何模式） |
+| `visionary-cli --version` | 输出版本号 |
+| `visionary-cli mcp-stdio` | 显式启动 MCP stdio 服务（MCP 模式入口，所有 agent 配置均以此启动） |
+| `visionary-cli vision <image>...` | 用视觉模型分析一张或多张图片（CLI 版 `deepseek_vision`）。`image` 支持路径 / base64 / data URI / `-`（stdin，仅单图）；多图一次上传联合分析（与网页端多图行为一致）；`--prompt` / `--thinking` / `--continue-conversation` / `--session-id` / `--json` / `--stream` / `--no-stream` / `--model-type`（`vision` 或 `ocr`，默认 vision） |
+| `visionary-cli ocr <image>...` | 用纯 OCR 管道原样提取图片中的文字（CLI 版 `deepseek_ocr`，等价 `vision --model-type ocr`）。参数面对齐 `vision`（无 `--model-type`，恒为 ocr）；默认提示词为文字提取语义；无文字图片输出业务提示并退出非零 |
+| `visionary-cli status` | 轻量鉴权状态检查（CLI 版 `deepseek_vision_status`），`--json` 输出结构化状态 |
+| `visionary-cli login` | 浏览器自动登录（CLI 版 `deepseek_vision_login`） |
+| `visionary-cli logout` | 清除保存的凭据（CLI 版 `deepseek_vision_logout`） |
+| `visionary-cli skill install` | 安装 agent 调用契约 skill 到 `~/.agents/skills/`（内嵌于二进制） |
+| `visionary-cli doctor` | 诊断环境：config 路径/权限、浏览器、token 有效性、平台 |
+| `visionary-cli init [agent]` | 检测并接入已安装的 AI agent（`--dry-run` / `--yes` / 多选 flags，含 `dsh`） |
 
 ### CLI 输出模式（`vision`）
 
@@ -200,34 +200,34 @@ Chrome 调试实例（读取本机 DevTools 端点，兜底端口 `9222`），�
 |------|----------|--------|
 | 终端（TTY） | 流式打印回答文本 | 人 |
 | 管道/脚本（非 TTY） | 一次性输出完整文本 | 脚本兑底 |
-| `visionary-server vision img.png --json` | 原子 JSON：`{"text", "session_id", "parent_message_id"}`（失败为 `{"error"}`） | 脚本 / AI agent（推荐） |
+| `visionary-cli vision img.png --json` | 原子 JSON：`{"text", "session_id", "parent_message_id"}`（失败为 `{"error"}`） | 脚本 / AI agent（推荐） |
 
 `--stream` / `--no-stream` 可强制指定模式；`--json` 恒为原子输出（不与 `--stream` 同用）。失败时退出码非零。
 
 ```bash
 # 终端交互：流式输出
-visionary-server vision screenshot.png
+visionary-cli vision screenshot.png
 
 # 脚本/agent：结构化输出
-visionary-server vision img.png --json --prompt "图中有什么？"
+visionary-cli vision img.png --json --prompt "图中有什么？"
 
 # 管道输入
-cat img.png | visionary-server vision - --json
+cat img.png | visionary-cli vision - --json
 ```
 
 ### AI agent 使用（CLI + Skill）
 
-CLI 也是 AI agent 的零 MCP 配置工具面：只要 `visionary-server` 在 PATH，任何能执行 shell 的 agent 都可以调用它。二进制内嵌 agent 调用契约 `SKILL.md`（随安装具备），核心约定：**agent 调用 `vision` 必须加 `--json` 原子输出**（流式文本无结构化边界，不可可靠解析）。
+CLI 也是 AI agent 的零 MCP 配置工具面：只要 `visionary-cli`（或旧名 `visionary-server`）在 PATH，任何能执行 shell 的 agent 都可以调用它。二进制内嵌 agent 调用契约 `SKILL.md`（随安装具备），核心约定：**agent 调用 `vision` 必须加 `--json` 原子输出**（流式文本无结构化边界，不可可靠解析）。
 
 安装 skill 到 agent skill 目录：
 
 ```bash
 # skill 内嵌于二进制，无需本地仓库，一条命令安装/更新
-visionary-server skill install
+visionary-cli skill install
 # → 写入 ~/.agents/skills/visionary-cli/SKILL.md
 ```
 
-> **DeepSeek Harness（DSH）**：DSH 默认扫描 `~/.agents/skills` 与 `~/.dsh/skills` 作为技能根，上述位置天然兼容；运行 `visionary-server init dsh` 会额外写入 DSH 专属技能根并汇总提示（见 [deepseek-harness.md](docs/integrations/deepseek-harness.md)）。DSH 用户更推荐安装原生插件 `@xlight-oss/visionary-dsh`（`dsh plugin --profile web add`），把 `deepseek_vision` 等注册为宿主级原生工具，续聊/登录不受 bash 沙箱限制（见 [packages/dsh-plugin/README.md](packages/dsh-plugin/README.md)）。
+> **DeepSeek Harness（DSH）**：DSH 默认扫描 `~/.agents/skills` 与 `~/.dsh/skills` 作为技能根，上述位置天然兼容；运行 `visionary-cli init dsh` 会额外写入 DSH 专属技能根并汇总提示（见 [deepseek-harness.md](docs/integrations/deepseek-harness.md)）。DSH 用户更推荐安装原生插件 `@xlight-oss/visionary-dsh`（`dsh plugin --profile web add`），把 `deepseek_vision` 等注册为宿主级原生工具，续聊/登录不受 bash 沙箱限制（见 [packages/dsh-plugin/README.md](packages/dsh-plugin/README.md)）。
 
 ## 工具面（MCP / DSH 原生）
 
@@ -236,7 +236,7 @@ visionary-server skill install
 | 工具 | 说明 |
 |------|------|
 | `deepseek_vision` | 上传一张或多张图片（路径 / base64 / data URI）并用 DeepSeek 视觉模型分析；多图经 `images` 数组一次上传、模型联合分析（与网页端多图行为一致）。参数：`images`（多图）/ `image`（单图，向后兼容，二选一）、`prompt`、`thinking`、`continue_conversation`、`session_id` |
-| `deepseek_ocr` | 用纯 OCR 管道原样提取图片中的文字（等价 CLI `visionary-server ocr`）。定位于**文字提取**而非理解：截图 / 文档 / 代码 / 表格 / 标识。参数面与 `deepseek_vision` 完全一致；图片无文字时以错误提示返回「图片中未提取到文字」 |
+| `deepseek_ocr` | 用纯 OCR 管道原样提取图片中的文字（等价 CLI `visionary-cli ocr`）。定位于**文字提取**而非理解：截图 / 文档 / 代码 / 表格 / 标识。参数面与 `deepseek_vision` 完全一致；图片无文字时以错误提示返回「图片中未提取到文字」 |
 | `deepseek_vision_status` | 检查登录状态与 token 有效性（含真实校验探针） |
 | `deepseek_vision_login` | 浏览器自动登录并抓取凭据（阻塞，超时可配） |
 | `deepseek_vision_logout` | 清除保存的凭据 |
@@ -272,13 +272,13 @@ visionary-server skill install
 
 ```bash
 # 构建原生服务
-cargo build -p visionary-server --release
+cargo build -p visionary-cli --release
 
 # 构建扩展壳（wasm32-wasip2）
 rustup target add wasm32-wasip2
 
 # 测试
-cargo test -p visionary-server
+cargo test -p visionary-cli
 
 # DSH 插件包（纯 ESM，无构建；开发需装 devDependencies 供本地 link 安装解析 peer）
 cd packages/dsh-plugin && pnpm install
