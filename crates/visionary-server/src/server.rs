@@ -14,7 +14,7 @@ use crate::pipeline::{self, VisionRequest};
 use crate::session::SessionStore;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{CallToolResult, ContentBlock, ServerCapabilities, ServerInfo};
+use rmcp::model::{CallToolResult, ContentBlock, ServerCapabilities, ServerConfig};
 use rmcp::schemars;
 use rmcp::{tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler};
 use serde::{Deserialize, Serialize};
@@ -540,8 +540,8 @@ impl VisionaryServer {
 
 #[tool_handler]
 impl ServerHandler for VisionaryServer {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_instructions(
                 "You are connected to DeepSeek Visionary (image analysis).\n\
                  \n\
