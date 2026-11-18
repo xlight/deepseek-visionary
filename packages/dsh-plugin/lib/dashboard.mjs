@@ -263,7 +263,7 @@ let VisionaryDashboard = (() => {
     }
 
     /**
-     * Trigger `visionary-server login` (async, non-blocking). Returns when the
+     * Trigger `visionary-cli login` (async, non-blocking). Returns when the
      * login command exits; the browser may poll getStatus() for the result.
      */
     async relogin() {
