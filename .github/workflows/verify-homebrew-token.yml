@@ -1,0 +1,53 @@
+# 临时验证 workflow：确认 HOMEBREW_TAP_TOKEN 对 xlight/homebrew-tap 有写权限。
+# 验证完成后删除本文件。
+
+name: Verify Homebrew Token
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: probe xlight/homebrew-tap write access
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check token identity and repo access
+        env:
+          TAPE_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TAPE_TOKEN:-}" ]; then
+            echo '::error::HOMEBREW_TAP_TOKEN is empty or unset'
+            exit 1
+          fi
+          echo "token present (length ${#TAPE_TOKEN})"
+
+          # 1) token 对应哪个身份
+          echo '--- token identity ---'
+          curl -sS -H "Authorization: Bearer $TAPE_TOKEN" \
+            https://api.github.com/user \
+            | jq -r 'if .login then "login=" + .login else "ERROR: " + (.message // "no login") end'
+
+          # 2) token 对该仓库的权限位（contents/admin/push）
+          echo '--- repo permissions ---'
+          curl -sS -H "Authorization: Bearer $TAPE_TOKEN" \
+            https://api.github.com/repos/xlight/homebrew-tap \
+            | jq -r 'if .permissions then "permissions=" + (.permissions|tostring) else "ERROR: " + (.message // "no permissions field") end'
+
+          # 3) 真正证明写权限：用 git 协议做一次 dry-run push
+          echo '--- git push --dry-run ---'
+          git config --global user.email 'ci@example.com'
+          git config --global user.name 'ci'
+          git clone --quiet --depth 1 \
+            "https://x-access-token:${TAPE_TOKEN}@github.com/xlight/homebrew-tap.git" tap
+          cd tap
+          git commit --allow-empty -q -m 'token verification probe'
+          if git push --dry-run origin HEAD 2>&1; then
+            echo 'PUSH DRY-RUN OK: token can write to xlight/homebrew-tap'
+          else
+            echo '::error::git push --dry-run failed: token lacks write access'
+            exit 1
+          fi
