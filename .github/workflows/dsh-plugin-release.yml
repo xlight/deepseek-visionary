@@ -64,11 +64,24 @@ jobs:
           # Trusted Publishing 要求 Node >= 22.14.0（npm 11.5.1+ 的运行时）
           node-version: 22
           registry-url: https://registry.npmjs.org
-          cache: pnpm
+          # 手动验证模式不装依赖，lockfile 缓存路径不存在会让 Post 步骤失败
+          cache: ${{ inputs.verify_oidc_only != true && 'pnpm' || '' }}
           cache-dependency-path: packages/dsh-plugin/pnpm-lock.yaml
 
       - name: Upgrade npm (Trusted Publishing needs npm >= 11.5.1)
         run: npm install -g npm@11.5.1
+
+      # setup-node 的 registry-url 会生成引用 ${NODE_AUTH_TOKEN} 的 .npmrc。
+      # 已改为 OIDC 免 token，显式置空该变量，避免 pnpm/清理阶段的 env 替换告警。
+      - name: Clear legacy NODE_AUTH_TOKEN reference
+        run: |
+          CFG="${NPM_CONFIG_USERCONFIG:-}"
+          if [ -n "$CFG" ] && [ -f "$CFG" ]; then
+            echo 'NODE_AUTH_TOKEN=' >> "$CFG"
+            echo "appended empty NODE_AUTH_TOKEN to $CFG"
+          else
+            echo "NPM_CONFIG_USERCONFIG not set or missing; skipping"
+          fi
 
       # 手动验证模式：确认 GitHub 注入了 OIDC 环境变量、npm 能识别 trusted publishing。
       # 这里只做只读的令牌交换探测，不触碰 registry 写入。
