@@ -286,7 +286,7 @@ cd packages/dsh-plugin && pnpm install
 
 ## 发布
 
-版本号由 `scripts/bump_version.py` 统一管理（同步 Cargo.toml / Cargo.lock×2 / extension.toml / packages/dsh-plugin/package.json / packages/dsh-plugin/lib/index.mjs 的 `COMPAT_MINOR` / server.json 共 7 个版本条目并校验一致性）：
+版本号由 `scripts/bump_version.py` 统一管理（同步 Cargo.toml / Cargo.lock / packages/dsh-plugin/package.json / packages/dsh-plugin/lib/index.mjs 的 `COMPAT_MINOR` / server.json 各版本条目并校验一致性）：
 
 ```bash
 # 只 bump + 校验 + 打印步骤
@@ -296,6 +296,8 @@ python3 scripts/bump_version.py <new-version>
 # （tag push 触发 cargo-dist 二进制发布 / npm 发布 workflow）
 python3 scripts/bump_version.py <new-version> --release
 ```
+
+**发布通道的凭据**：npm 发布走 **Trusted Publishing（OIDC）**——GitHub Actions 用 `id-token: write` 换取短期凭证，`release.yml` 与 `dsh-plugin-release.yml` 都不再需要 `NPM_TOKEN`。首次配置需在 npmjs.com 为每个包指定 Trusted Publisher（`xlight` / `deepseek-visionary` / 对应 workflow 文件名）。Homebrew 走 `HOMEBREW_TAP_TOKEN`（需对 `xlight/homebrew-tap` 有 Contents: write）。
 
 发布完成后，`update-server-json` workflow（`workflow_run` 监听 Release 成功）自动下载 5 平台 `.mcpb`、运行
 `scripts/update_server_json.py` 并把 `server.json` 的 `fileSha256` 回填为实际产物哈希（MCP Registry 元数据，commit 回 main）。

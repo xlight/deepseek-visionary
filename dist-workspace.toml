@@ -18,7 +18,7 @@ targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-da
 # Where to host releases
 hosting = "github"
 # 发布通道（发布 job）：npm/homebrew 资源已就绪（xlight/homebrew-tap 已创建、
-# NPM_TOKEN secret 已配置、npm 组织 xlight-oss 已授权），正式启用。
+# npm Trusted Publisher 已配置 → 免 token OIDC 发布，无需 NPM_TOKEN），正式启用。
 publish-jobs = ["homebrew", "npm"]
 # Homebrew tap：发布时推送 formula 到 xlight/homebrew-tap（需先创建该 tap 仓库，见 design.md Open Questions）
 tap = "xlight/homebrew-tap"
@@ -32,7 +32,8 @@ tap = "xlight/homebrew-tap"
 #   "The configuration 'macos-14-arm64-us-default' is not supported"。
 github-custom-runners = { "aarch64-apple-darwin" = "macos-15", "x86_64-apple-darwin" = "macos-15-intel", "x86_64-unknown-linux-gnu" = "ubuntu-22.04", "aarch64-unknown-linux-gnu" = "ubuntu-22.04-arm", "x86_64-pc-windows-msvc" = "windows-2022" }
 
-# npm：scoped 包名 @xlight-oss/visionary-server（npm 组织 xlight-oss，token 已授权该组织发布权限）
+# npm：scoped 包名 @xlight-oss/visionary-server（npm 组织 xlight-oss；
+# 发布走 Trusted Publisher / OIDC，由 GitHub Actions 的 id-token 换取短期凭证，无长期 token）
 # 注意：键必须是 `npm-scope`（不是 scope），位于 [dist] 段——cargo-dist 0.32 的 npm installer 配置
 npm-scope = "@xlight-oss"
 

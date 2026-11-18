@@ -2,10 +2,15 @@
 #
 # 触发：push tag vX.Y.Z（与 cargo-dist 二进制发布同 tag 触发）
 # 流程：版本一致性校验（tag == package.json version == workspace Cargo.toml）
-#       → pnpm install（锁文件）→ pnpm publish
+#       → pnpm install（锁文件）→ npm publish（OIDC 免 token）
 #
 # 前置条件：
-#   1. 仓库 secrets 已配置 NPM_TOKEN（npmjs.com → Access Tokens → publish）
+#   1. npm Trusted Publisher 已配置（npmjs.com → package → Settings →
+#      Trusted Publisher → GitHub Actions）：
+#        Organization/user: xlight
+#        Repository:        deepseek-visionary
+#        Workflow filename: dsh-plugin-release.yml
+#      要求 npm CLI >= 11.5.1 且 Node >= 22.14.0（workflow 已升级 npm）
 #   2. 打 tag 前确认 packages/dsh-plugin/package.json 的 version 与
 #      workspace Cargo.toml 一致（workflow 会校验并失败）
 #   3. 首次发布需 npm 包名 @xlight-oss/visionary-dsh 未被占用
@@ -23,6 +28,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # OIDC 令牌签发：npm CLI 用它换取短期凭证（Trusted Publishing，免 NPM_TOKEN）
+      id-token: write
     steps:
       - uses: actions/checkout@v7
 
@@ -44,17 +51,21 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          # Trusted Publishing 要求 Node >= 22.14.0（npm 11.5.1+ 的运行时）
+          node-version: 22
           registry-url: https://registry.npmjs.org
           cache: pnpm
           cache-dependency-path: packages/dsh-plugin/pnpm-lock.yaml
+
+      - name: Upgrade npm (Trusted Publishing needs npm >= 11.5.1)
+        run: npm install -g npm@11.5.1
 
       - name: Install dev dependencies
         run: pnpm install --frozen-lockfile
         working-directory: packages/dsh-plugin
 
-      - name: Publish to npm
-        run: pnpm publish --no-git-checks --access public
-        working-directory: packages/dsh-plugin
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # 免 token 发布：npm CLI 检测到 GitHub Actions 环境后走 OIDC 换取短期凭证。
+      # 刻意不提供 NODE_AUTH_TOKEN —— 让 OIDC 失败时直接报错，而不是静默回退到旧 token。
+      # 用 npm 而非 pnpm 发布：OIDC 交换逻辑在 npm CLI 中（pnpm publish 不做 token exchange）。
+      - name: Publish to npm (OIDC / trusted publishing)
+        run: npm publish --access public

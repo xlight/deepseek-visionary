@@ -392,6 +392,14 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       PLAN: ${{ needs.plan.outputs.val }}
+    # 免 token 发布：npm CLI 在 GitHub Actions 里通过 OIDC 换取短期凭证。
+    # 需在 npmjs.com 为该包配置 Trusted Publisher：
+    #   Organization/user: xlight
+    #   Repository:        deepseek-visionary
+    #   Workflow filename: release.yml
+    permissions:
+      contents: read
+      id-token: write
     if: ${{ !fromJson(needs.plan.outputs.val).announcement_is_prerelease || fromJson(needs.plan.outputs.val).publish_prereleases }}
     steps:
       - name: Fetch npm packages
@@ -402,15 +410,17 @@ jobs:
           merge-multiple: true
       - uses: actions/setup-node@v7
         with:
-          node-version: '20.x'
+          # Trusted Publishing 要求 Node >= 22.14.0（npm 11.5.1+ 的运行时）
+          node-version: '22.x'
           registry-url: 'https://registry.npmjs.org'
+      - name: Upgrade npm (Trusted Publishing needs npm >= 11.5.1)
+        run: npm install -g npm@11.5.1
+      # 刻意不设置 NODE_AUTH_TOKEN：OIDC 失败时直接报错，而非静默回退到旧 token。
       - run: |
           for release in $(echo "$PLAN" | jq --compact-output '.releases[] | select([.artifacts[] | endswith("-npm-package.tar.gz")] | any)'); do
             pkg=$(echo "$release" | jq '.artifacts[] | select(endswith("-npm-package.tar.gz"))' --raw-output)
             npm publish --access public "./npm/${pkg}"
           done
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   announce:
     needs:
