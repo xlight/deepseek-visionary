@@ -12,7 +12,7 @@
     {
       "registryType": "mcpb",
       "identifier": "https://github.com/xlight/deepseek-visionary/releases/download/v0.8.0/visionary-server-aarch64-apple-darwin.mcpb",
-      "fileSha256": "d060f275c1c0a8d7be1f3a174c77be22f72761c6ae71d57424965b5eb30937a6",
+      "fileSha256": "5fe3424cff2437b8d66ba2fbd291ff0df64a275c09932506456b50e45d9fd265",
       "transport": {
         "type": "stdio"
       }
@@ -20,7 +20,7 @@
     {
       "registryType": "mcpb",
       "identifier": "https://github.com/xlight/deepseek-visionary/releases/download/v0.8.0/visionary-server-x86_64-apple-darwin.mcpb",
-      "fileSha256": "54d8ed5d5222466698b10349d1f277c5abc5bbe757335a2c4908b9dbb5ddb05a",
+      "fileSha256": "71178010b259f413e92ed84140dcbca3d6bb944d9cd99f138bf8a35450ce2536",
       "transport": {
         "type": "stdio"
       }
@@ -28,7 +28,7 @@
     {
       "registryType": "mcpb",
       "identifier": "https://github.com/xlight/deepseek-visionary/releases/download/v0.8.0/visionary-server-x86_64-unknown-linux-gnu.mcpb",
-      "fileSha256": "ca65de941a7182b20996fdbdb94297f40b337ddeb4e0170e39e2fa7f159401de",
+      "fileSha256": "3440577a0c6434788745dc25416587ff786b7960b411ad659692e71c4ef96b7f",
       "transport": {
         "type": "stdio"
       }
@@ -36,7 +36,7 @@
     {
       "registryType": "mcpb",
       "identifier": "https://github.com/xlight/deepseek-visionary/releases/download/v0.8.0/visionary-server-aarch64-unknown-linux-gnu.mcpb",
-      "fileSha256": "37a94d5812df932487e4cd79c1eb05a2d0a2bf01d7d506475283f34c9a164f1c",
+      "fileSha256": "efcae266be38270aaed9a57832f62f3e1b875daae1956761f8fa7028d28c75b3",
       "transport": {
         "type": "stdio"
       }
@@ -44,7 +44,7 @@
     {
       "registryType": "mcpb",
       "identifier": "https://github.com/xlight/deepseek-visionary/releases/download/v0.8.0/visionary-server-x86_64-pc-windows-msvc.mcpb",
-      "fileSha256": "4bcce87ceb6325cb1c4bbad76c2ad4ae81748fa6b171768dec3a4bcf92696ec5",
+      "fileSha256": "9478b2b8a6af0447b7d0bac5fbe47e2e581cfd32adb59173f1f6a1319e1be6c7",
       "transport": {
         "type": "stdio"
       }
