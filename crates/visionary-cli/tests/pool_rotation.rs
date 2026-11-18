@@ -19,7 +19,7 @@ use std::process::Command;
 use std::sync::mpsc;
 
 fn bin() -> &'static str {
-    env!("CARGO_BIN_EXE_visionary-server")
+    env!("CARGO_BIN_EXE_visionary-cli")
 }
 
 /// 隔离用户目录：放在工作区 target 下（保证子进程可写）。

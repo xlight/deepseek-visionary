@@ -204,11 +204,11 @@ fn run_init(home: &Path, args: &InitArgs) -> Result<()> {
     }
 
     // 二进制 PATH 检测（避免写出无效配置）
-    if find_in_path("visionary-server").is_none() {
+    if find_in_path("visionary-cli").is_none() && find_in_path("visionary-server").is_none() {
         bail!(
-            "visionary-server is not in PATH. Install it first:\n\
-             - One-liner: curl -LsSf https://github.com/xlight/deepseek-visionary/releases/latest/download/visionary-server-installer.sh | sh\n\
-             - Homebrew: brew install <tap>/visionary-server\n\
+            "`visionary-cli` is not in PATH. Install it first:\n\
+             - One-liner: curl -LsSf https://github.com/xlight/deepseek-visionary/releases/latest/download/visionary-cli-installer.sh | sh\n\
+             - Homebrew: brew install <tap>/visionary-cli\n\
              - npm: npm install -g <npm-package>\n\
              Or add the binary to PATH and retry."
         );
@@ -257,7 +257,7 @@ fn resolve_targets(args: &InitArgs) -> Result<Vec<Agent>> {
         if !flags.is_empty() {
             bail!(
                 "Argument conflict: positional agent and multi-select flags cannot be combined.\
-                 Use either `visionary-server init <agent>` or `init --opencode --codex ...` (not both)"
+                 Use either `visionary-cli init <agent>` or `init --opencode --codex ...` (not both)"
             );
         }
         let agent = Agent::from_name(name).ok_or_else(|| {
@@ -295,7 +295,7 @@ fn interactive_listing(home: &Path) -> Result<()> {
     }
     println!();
     println!(
-        "Run `visionary-server init <agent>` to configure one, or `--opencode --codex ... --yes` to batch configure."
+        "Run `visionary-cli init <agent>` to configure one, or `--opencode --codex ... --yes` to batch configure."
     );
     Ok(())
 }
@@ -338,7 +338,7 @@ fn write_dsh(home: &Path, dry_run: bool) -> Result<()> {
     println!(
         "  Skills installed to the DSH discovery roots. Restart dsh (or wait for its skill watcher)\n\
          and the `visionary-cli` skill will appear in the harness skill catalog.\n\
-         Tip: run `visionary-server login` first, then the agent calls `visionary-server vision <image> --json`."
+         Tip: run `visionary-cli login` first, then the agent calls `visionary-cli vision <image> --json`."
     );
     Ok(())
 }
@@ -348,7 +348,7 @@ fn write_opencode(home: &Path, dry_run: bool) -> Result<()> {
     let path = opencode_config_path(home);
     let entry = serde_json::json!({
         "type": "local",
-        "command": ["visionary-server", "mcp-stdio"],
+        "command": ["visionary-cli", "mcp-stdio"],
         "enabled": true,
         "timeout": OPENCODE_TIMEOUT_MS,
     });
@@ -367,7 +367,7 @@ fn write_codex(home: &Path, dry_run: bool) -> Result<()> {
                     "add",
                     SERVER_NAME,
                     "--",
-                    "visionary-server",
+                    "visionary-cli",
                     "mcp-stdio",
                 ])
                 .status();
@@ -411,7 +411,7 @@ fn write_claude(home: &Path, dry_run: bool) -> Result<()> {
                     "--scope",
                     "user",
                     "--",
-                    "visionary-server",
+                    "visionary-cli",
                     "mcp-stdio",
                 ])
                 .status();
@@ -424,7 +424,7 @@ fn write_claude(home: &Path, dry_run: bool) -> Result<()> {
         }
     }
 
-    let entry = serde_json::json!({ "command": "visionary-server", "args": ["mcp-stdio"] });
+    let entry = serde_json::json!({ "command": "visionary-cli", "args": ["mcp-stdio"] });
     merge_json_key(&path, &["mcpServers", SERVER_NAME], &entry, dry_run)
 }
 
@@ -433,14 +433,14 @@ fn write_claude_desktop(home: &Path, dry_run: bool) -> Result<()> {
     let path = claude_desktop_config_path(home).ok_or_else(|| {
         anyhow!("auto-locating the Claude Desktop config is not supported on this platform; configure manually (see docs/integrations/claude-desktop.md)")
     })?;
-    let entry = serde_json::json!({ "command": "visionary-server", "args": ["mcp-stdio"] });
+    let entry = serde_json::json!({ "command": "visionary-cli", "args": ["mcp-stdio"] });
     merge_json_key(&path, &["mcpServers", SERVER_NAME], &entry, dry_run)
 }
 
 /// Cursor：`mcpServers` 形状写 `~/.cursor/mcp.json`（用户级）。
 fn write_cursor(home: &Path, dry_run: bool) -> Result<()> {
     let path = cursor_config_path(home);
-    let entry = serde_json::json!({ "command": "visionary-server", "args": ["mcp-stdio"] });
+    let entry = serde_json::json!({ "command": "visionary-cli", "args": ["mcp-stdio"] });
     merge_json_key(&path, &["mcpServers", SERVER_NAME], &entry, dry_run)
 }
 
@@ -452,7 +452,7 @@ fn codex_section_toml() -> String {
     let mut entry = toml::Table::new();
     entry.insert(
         "command".into(),
-        toml::Value::String("visionary-server".into()),
+        toml::Value::String("visionary-cli".into()),
     );
     entry.insert(
         "args".into(),
@@ -654,7 +654,7 @@ mod tests {
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         let entry = &root["mcp"]["deepseek-visionary"];
         assert_eq!(entry["type"], "local");
-        assert_eq!(entry["command"][0], "visionary-server");
+        assert_eq!(entry["command"][0], "visionary-cli");
         assert_eq!(entry["command"][1], "mcp-stdio");
         assert_eq!(entry["timeout"], 60000);
         assert!(entry["enabled"].as_bool().unwrap());
@@ -723,7 +723,7 @@ mod tests {
             content.contains("[mcp_servers.deepseek-visionary]"),
             "must use mcp_servers key, got: {content}"
         );
-        assert!(content.contains("command = \"visionary-server\""));
+        assert!(content.contains("command = \"visionary-cli\""));
         assert!(
             content.contains("args = [\"mcp-stdio\"]"),
             "args must include mcp-stdio, got: {content}"
@@ -740,7 +740,7 @@ mod tests {
         let entry = doc["mcp_servers"][SERVER_NAME]
             .as_table()
             .expect("mcp_servers.<name> must be a table");
-        assert_eq!(entry["command"].as_str(), Some("visionary-server"));
+        assert_eq!(entry["command"].as_str(), Some("visionary-cli"));
         assert_eq!(
             entry["args"].as_array().map(|a| a.len()),
             Some(1),
@@ -767,14 +767,14 @@ mod tests {
         // 直接测 JSON 兜底路径（避免真实 claude CLI 干扰 / 写入真实 ~/.claude.json）
         let home = temp_home("claude");
         let path = claude_config_path(&home);
-        let entry = serde_json::json!({ "command": "visionary-server", "args": ["mcp-stdio"] });
+        let entry = serde_json::json!({ "command": "visionary-cli", "args": ["mcp-stdio"] });
         merge_json_key(&path, &["mcpServers", SERVER_NAME], &entry, false).unwrap();
 
         let root: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(
             root["mcpServers"]["deepseek-visionary"]["command"],
-            "visionary-server"
+            "visionary-cli"
         );
         assert_eq!(
             root["mcpServers"]["deepseek-visionary"]["args"][0],

@@ -436,7 +436,7 @@ async fn add_account_flow(
             "This account is ALREADY in the pool — no new account was added: {} (id: {})\n\
              The shared browser profile still carries the previous login session.\n\
              To add a different account, log out of this account in the browser window first,\n\
-             then run `visionary-server accounts add` again.",
+             then run `visionary-cli accounts add` again.",
             display_label(&health),
             health.account_id
         )),
@@ -454,7 +454,7 @@ async fn run_login_with_mode(
     // 不能因为兼容配置里已有凭据就拒绝打开浏览器。
     if config.is_authenticated() && !config.pool_mode() {
         return Ok(
-            "Token already configured. To re-login, run `visionary-server logout` first.".into(),
+            "Token already configured. To re-login, run `visionary-cli logout` first.".into(),
         );
     }
 
@@ -473,7 +473,7 @@ async fn run_login_with_mode(
                 crate::accounts::RegisterOutcome::Updated => {
                     format!(
                         "- Account already in the pool (credentials updated): {}\n\
-                         If you wanted to add a different account, log out of it in the browser window first, then run `visionary-server login` again.",
+                         If you wanted to add a different account, log out of it in the browser window first, then run `visionary-cli login` again.",
                         display_label(&health)
                     )
                 }
@@ -483,7 +483,7 @@ async fn run_login_with_mode(
                  - user_token: {}...\n\
                  - smidV2: {}\n\
                  - cf_clearance: {}\n\
-                 You can now analyze images with `visionary-server vision`.\n\
+                 You can now analyze images with `visionary-cli vision`.\n\
                  {}",
                 registered,
                 mask(&creds.user_token),
@@ -505,7 +505,7 @@ async fn run_login_with_mode(
             let detail = format!("{e:#}");
             Err(anyhow!(
                 "{}\nIf a browser window is open, finish logging in there and rerun\n\
-                 `visionary-server login`; or configure ~/.deepseek-visionary/config.json manually.",
+                 `visionary-cli login`; or configure ~/.deepseek-visionary/config.json manually.",
                 detail
             ))
         }
@@ -521,11 +521,11 @@ pub async fn run_logout(config: &Config) -> Result<String> {
         // 池模式：logout 只清空兼容用的单账号配置，**不**静默移除池中账号。
         return Ok("Saved credentials cleared.\n\
              The account pool (~/.deepseek-visionary/accounts.json) is **unchanged** — its accounts are still used for rotation.\n\
-             To drop a specific account, run `visionary-server accounts remove <id>`."
+             To drop a specific account, run `visionary-cli accounts remove <id>`."
             .into());
     }
     Ok("Saved credentials cleared.\n\
-         To log in again, run `visionary-server login`."
+         To log in again, run `visionary-cli login`."
         .into())
 }
 
@@ -699,7 +699,7 @@ async fn login_flow(
                 anyhow!(
                     concat!(
                         "{}\n",
-                        "Start Chrome yourself with the same profile, then rerun `visionary-server login`:\n",
+                        "Start Chrome yourself with the same profile, then rerun `visionary-cli login`:\n",
                         "  PowerShell:  & \"{exe}\" --remote-debugging-port={port} --user-data-dir=\"{profile}\"\n",
                         "  cmd / bash: \"{exe}\" --remote-debugging-port={port} --user-data-dir=\"{profile}\"\n",
                         "The login command will attach to that running Chrome and finish."

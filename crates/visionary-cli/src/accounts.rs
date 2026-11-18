@@ -446,7 +446,7 @@ pub async fn migrate_from_config(
     let creds = config.credentials();
     if creds.user_token.is_empty() {
         anyhow::bail!(
-            "no credentials found in config.json — run `visionary-server login` first, then retry the migration"
+            "no credentials found in config.json — run `visionary-cli login` first, then retry the migration"
         );
     }
     let health = crate::account_health::probe_config(config, Duration::from_secs(15))

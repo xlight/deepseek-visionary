@@ -46,7 +46,7 @@ PLUGIN_JSON = "packages/dsh-plugin/package.json"
 SERVER_JSON = "server.json"
 
 # Cargo.lock 中需要同步版本的 workspace 包
-LOCK_PACKAGES = ["visionary-server"]
+LOCK_PACKAGES = ["visionary-cli"]
 
 
 def bump_cargo_toml(new_version: str) -> None:

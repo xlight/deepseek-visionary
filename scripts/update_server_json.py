@@ -52,24 +52,31 @@ def main() -> None:
 
     for pkg in data.get("packages", []):
         ident = pkg.get("identifier", "")
-        # 匹配 mcpb 资产名（形如 .../visionary-server-<target>.mcpb）
+        # 匹配 mcpb 资产名（形如 .../visionary-cli-<target>.mcpb）。
+        # 双名过渡期：v0.8.0 及更早的产物用旧名 visionary-server-，新产物用
+        # visionary-cli-，两种都认，避免回填历史 release 时匹配不到。
+        marker = None
         for target in TARGETS:
-            marker = f"visionary-server-{target}.mcpb"
-            if marker in ident:
-                mcpb_path = os.path.join(mcpb_dir, marker)
-                if not os.path.exists(mcpb_path):
-                    print(f"error: missing {mcpb_path}", file=sys.stderr)
-                    sys.exit(1)
-                new_ident = (
-                    f"https://github.com/xlight/deepseek-visionary/releases/"
-                    f"download/{release_tag}/{marker}"
-                )
-                pkg["identifier"] = new_ident
-                pkg["fileSha256"] = sha256(mcpb_path)
-                print(f"updated {target}: sha256 {pkg['fileSha256'][:16]}...")
+            for stem in ("visionary-cli", "visionary-server"):
+                candidate = f"{stem}-{target}.mcpb"
+                if candidate in ident:
+                    marker = candidate
+                    break
+            if marker is not None:
                 break
-        else:
+        if marker is None:
             print(f"warning: no mcpb entry matched for {ident}", file=sys.stderr)
+            continue
+        mcpb_path = os.path.join(mcpb_dir, marker)
+        if not os.path.exists(mcpb_path):
+            print(f"error: missing {mcpb_path}", file=sys.stderr)
+            sys.exit(1)
+        pkg["identifier"] = (
+            f"https://github.com/xlight/deepseek-visionary/releases/"
+            f"download/{release_tag}/{marker}"
+        )
+        pkg["fileSha256"] = sha256(mcpb_path)
+        print(f"updated {marker}: sha256 {pkg['fileSha256'][:16]}...")
 
     with open("server.json", "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)

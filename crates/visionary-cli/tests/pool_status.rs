@@ -11,7 +11,7 @@ use std::io::{Read, Write};
 use std::process::Command;
 
 fn bin() -> &'static str {
-    env!("CARGO_BIN_EXE_visionary-server")
+    env!("CARGO_BIN_EXE_visionary-cli")
 }
 
 /// 隔离用户目录的 Command（Windows 也要隔离：USERPROFILE 才是 home_dir 的来源）。

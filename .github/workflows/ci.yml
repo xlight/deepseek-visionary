@@ -54,8 +54,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Build visionary-server
-        run: cargo build -p visionary-server
+      - name: Build visionary-cli
+        run: cargo build -p visionary-cli
       - name: MCP protocol smoke test
         run: |
-          python3 scripts/mcp_probe.py smoke target/debug/visionary-server
+          python3 scripts/mcp_probe.py smoke target/debug/visionary-cli

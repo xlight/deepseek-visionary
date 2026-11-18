@@ -1,23 +1,35 @@
 [package]
-name = "visionary-server"
+name = "visionary-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage = "https://github.com/xlight/deepseek-visionary"
-description = "DeepSeek Visionary MCP server (native binary): vision pipeline + auto-login + stdio MCP service"
+description = "DeepSeek Visionary CLI (native binary): vision pipeline + auto-login + stdio MCP service"
 publish = false
 
+# 旧名 visionary-server 保留为 [[bin]] 别名（见下），让 v0.8.0 的既有安装、
+# 文档与 agent 配置（command: ["visionary-server", "mcp-stdio"]）继续可用。
 [package.metadata.dist]
 dist = true
 
 # cargo-binstall 元数据：指向 cargo-dist 的 GitHub Release archive URL。
-# 注：crate 未发布 crates.io（publish = false），`cargo binstall visionary-server`
+# 注：crate 未发布 crates.io（publish = false），`cargo binstall visionary-cli`
 # 无法自动解析包名，需显式传 --pkg-url（见 docs/integrations 与 design.md 决策 4）；
 # 此处配置作为发布后可用性与文档依据。
 [package.metadata.binstall]
-pkg-url = "https://github.com/xlight/deepseek-visionary/releases/download/{ version }/visionary-server-{ target }.tar.xz"
+pkg-url = "https://github.com/xlight/deepseek-visionary/releases/download/{ version }/visionary-cli-{ target }.tar.xz"
 pkg-fmt = "txz"
+
+# 双名过渡：主二进制为 visionary-cli，同时产出旧名 visionary-server 作为别名。
+# 两者指向同一份代码（同一 main），老用户敲旧名仍可继续工作。
+[[bin]]
+name = "visionary-cli"
+path = "src/main.rs"
+
+[[bin]]
+name = "visionary-server"
+path = "src/main.rs"
 
 [dependencies]
 tokio.workspace = true

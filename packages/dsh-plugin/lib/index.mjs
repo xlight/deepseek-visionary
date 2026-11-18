@@ -4,7 +4,7 @@
 // `deepseek_vision` / `deepseek_ocr` / `deepseek_vision_status` /
 // `deepseek_vision_login` / `deepseek_vision_logout` / `deepseek_vision_accounts`.
 // Every tool spawns the
-// `visionary-server` binary (CLI; `--json` atomic output where the subcommand
+// `visionary-cli` binary (CLI; `--json` atomic output where the subcommand
 // supports it), so the heavy vision pipeline (PoW → upload → fork → HIF → SSE)
 // stays in Rust. Tools run in the DSH host process — not through the bash
 // sandbox — so session continuation and browser login are not restricted by the
@@ -45,7 +45,7 @@ const Config = z.object({
     .default("")
     .volatile()
     .description(
-      "Absolute path to the visionary-server binary. Empty resolves via DEEPSEEK_VISIONARY_BIN, then PATH."
+      "Absolute path to the visionary-cli binary. Empty resolves via DEEPSEEK_VISIONARY_BIN, then PATH (legacy name visionary-server is also accepted)."
     ),
   loginTimeoutSeconds: z
     .number()
@@ -94,12 +94,17 @@ export function volGet(value) {
 
 // --- binary resolution -------------------------------------------------------
 
+// 双名过渡（v0.9.0 起）：主名 visionary-cli，旧名 visionary-server 仍作为别名
+// 二进制产出。两者同一份代码；解析时主名优先、旧名兜底，让 v0.8.0 的既有
+// 安装（PATH 里只有 visionary-server）继续可用。
+const BIN_NAMES = ["visionary-cli", "visionary-server"];
+
 // npm 全局安装（@xlight-oss/visionary-server）在 Windows 上只在 PATH 生成
 // .cmd/.ps1 shim（node 包装脚本），真实 exe 在包内 node_modules/.bin_real/。
 // shim 层用 spawnSync + stdio:"inherit" 转发——直接 spawn shim 会丢 stdout 管道、
 // kill 链路断裂（孤儿进程）。故：解析 shim 文本定位 exe 真身，spawn 真身。
 const NPM_PKG_SHIM_RE =
-  /node_modules[\\/]@xlight-oss[\\/]visionary-server[\\/]run-visionary-server\.js/;
+  /node_modules[\\/]@xlight-oss[\\/]visionary-(?:cli|server)[\\/]run-visionary-(?:cli|server)\.js/;
 
 // 从 npm shim（.cmd/.ps1）文本中解析出 exe 真身路径。
 // shim 内容形如：... "%dp0%\node_modules\@xlight-oss\visionary-server\run-visionary-server.js" ...
@@ -118,64 +123,73 @@ function resolveFromNpmShim(shimPath) {
   // （包括测试跑的 macOS/Linux）都能解析，不依赖 path.dirname 的分隔符语义。
   const pkgParts = m[0].split(/[\\/]+/).filter(Boolean);
   if (pkgParts.length < 3) return null;
-  // node_modules\@xlight-oss\visionary-server\run-visionary-server.js → 去掉末段（文件名）
-  // npm shim 是 Windows 产物（.cmd/.ps1），包内 exe 恒为 visionary-server.exe，
+  // node_modules\@xlight-oss\visionary-cli\run-visionary-cli.js → 去掉末段（文件名）
+  // npm shim 是 Windows 产物（.cmd/.ps1），包内 exe 名与包名一致，
   // 与 process.platform 无关——固定扩展名保证任意平台测试/解析一致。
   const pkgDir = path.join(path.dirname(shimPath), ...pkgParts.slice(0, -1));
-  const candidate = path.join(pkgDir, "node_modules", ".bin_real", "visionary-server.exe");
-  try {
-    if (statSync(candidate).isFile()) return candidate;
-  } catch {
-    // keep looking
-  }
-  return null;
-}
-
-function resolveBinaryPath(config) {
-  if (config.binaryPath) return config.binaryPath;
-  const fromEnv = process.env.DEEPSEEK_VISIONARY_BIN;
-  if (fromEnv) return fromEnv;
-  const exe = process.platform === "win32" ? "visionary-server.exe" : "visionary-server";
-  for (const dir of (process.env.PATH || "").split(path.delimiter).filter(Boolean)) {
-    const candidate = path.join(dir, exe);
+  for (const name of BIN_NAMES) {
+    const candidate = path.join(pkgDir, "node_modules", ".bin_real", name + ".exe");
     try {
       if (statSync(candidate).isFile()) return candidate;
     } catch {
       // keep looking
     }
   }
-  // win32 追加：npm 全局包 shim（.cmd / .ps1）→ 解析 exe 真身
-  if (process.platform === "win32") {
-    for (const shimName of ["visionary-server.cmd", "visionary-server.ps1"]) {
+  return null;
+}
+function resolveBinaryPath(config) {
+  if (config.binaryPath) return config.binaryPath;
+  const fromEnv = process.env.DEEPSEEK_VISIONARY_BIN;
+  if (fromEnv) return fromEnv;
+
+  // 主名优先、旧名兜底（BIN_NAMES 已按此排序），覆盖 v0.8.0 的既有安装。
+  const exts = process.platform === "win32" ? [".exe"] : [""];
+  for (const name of BIN_NAMES) {
+    for (const ext of exts) {
+      const exe = name + ext;
       for (const dir of (process.env.PATH || "").split(path.delimiter).filter(Boolean)) {
-        const shim = path.join(dir, shimName);
+        const candidate = path.join(dir, exe);
         try {
-          if (statSync(shim).isFile()) {
-            const resolved = resolveFromNpmShim(shim);
-            if (resolved) return resolved;
-          }
+          if (statSync(candidate).isFile()) return candidate;
         } catch {
           // keep looking
         }
       }
     }
   }
+  // win32 追加：npm 全局包 shim（.cmd / .ps1）→ 解析 exe 真身
+  if (process.platform === "win32") {
+    for (const name of BIN_NAMES) {
+      for (const shimName of [name + ".cmd", name + ".ps1"]) {
+        for (const dir of (process.env.PATH || "").split(path.delimiter).filter(Boolean)) {
+          const shim = path.join(dir, shimName);
+          try {
+            if (statSync(shim).isFile()) {
+              const resolved = resolveFromNpmShim(shim);
+              if (resolved) return resolved;
+            }
+          } catch {
+            // keep looking
+          }
+        }
+      }
+    }
+  }
   return null;
 }
-
 const binaryMissingHelp = () =>
   process.platform === "win32"
     ? [
-        "visionary-server binary not found. Install it and retry:",
-        "  - npm: npm install -g @xlight-oss/visionary-server  (then restart DSH)",
+        "visionary-cli binary not found (legacy name visionary-server also accepted). Install it and retry:",
+        "  - npm: npm install -g @xlight-oss/visionary-cli  (then restart DSH)",
         "  - or download from GitHub Releases: https://github.com/xlight/deepseek-visionary/releases/latest",
         "Or point the plugin at the binary via Config.binaryPath / DEEPSEEK_VISIONARY_BIN.",
       ].join("\n")
     : [
-        "visionary-server binary not found. Install it and retry:",
-        "  - One-liner: curl -LsSf https://github.com/xlight/deepseek-visionary/releases/latest/download/visionary-server-installer.sh | sh",
-        "  - Homebrew: brew install <tap>/visionary-server",
-        "  - npm: npm install -g @xlight-oss/visionary-server",
+        "visionary-cli binary not found (legacy name visionary-server also accepted). Install it and retry:",
+        "  - One-liner: curl -LsSf https://github.com/xlight/deepseek-visionary/releases/latest/download/visionary-cli-installer.sh | sh",
+        "  - Homebrew: brew install <tap>/visionary-cli",
+        "  - npm: npm install -g @xlight-oss/visionary-cli",
         "Or point the plugin at the binary via Config.binaryPath / DEEPSEEK_VISIONARY_BIN.",
       ].join("\n");
 
@@ -412,7 +426,7 @@ export function formatStatusResult(parsed) {
   const hint = parsed?.token_valid
     ? ""
     : pool.enabled
-      ? "\nInspect the pool with `deepseek_vision_accounts` (action=list / refresh), or add an account via the plugin panel / `visionary-server accounts add`."
+      ? "\nInspect the pool with `deepseek_vision_accounts` (action=list / refresh), or add an account via the plugin panel / `visionary-cli accounts add`."
       : "\nRun `deepseek_vision_login` to auto-login, or set DEEPSEEK_USER_TOKEN.";
   lines.push(hint);
   return lines.filter(Boolean).join("\n");
@@ -490,7 +504,7 @@ function apply(ctx, config) {
 
   const withVersionWarning = (text) => {
     if (!versionInfo.known || versionInfo.compatible) return text;
-    return `${text}\n\n[warning] visionary-server version "${versionInfo.version}" does not match the plugin's compatible version ${COMPAT_MINOR}.x — upgrade the binary or the plugin.`;
+    return `${text}\n\n[warning] visionary-cli version "${versionInfo.version}" does not match the plugin's compatible version ${COMPAT_MINOR}.x — upgrade the binary or the plugin.`;
   };
 
   if (ctx.systemPrompt?.section) {
@@ -509,7 +523,7 @@ function apply(ctx, config) {
         "- `deepseek_vision_accounts` — manage the account pool (action: list | refresh | remove | pin)",
         "",
         "Use `deepseek_vision` for understanding an image; use `deepseek_ocr` when the user wants the text content of an image verbatim.",
-        "Prefer these native tools over invoking `visionary-server` through the shell: native tools run in the host process, so session continuation and login are not restricted by the bash sandbox.",
+        "Prefer these native tools over invoking `visionary-cli` through the shell: native tools run in the host process, so session continuation and login are not restricted by the bash sandbox.",
         "The `image`/`images` paths passed to `deepseek_vision` are read and uploaded to the DeepSeek service — only pass paths the user intends to share.",
       ].join("\n"),
     });
@@ -605,7 +619,7 @@ function apply(ctx, config) {
     defineTool({
       name: "deepseek_ocr",
       description:
-        "Extract raw text from one or more images with DeepSeek's OCR pipeline (local path / base64 / data URI), equivalent to `visionary-server ocr`. Use for the text content of a screenshot or document — document/PDF screenshots, code, signs, tables (not interpretation). Text is extracted verbatim by default. Supports multi-turn conversation via continue_conversation / session_id.",
+        "Extract raw text from one or more images with DeepSeek's OCR pipeline (local path / base64 / data URI), equivalent to `visionary-cli ocr`. Use for the text content of a screenshot or document — document/PDF screenshots, code, signs, tables (not interpretation). Text is extracted verbatim by default. Supports multi-turn conversation via continue_conversation / session_id.",
       parameters: imageToolParams,
       output: imageToolOutput,
       timeoutMs: cfg("visionTimeoutMs"),

@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""构建 MCPB 包：把 visionary-server 二进制 + manifest.json 打成 .mcpb（zip）。
+"""构建 MCPB 包：把 visionary-cli 二进制 + manifest.json 打成 .mcpb（zip）。
 
 用法:
     python3 scripts/build_mcpb.py <target> <version> <binary_path> <output_dir>
 
 示例:
     python3 scripts/build_mcpb.py aarch64-apple-darwin 0.1.4 \\
-        target/aarch64-apple-darwin/release/visionary-server dist
+        target/aarch64-apple-darwin/release/visionary-cli dist
 
 产物:
-    dist/visionary-server-<target>.mcpb
+    dist/visionary-cli-<target>.mcpb
 """
 import json
 import os
@@ -22,9 +22,9 @@ VERSION = sys.argv[2]
 BINARY = sys.argv[3]
 OUT_DIR = sys.argv[4]
 
-BIN_NAME = os.path.basename(BINARY)  # visionary-server 或 visionary-server.exe
+BIN_NAME = os.path.basename(BINARY)  # visionary-cli 或 visionary-cli.exe
 # MCPB 客户端在 Windows 上会自动补 .exe，manifest 统一写不带后缀的名字
-CMD_NAME = "visionary-server"
+CMD_NAME = "visionary-cli"
 
 
 def build_manifest() -> dict:
@@ -63,7 +63,7 @@ def build_manifest() -> dict:
 
 def main() -> None:
     os.makedirs(OUT_DIR, exist_ok=True)
-    out_path = os.path.join(OUT_DIR, f"visionary-server-{TARGET}.mcpb")
+    out_path = os.path.join(OUT_DIR, f"visionary-cli-{TARGET}.mcpb")
 
     manifest = build_manifest()
     mode = os.stat(BINARY).st_mode

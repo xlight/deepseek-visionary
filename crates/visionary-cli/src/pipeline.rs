@@ -377,7 +377,7 @@ fn account_failure_reason(err: &anyhow::Error) -> Option<crate::accounts::Unusab
 /// 「账号池中没有可用账号」的标准错误。
 fn no_usable_account_error() -> anyhow::Error {
     anyhow!(
-        "账号池中没有可用账号：请运行 `visionary-server accounts list` 查看状态，或 `accounts add` 添加账号。"
+        "账号池中没有可用账号：请运行 `visionary-cli accounts list` 查看状态，或 `accounts add` 添加账号。"
     )
 }
 

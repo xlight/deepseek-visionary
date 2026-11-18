@@ -64,7 +64,7 @@ impl<'a> AuthManager<'a> {
 /// token 自动续期开关（`DEEPSEEK_AUTO_REFRESH=0` 关闭，默认开启）。
 ///
 /// 关闭后 token 失效会直接把原始错误抛给调用方，由用户手动
-/// `visionary-server logout && visionary-server login` 处理。
+/// `visionary-cli logout && visionary-cli login` 处理。
 pub fn auto_refresh_enabled() -> bool {
     match std::env::var("DEEPSEEK_AUTO_REFRESH") {
         Ok(v) => !matches!(
@@ -87,7 +87,7 @@ pub fn auto_refresh_enabled() -> bool {
 pub async fn refresh_token(config: &Config) -> Result<()> {
     if !config.auto_refresh {
         anyhow::bail!(
-            "token expired and auto-refresh is disabled (DEEPSEEK_AUTO_REFRESH=0); run `visionary-server logout && visionary-server login` to refresh it manually"
+            "token expired and auto-refresh is disabled (DEEPSEEK_AUTO_REFRESH=0); run `visionary-cli logout && visionary-cli login` to refresh it manually"
         );
     }
     let timeout = crate::login::refresh_timeout();

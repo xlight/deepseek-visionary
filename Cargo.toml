@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/visionary-server"]
+members = ["crates/visionary-cli"]
 
 [workspace.package]
 version = "0.8.0"

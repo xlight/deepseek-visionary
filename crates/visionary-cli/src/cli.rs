@@ -3,7 +3,8 @@
 //! `arg_required_else_help`，退出码 2）。
 //!
 //! 关键约束（design.md 决策 1）：MCP stdio 模式必须显式 `mcp-stdio` 子命令启动；
-//! 所有 agent 配置都以 `command: ["visionary-server", "mcp-stdio"]` 启动。
+//! 所有 agent 配置都以 `command: ["visionary-cli", "mcp-stdio"]` 启动
+//! （旧名 `visionary-server` 仍作为别名二进制产出，既有配置继续可用）。
 
 use crate::hif::HifAuth;
 use crate::pipeline::{self, VisionRequest};
@@ -16,15 +17,18 @@ use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
 use std::time::Duration;
 
-/// DeepSeek Visionary MCP server (native binary).
+/// DeepSeek Visionary CLI (native binary).
+///
+/// 主命令名为 `visionary-cli`；`visionary-server` 仍作为别名二进制同时产出
+/// （见 Cargo.toml 的两个 [[bin]]），让 v0.8.0 的既有安装与 agent 配置继续可用。
 #[derive(Debug, Parser)]
 #[command(
-    name = "visionary-server",
+    name = "visionary-cli",
     version,
-    about = "DeepSeek Visionary MCP server",
+    about = "DeepSeek Visionary CLI",
     arg_required_else_help = true,
-    after_help = "MCP stdio mode: run `visionary-server mcp-stdio` to start the MCP server.\n\
-                  Existing agent configs start the server without args; re-run `visionary-server init` to migrate them."
+    after_help = "MCP stdio mode: run `visionary-cli mcp-stdio` to start the MCP server.\n\
+                  Existing agent configs start the server without args; re-run `visionary-cli init` to migrate them."
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -432,12 +436,12 @@ async fn cmd_doctor() -> Result<()> {
         if pool_mode {
             // 池模式下环境变量被忽略，提示不得引导用户去设置它。
             lines.push(
-                "To fix: run `visionary-server accounts list` to inspect the pool, or `visionary-server accounts add` to add an account."
+                "To fix: run `visionary-cli accounts list` to inspect the pool, or `visionary-cli accounts add` to add an account."
                     .into(),
             );
         } else {
             lines.push(
-                "To fix: run `visionary-server login` to auto-login, or set the DEEPSEEK_USER_TOKEN environment variable."
+                "To fix: run `visionary-cli login` to auto-login, or set the DEEPSEEK_USER_TOKEN environment variable."
                     .into(),
             );
         }
@@ -554,13 +558,13 @@ async fn cmd_vision(args: VisionArgs, forced: ModelType) -> Result<()> {
         if config.pool().usable_count() == 0 {
             fail(
                 mode,
-                "No usable account in the pool: run `visionary-server accounts list` to inspect the pool, or `visionary-server accounts add` to add an account.",
+                "No usable account in the pool: run `visionary-cli accounts list` to inspect the pool, or `visionary-cli accounts add` to add an account.",
             );
         }
     } else if !config.is_authenticated() {
         fail(
             mode,
-            "Not logged in: run `visionary-server login` to auto-login, or set the DEEPSEEK_USER_TOKEN environment variable.",
+            "Not logged in: run `visionary-cli login` to auto-login, or set the DEEPSEEK_USER_TOKEN environment variable.",
         );
     }
 
@@ -910,10 +914,10 @@ fn pool_view(config: &crate::config::Config) -> crate::accounts::PoolView {
 /// 池未启用时的提示（区分「有兼容凭据 → 可迁移」与「完全未配置」）。
 fn pool_disabled_notice(config: &crate::config::Config) -> String {
     if config.is_authenticated() {
-        "The account pool is not enabled yet, but config.json still holds credentials.\n  Run `visionary-server accounts migrate` to import it into the pool (idempotent, non-destructive)."
+        "The account pool is not enabled yet, but config.json still holds credentials.\n  Run `visionary-cli accounts migrate` to import it into the pool (idempotent, non-destructive)."
             .to_string()
     } else {
-        "The account pool is not enabled. Run `visionary-server accounts add` to add the first account."
+        "The account pool is not enabled. Run `visionary-cli accounts add` to add the first account."
             .to_string()
     }
 }
@@ -1077,7 +1081,7 @@ async fn cmd_accounts_status(args: AccountsJsonArgs) -> Result<()> {
     if view.healthy == 0 && view.total > 0 {
         lines.push(String::new());
         lines.push(
-            "No usable account in the pool. Recovery paths: wait for a muted account to expire, add a new account with `visionary-server accounts add`, or configure credentials manually."
+            "No usable account in the pool. Recovery paths: wait for a muted account to expire, add a new account with `visionary-cli accounts add`, or configure credentials manually."
                 .to_string(),
         );
     }

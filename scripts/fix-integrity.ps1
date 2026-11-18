@@ -1,11 +1,11 @@
-﻿# 产出一份「Medium 完整性」的 visionary-server 可执行文件。
+﻿# 产出一份「Medium 完整性」的 visionary-cli 可执行文件。
 #
 # 背景：DSH / Codex 沙箱给工作区目录打上 Mandatory Label\Low（带 (OI)(CI) 继承），
-# 工作区里构建出来的 visionary-server.exe 继承 Low 标签。Low 完整性进程派生出的
+# 工作区里构建出来的 visionary-cli.exe 继承 Low 标签。Low 完整性进程派生出的
 # chrome.exe 同样以 Low 完整性启动，Chrome 初始化沙箱时 CHECK 失败，直接以
 # 0x80000003（STATUS_BREAKPOINT）退出 —— 表现为「Chrome 打不开」。
 #
-# 为什么不直接改 target\release\visionary-server.exe 的标签：
+# 为什么不直接改 target\release\visionary-cli.exe 的标签：
 #   cargo 产出的顶层 exe 与 deps\visionary_server.exe 是**硬链接**（同一 MFT 条目），
 #   标签共享。原地改成 Medium 会把 deps 副本也变成 Medium，而构建工具本身跑在
 #   Low 完整性下 —— 链接器就再也打不开那个文件了（LNK1104 无法打开 ...\deps\visionary_server.exe）。
@@ -27,7 +27,7 @@ $ErrorActionPreference = 'Stop'
 
 if (-not $Path) {
     $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-    $Path = Join-Path $scriptDir '..\target\release\visionary-server.exe'
+    $Path = Join-Path $scriptDir '..\target\release\visionary-cli.exe'
 }
 if (-not $Out) {
     $Out = [IO.Path]::Combine(
@@ -37,7 +37,7 @@ if (-not $Out) {
 
 $src = Resolve-Path -LiteralPath $Path -ErrorAction SilentlyContinue
 if (-not $src) {
-    Write-Error ('找不到源可执行文件：' + $Path + '（先跑 cargo build --release -p visionary-server）')
+    Write-Error ('找不到源可执行文件：' + $Path + '（先跑 cargo build --release -p visionary-cli）')
     exit 1
 }
 $src = $src.Path

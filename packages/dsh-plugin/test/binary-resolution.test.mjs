@@ -15,28 +15,41 @@ import path from "node:path";
 const plugin = await import("../lib/index.mjs");
 const { resolveBinaryPath, resolveFromNpmShim } = plugin;
 
-const EXE_REL = path.join("node_modules", ".bin_real", "visionary-server.exe");
+const EXE_REL = path.join("node_modules", ".bin_real", "visionary-cli.exe");
 
-async function makeShimTree() {
-  // 模拟 npm 全局安装：<prefix>/visionary-server.cmd + 包内 exe 真身
+// 构造一个 npm 全局安装目录树：<prefix>/<name>.cmd + 包内 .bin_real/<name>.exe
+// name 默认主名 visionary-cli；传 "visionary-server" 可模拟 v0.8.0 的旧安装。
+async function makeShimTree(name = "visionary-cli") {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "vs-shim-"));
   const binDir = path.join(root, "bin");
-  const pkgDir = path.join(binDir, "node_modules", "@xlight-oss", "visionary-server");
+  const pkgDir = path.join(binDir, "node_modules", "@xlight-oss", name);
   const binReal = path.join(pkgDir, "node_modules", ".bin_real");
   await fs.mkdir(binReal, { recursive: true });
-  await fs.writeFile(path.join(binReal, "visionary-server.exe"), "fake exe");
-  const pkgRel = "node_modules\\@xlight-oss\\visionary-server\\run-visionary-server.js";
+  const exePath = path.join(binReal, name + ".exe");
+  await fs.writeFile(exePath, "fake exe");
+  const pkgRel = `node_modules\\@xlight-oss\\${name}\\run-${name}.js`;
   await fs.writeFile(
-    path.join(binDir, "visionary-server.cmd"),
+    path.join(binDir, name + ".cmd"),
     `@ECHO off\r\nGOTO start\r\n:start\r\n"%_prog%"  "%dp0%\\${pkgRel}" %*\r\n`,
   );
-  return { root, binDir, exePath: path.join(binReal, "visionary-server.exe") };
+  return { root, binDir, name, exePath };
 }
 
-test("resolveFromNpmShim: extracts exe real path from .cmd shim", async () => {
-  const { root, binDir, exePath } = await makeShimTree();
+test("resolveFromNpmShim: extracts exe real path from .cmd shim (primary name)", async () => {
+  const { root, binDir, exePath, name } = await makeShimTree();
   try {
-    const resolved = resolveFromNpmShim(path.join(binDir, "visionary-server.cmd"));
+    const resolved = resolveFromNpmShim(path.join(binDir, name + ".cmd"));
+    assert.equal(resolved, exePath);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+// 双名过渡：v0.8.0 的旧安装（包名 visionary-server）也要能解析。
+test("resolveFromNpmShim: still resolves the legacy visionary-server package", async () => {
+  const { root, binDir, exePath, name } = await makeShimTree("visionary-server");
+  try {
+    const resolved = resolveFromNpmShim(path.join(binDir, name + ".cmd"));
     assert.equal(resolved, exePath);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
@@ -46,7 +59,7 @@ test("resolveFromNpmShim: extracts exe real path from .cmd shim", async () => {
 test("resolveFromNpmShim: returns null for non-shim content", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "vs-shim-bad-"));
   try {
-    const f = path.join(root, "visionary-server.cmd");
+    const f = path.join(root, "visionary-cli.cmd");
     await fs.writeFile(f, "@ECHO off\necho not a visionary shim\n");
     assert.equal(resolveFromNpmShim(f), null);
   } finally {
@@ -60,7 +73,7 @@ test("resolveBinaryPath: finds .exe in PATH first", async () => {
   const oldEnv = process.env.DEEPSEEK_VISIONARY_BIN;
   try {
     // 与 resolveBinaryPath 的查找名一致：win32 用 .exe，其他平台无扩展名
-    const exeName = process.platform === "win32" ? "visionary-server.exe" : "visionary-server";
+    const exeName = process.platform === "win32" ? "visionary-cli.exe" : "visionary-cli";
     const exe = path.join(root, exeName);
     await fs.writeFile(exe, "fake");
     process.env.PATH = root;

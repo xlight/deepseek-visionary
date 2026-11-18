@@ -2,7 +2,7 @@
 //!
 //! 基于 rmcp 2.2 的 `#[tool_router]` / `#[tool_handler]` 宏实现 6 个工具：
 //! - `deepseek_vision`：上传图片并分析（完整 vision 流水线）
-//! - `deepseek_ocr`：上传图片并提取文字（OCR 管道，等价 `visionary-server ocr`）
+//! - `deepseek_ocr`：上传图片并提取文字（OCR 管道，等价 `visionary-cli ocr`）
 //! - `deepseek_vision_status`：鉴权与服务健康检查
 //! - `deepseek_vision_login`：浏览器自动登录（池模式下为「添加一个账号」）
 //! - `deepseek_vision_logout`：清除凭据（任务 5.5 接线）
@@ -120,7 +120,7 @@ pub fn accounts_cli_argv(
         "add" | "migrate" => {
             return Err(McpError::invalid_params(
                 format!(
-                    "action={action} is not exposed by this tool — use the CLI instead: visionary-server accounts {action}"
+                    "action={action} is not exposed by this tool — use the CLI instead: visionary-cli accounts {action}"
                 ),
                 None
             ));
@@ -180,7 +180,7 @@ impl VisionaryServer {
         self.analyze_images(args, None).await
     }
 
-    /// 从图片中提取文字（OCR 管道，等价 `visionary-server ocr <image>`）。
+    /// 从图片中提取文字（OCR 管道，等价 `visionary-cli ocr <image>`）。
     #[tool(
         description = "Extract text from one or more images using DeepSeek's OCR pipeline (upload without x-model-type, completion extracts the text verbatim). USE THIS when the user wants the text/content of an image, screenshot, or document - not an interpretation. Same session/continuation semantics as deepseek_vision. Args: images (required, array of local paths or base64/data URI), prompt (optional instruction; defaults to verbatim text extraction), thinking (enable DeepThink), continue_conversation / session_id"
     )]
@@ -208,7 +208,7 @@ impl VisionaryServer {
             if self.config.pool().usable_count() == 0 {
                 return Ok(CallToolResult::error(vec![ContentBlock::text(
                     "No usable account in the account pool.\n\n\
-                     Run `deepseek_vision_login` to add an account, or check the pool with the CLI: visionary-server accounts list",
+                     Run `deepseek_vision_login` to add an account, or check the pool with the CLI: visionary-cli accounts list",
                 )]));
             }
         } else if !self.config.is_authenticated() {
@@ -361,7 +361,7 @@ impl VisionaryServer {
             if pool_mode {
                 // 池模式下环境变量被忽略，SHALL NOT 引导用户去设置它。
                 lines.push(
-                    "  Run `deepseek_vision_login` to add an account, or inspect the pool: visionary-server accounts list"
+                    "  Run `deepseek_vision_login` to add an account, or inspect the pool: visionary-cli accounts list"
                         .into(),
                 );
             } else {

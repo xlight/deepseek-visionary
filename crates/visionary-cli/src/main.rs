@@ -1,4 +1,4 @@
-//! visionary-server — DeepSeek Visionary MCP server（原生二进制）。
+//! visionary-cli — DeepSeek Visionary CLI（原生二进制）。
 //!
 //! 职责（对照 Python 版 `deepseek_vision_mcp` 各模块）：
 //! - config / auth / pow / upload / hif / completion / session / pipeline：核心 vision 流水线

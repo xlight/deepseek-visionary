@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""驱动 visionary-server 做 MCP stdio 测试。
+"""驱动 visionary-cli 做 MCP stdio 测试。
 
 双子命令 CLI：
     python3 scripts/mcp_probe.py smoke <binary-path>
@@ -17,7 +17,7 @@ import time
 from queue import Queue, Empty
 import threading
 
-SERVER = "target/debug/visionary-server"
+SERVER = "target/debug/visionary-cli"
 
 EXPECTED_TOOLS = {
     "deepseek_vision",
