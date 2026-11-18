@@ -360,6 +360,11 @@ jobs:
       # so we need to find releases with a *.rb file, and publish with that filename.
       - name: Commit formula files
         run: |
+          # set -e：任何未被显式容忍的失败都必须让 job 失败。
+          # 曾经这里是裸 run（无 set -e）+ 末尾 `git push || true`，导致
+          # token 无权限时 push 403 被吞掉，job 假报 success（v0.8.0 实测）。
+          set -euo pipefail
+
           git config --global user.name "${GITHUB_USER}"
           git config --global user.email "${GITHUB_EMAIL}"
 
@@ -371,6 +376,7 @@ jobs:
             export PATH="/home/linuxbrew/.linuxbrew/bin:$PATH"
             brew update
             # We avoid reformatting user-provided data such as the app description and homepage.
+            # brew style 的 style 违规不应阻断发布（仅格式化建议），故显式容忍其失败。
             brew style --except-cops FormulaAudit/Homepage,FormulaAudit/Desc,FormulaAuditStrict --fix "Formula/${filename}" || true
 
             git add "Formula/${filename}"
@@ -381,8 +387,11 @@ jobs:
               git commit -m "${name} ${version}"
             fi
           done
-          # 全部 formula 均无变化时没有可推送的 commit，git push 会报 "Everything up-to-date"，容忍之
-          git push || true
+
+          # 直接 push。git push 在"没有新提交"时输出 Everything up-to-date 并返回 0，
+          # 因此无需任何 `|| true` 或 origin/main 比较（浅克隆里后者不可靠）；
+          # 而权限(403)/网络等真实失败会返回非 0，被 set -e 捕获并让 job 失败。
+          git push
 
   publish-npm:
     needs:
