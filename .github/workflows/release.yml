@@ -143,8 +143,8 @@ jobs:
           # Actually do builds and make zips and whatnot
           dist build ${{ needs.plan.outputs.tag-flag }} --print=linkage --output-format=json ${{ matrix.dist_args }} > dist-manifest.json
           echo "dist ran successfully"
-      # 追加 per-target 资产：裸二进制（Zed 扩展壳依赖，命名必须保持
-      # `visionary-server-<target-triple>`，见 crates/visionary-zed-ext 的 asset_name_for_platform）
+      # 追加 per-target 资产：裸二进制（命名必须保持
+      # `visionary-server-<target-triple>`）
       # 与 MCPB 包（MCP Registry 分发）。cargo-dist 0.32 的 extra-artifacts 是全局构建一次、
       # 不支持 per-target 占位符替换（spike 4.1 实测），故在此 job 内按 target 追加构建。
       # 注意：此步骤为手工追加，`dist generate --mode ci` 重新生成会覆盖丢失，需重新追加。

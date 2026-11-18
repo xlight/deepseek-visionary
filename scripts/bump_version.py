@@ -11,25 +11,22 @@
 行为:
     1. 校验版本号格式（x.y.z，不允许 v 前缀）
     2. 更新 Cargo.toml 中 [workspace.package] 的 version
-    3. 更新 Cargo.lock 中 visionary-server / visionary-zed-ext 两个包的 version
-    4. 更新 crates/visionary-zed-ext/extension.toml 的 version
-    5. 更新 packages/dsh-plugin/package.json 的 version（DSH 原生插件包；
+    3. 更新 Cargo.lock 中 visionary-server 包的 version
+    4. 更新 packages/dsh-plugin/package.json 的 version（DSH 原生插件包；
        发布 workflow dsh-plugin-release.yml 要求 tag == package.json
        == workspace Cargo.toml 一致）
-    6. 更新 packages/dsh-plugin/lib/index.mjs 的 COMPAT_MINOR 常量
+    5. 更新 packages/dsh-plugin/lib/index.mjs 的 COMPAT_MINOR 常量
        （与 Rust 二进制 minor 锁步；verify 校验，漏改即 fail）
-    7. 更新 server.json 的 version 与 5 个平台 mcpb 下载 URL（MCP Registry
+    6. 更新 server.json 的 version 与 5 个平台 mcpb 下载 URL（MCP Registry
        元数据；fileSha256 是构建产物哈希，发布后运行
        `python3 scripts/update_server_json.py <version> v<version> dist/`
        用实际 .mcpb 计算）
-    8. 校验所有版本载体最终一致
-    9. 不带 --release 时只打印后续步骤；带 --release 时自动执行
+    7. 校验所有版本载体最终一致
+    8. 不带 --release 时只打印后续步骤；带 --release 时自动执行
        git add → commit → tag vX.Y.Z → push origin HEAD --tags
 
 目的:
-    保证打 tag 前所有版本号一致（Zed 扩展 package check 要求
-    extensions.toml 登记的 version == submodule 内 extension.toml 的 version；
-    cargo-dist 要求 tag == v{workspace version}；dsh-plugin release
+    保证打 tag 前所有版本号一致（cargo-dist 要求 tag == v{workspace version}；dsh-plugin release
     workflow 校验 tag == package.json == workspace Cargo.toml）。
 
 示例:
@@ -45,12 +42,11 @@ VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
 CARGO_TOML = "Cargo.toml"
 CARGO_LOCK = "Cargo.lock"
-EXTENSION_TOML = "crates/visionary-zed-ext/extension.toml"
 PLUGIN_JSON = "packages/dsh-plugin/package.json"
 SERVER_JSON = "server.json"
 
 # Cargo.lock 中需要同步版本的 workspace 包
-LOCK_PACKAGES = ["visionary-server", "visionary-zed-ext"]
+LOCK_PACKAGES = ["visionary-server"]
 
 
 def bump_cargo_toml(new_version: str) -> None:
@@ -102,24 +98,6 @@ def bump_cargo_lock(new_version: str) -> None:
     with open(CARGO_LOCK, "w", encoding="utf-8") as f:
         f.write(text)
 
-
-def bump_extension_toml(new_version: str) -> None:
-    with open(EXTENSION_TOML, encoding="utf-8") as f:
-        text = f.read()
-
-    new_text, n = re.subn(
-        r'(?m)^version\s*=\s*"\d+\.\d+\.\d+"',
-        f'version = "{new_version}"',
-        text,
-        count=1,
-    )
-    if n != 1:
-        print(f"error: {EXTENSION_TOML} 中未找到 version 字段", file=sys.stderr)
-        sys.exit(1)
-
-    with open(EXTENSION_TOML, "w", encoding="utf-8") as f:
-        f.write(new_text)
-    print(f"updated {EXTENSION_TOML} -> {new_version}")
 
 
 def bump_plugin_json(new_version: str) -> None:
@@ -198,11 +176,7 @@ def verify_consistency(new_version: str) -> None:
             rf'\[\[package\]\]\nname = "{re.escape(name)}"\nversion = "([^"]+)"',
             lock,
         )
-        checks.append((f"{CARGO_LOCK} [{name}]", m.group(1) if m else None))
-
-    ext = open(EXTENSION_TOML, encoding="utf-8").read()
-    m = re.search(r'(?m)^version\s*=\s*"([^"]+)"', ext)
-    checks.append((EXTENSION_TOML, m.group(1) if m else None))
+        checks.append((f"{CARGO_LOCK} [{name}]", m.group(1) if m else None))
 
     plugin = json.load(open(PLUGIN_JSON, encoding="utf-8"))
     checks.append((PLUGIN_JSON, plugin.get("version")))
@@ -231,8 +205,7 @@ def verify_consistency(new_version: str) -> None:
 
 def git_release(new_version: str) -> None:
     """一键发布：add → commit → tag → push。"""
-    files = [
-        CARGO_TOML, CARGO_LOCK, EXTENSION_TOML, PLUGIN_JSON,
+    files = [        CARGO_TOML, CARGO_LOCK, PLUGIN_JSON,
         SERVER_JSON, PLUGIN_INDEX_MJS,
         "packages/dsh-plugin/pnpm-lock.yaml",
     ]
@@ -267,9 +240,7 @@ def main() -> None:
         sys.exit(2)
 
     bump_cargo_toml(new_version)
-    bump_cargo_lock(new_version)
-    bump_extension_toml(new_version)
-    bump_plugin_json(new_version)
+    bump_cargo_lock(new_version)    bump_plugin_json(new_version)
 
     bump_compat_minor(new_version)
     bump_server_json(new_version)
@@ -282,9 +253,7 @@ def main() -> None:
         git_release(new_version)
         print()
         print("完成。push 触发以下 CI：")
-        print("  - cargo-dist 二进制发布（release.yml，v* tag）")
-        print("  - Zed 扩展同步（zed-extension-release.yml，v* tag）")
-        print("  - npm 发布 @xlight-oss/visionary-dsh（dsh-plugin-release.yml，v* tag）")
+        print("  - cargo-dist 二进制发布（release.yml，v* tag）")        print("  - npm 发布 @xlight-oss/visionary-dsh（dsh-plugin-release.yml，v* tag）")
         print()
         print("发布后待办：")
         print("  1. server.json 的 fileSha256 由 update-server-json workflow")
@@ -296,7 +265,7 @@ def main() -> None:
         print()
         print("完成。后续发布步骤：")
         print(f"  1. 复核版本一致性输出（已校验全部 7 个版本条目：Cargo.toml / Cargo.lock×2 / extension.toml / package.json / COMPAT_MINOR / server.json）")
-        print(f"  2. git add Cargo.toml Cargo.lock {EXTENSION_TOML} {PLUGIN_JSON} {SERVER_JSON} {PLUGIN_INDEX_MJS} packages/dsh-plugin/pnpm-lock.yaml")
+        print(f"  2. git add Cargo.toml Cargo.lock {PLUGIN_JSON} {SERVER_JSON} {PLUGIN_INDEX_MJS} packages/dsh-plugin/pnpm-lock.yaml")
         print(f"  3. git commit -m 'Bump version to {new_version}'")
         print(f"  4. git tag v{new_version} && git push origin main --tags")
         print("     （tag 必须指向本次 commit，确保 extension.toml 版本与 tag 一致）")

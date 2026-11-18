@@ -1,7 +1,7 @@
 ![img](https://repository-images.githubusercontent.com/1328041729/ea178cac-4027-48a8-bc2f-48bc6ee723c9)
 # DeepSeek Visionary
 
-**让 DeepSeek 网页版视觉模型，成为你所有 AI 助手的"眼睛"。** 在 Zed、OpenCode、Codex、Claude Code、Cursor、Claude Desktop 等任意支持 MCP 的 agent，以及 DeepSeek Harness（DSH，原生插件或 skill + CLI）中直接识图——浏览器自动登录，**无需 API key、无需手动复制 token**。
+**让 DeepSeek 网页版视觉模型，成为你所有 AI 助手的"眼睛"。** 在 OpenCode、Codex、Claude Code、Cursor、Claude Desktop 等任意支持 MCP 的 agent，以及 DeepSeek Harness（DSH，原生插件或 skill + CLI）中直接识图——浏览器自动登录，**无需 API key、无需手动复制 token**。
 
 Python 版 `deepseek-vision-mcp` 的 **Rust 全量重写**：单原生二进制、多平台分发，一处安装处处可用。DSH 用户更可 `dsh plugin` 一键安装原生插件包 `@xlight-oss/visionary-dsh`——5 个原生工具 + 文本模型图片桥接，**一包全齐**。
 
@@ -10,7 +10,7 @@ Python 版 `deepseek-vision-mcp` 的 **Rust 全量重写**：单原生二进制�
 ```mermaid
 graph TD
     subgraph 宿主[任意 MCP 宿主]
-        AG["Zed / OpenCode / Codex / Claude Code / Cursor / Claude Desktop"]
+        AG["OpenCode / Codex / Claude Code / Cursor / Claude Desktop"]
         AG -->|spawn 独立进程| SRV
     end
     subgraph DSH[DeepSeek Harness]
@@ -28,7 +28,6 @@ graph TD
 
 - **visionary-server**：单二进制，默认 CLI 模式（`vision` / `ocr` / `status` / `login` / `logout` / `skill` / `init` / `doctor`），`mcp-stdio` 子命令显式启动 MCP stdio 服务；实现完整 vision / OCR 流水线（PoW → 上传 → fork → HIF 签名 → SSE 流式 completion）与 CDP 自动登录
 - **@xlight-oss/visionary-dsh**：DSH 原生插件包（npm，纯 ESM 无构建，单包三插件行），经 `ctx.tools` 注册 `deepseek_vision` / `deepseek_ocr` 等 6 个原生工具，宿主进程内 spawn `visionary-server` 复用 Rust 管道（续聊/登录不受 bash 沙箱限制）；内置文本模型图片桥接（纯文本模型会话粘贴图片自动放行 + 改写为文本引导）
-- **visionary-zed-ext**：Zed 扩展壳（仅 Zed 需要），按平台从 GitHub Releases 下载/缓存 visionary-server 并启动
 
 ## 安装
 
@@ -76,7 +75,7 @@ visionary-server skill install
 
 ### 3. 进阶：接入 MCP 宿主
 
-需要把 `deepseek_vision` 作为 MCP 工具暴露给宿主（Zed / OpenCode / Codex / Claude Code / Cursor / Claude Desktop）时，用 `init` 一键接入：
+需要把 `deepseek_vision` 作为 MCP 工具暴露给宿主（OpenCode / Codex / Claude Code / Cursor / Claude Desktop）时，用 `init` 一键接入：
 
 ```bash
 # 一键检测并接入（列出已安装 agent）
@@ -101,7 +100,6 @@ visionary-server init opencode --dry-run
 
 | Agent | 文档 | 一键命令 |
 |-------|------|----------|
-| Zed | [zed.md](docs/integrations/zed.md) | 扩展市场安装（见下） |
 | OpenCode | [opencode.md](docs/integrations/opencode.md) | `visionary-server init opencode` |
 | Codex | [codex.md](docs/integrations/codex.md) | `visionary-server init codex` |
 | Claude Code | [claude-code.md](docs/integrations/claude-code.md) | `visionary-server init claude` |
@@ -177,13 +175,6 @@ Chrome 调试实例（读取本机 DevTools 端点，兜底端口 `9222`），�
 - **CLI**：`visionary-server vision <image>` 识图（详见下文「CLI 工具」）
 - **MCP / DSH 原生工具**：调用 `deepseek_vision` 传入图片路径 / base64 / data URI 即可识图
 
-## Zed 扩展安装
-
-> 如果你只用 Zed，也可以直接从扩展市场安装：
-
-1. Zed 命令面板（`Cmd+Shift+P`）→ `zed: extensions` → 搜索 **DeepSeek Visionary** → Install
-2. 扩展壳自动下载/缓存 `visionary-server` 二进制并启动 MCP 服务
-3. 授权工具权限（见 [docs/integrations/zed.md](docs/integrations/zed.md)）
 
 ## CLI 工具
 
@@ -228,7 +219,7 @@ cat img.png | visionary-server vision - --json
 
 CLI 也是 AI agent 的零 MCP 配置工具面：只要 `visionary-server` 在 PATH，任何能执行 shell 的 agent 都可以调用它。二进制内嵌 agent 调用契约 `SKILL.md`（随安装具备），核心约定：**agent 调用 `vision` 必须加 `--json` 原子输出**（流式文本无结构化边界，不可可靠解析）。
 
-安装 skill 到 agent skill 目录（以 Zed 为例）：
+安装 skill 到 agent skill 目录：
 
 ```bash
 # skill 内嵌于二进制，无需本地仓库，一条命令安装/更新
@@ -285,7 +276,6 @@ cargo build -p visionary-server --release
 
 # 构建扩展壳（wasm32-wasip2）
 rustup target add wasm32-wasip2
-cargo build -p visionary-zed-ext --release --target wasm32-wasip2
 
 # 测试
 cargo test -p visionary-server
@@ -303,7 +293,7 @@ cd packages/dsh-plugin && pnpm install
 python3 scripts/bump_version.py <new-version>
 
 # 一键发布：bump + commit + tag vX.Y.Z + push
-# （tag push 触发 cargo-dist 二进制发布 / Zed 扩展同步 / npm 发布三个 workflow）
+# （tag push 触发 cargo-dist 二进制发布 / npm 发布 workflow）
 python3 scripts/bump_version.py <new-version> --release
 ```
 

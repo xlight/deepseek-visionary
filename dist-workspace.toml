@@ -39,5 +39,5 @@ npm-scope = "@xlight-oss"
 # 注：per-target 裸二进制与 mcpb 不通过 `[[dist.extra-artifacts]]` 声明——
 # cargo-dist 0.32 的 extra-artifacts 是全局构建一次的设计，`{target}`/`{exe}`
 # 占位符不会被替换（spike 4.1 实测确认），会在发布时因 MissingBinaries 报错。
-# 各平台裸二进制（Zed 扩展壳依赖）与 mcpb（MCP Registry 分发）改为在生成的
+# 各平台裸二进制与 mcpb（MCP Registry 分发）改为在生成的
 # release.yml 中追加 per-target 构建步骤（见 build-local-artifacts job）。

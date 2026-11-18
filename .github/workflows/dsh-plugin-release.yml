@@ -1,6 +1,6 @@
 # 自动发布 DSH 原生插件包 @xlight-oss/visionary-dsh 到 npm
 #
-# 触发：push tag vX.Y.Z（与 cargo-dist 二进制发布、Zed 扩展同步同 tag 触发）
+# 触发：push tag vX.Y.Z（与 cargo-dist 二进制发布同 tag 触发）
 # 流程：版本一致性校验（tag == package.json version == workspace Cargo.toml）
 #       → pnpm install（锁文件）→ pnpm publish
 #
