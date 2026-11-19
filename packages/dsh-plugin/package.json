@@ -1,7 +1,7 @@
 {
   "name": "@xlight-oss/visionary-dsh",
   "version": "0.8.0",
-  "description": "DeepSeek Visionary native plugin for DeepSeek Harness: 6 native tools (deepseek_vision / deepseek_ocr / deepseek_vision_status / deepseek_vision_login / deepseek_vision_logout / deepseek_vision_accounts) plus the text-model image bridge and account-pool dashboard, all backed by the visionary-server CLI (DeepSeek web vision model, no API key).",
+  "description": "DeepSeek Visionary native plugin for DeepSeek Harness: 6 native tools (deepseek_vision / deepseek_ocr / deepseek_vision_status / deepseek_vision_login / deepseek_vision_logout / deepseek_vision_accounts) plus the text-model image bridge and account-pool dashboard, all backed by the visionary-cli CLI (DeepSeek web vision model, no API key).",
   "type": "module",
   "main": "lib/index.mjs",
   "exports": {

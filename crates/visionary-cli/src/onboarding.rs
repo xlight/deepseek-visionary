@@ -204,7 +204,7 @@ fn run_init(home: &Path, args: &InitArgs) -> Result<()> {
     }
 
     // 二进制 PATH 检测（避免写出无效配置）
-    if find_in_path("visionary-cli").is_none() && find_in_path("visionary-server").is_none() {
+    if find_in_path("visionary-cli").is_none() {
         bail!(
             "`visionary-cli` is not in PATH. Install it first:\n\
              - One-liner: curl -LsSf https://github.com/xlight/deepseek-visionary/releases/latest/download/visionary-cli-installer.sh | sh\n\
@@ -850,7 +850,7 @@ mod tests {
     fn binary_not_in_path_is_rejected() {
         let _guard = PATH_LOCK.lock().unwrap();
         let home = temp_home("nopath");
-        // 清空 PATH：找不到 visionary-server
+        // 清空 PATH：找不到 visionary-cli
         let old = std::env::var_os("PATH");
         std::env::set_var("PATH", "");
         let result = run_init(

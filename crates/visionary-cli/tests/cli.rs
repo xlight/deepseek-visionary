@@ -10,30 +10,6 @@ fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_visionary-cli")
 }
 
-/// 双名过渡（v0.9.0 起）：Cargo 同时产出 `visionary-cli`（主名）与
-/// `visionary-server`（旧名别名）。这里验证别名二进制行为与主名一致，
-/// 让 v0.8.0 的既有 agent 配置（command: ["visionary-server", "mcp-stdio"]）继续可用。
-#[test]
-fn legacy_alias_binary_still_works() {
-    const LEGACY: &str = env!("CARGO_BIN_EXE_visionary-server");
-    let out = Command::new(LEGACY)
-        .arg("--version")
-        .output()
-        .expect("run alias");
-    assert!(out.status.success(), "legacy alias should exit 0");
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    // 别名走同一份 clap 定义，因此显示的是主名 visionary-cli——
-    // 这正是预期：旧命令名可用，但提示统一指向新名。
-    assert!(
-        stdout.contains("visionary-cli"),
-        "legacy alias should report the canonical name, got: {stdout}",
-    );
-    assert!(
-        stdout.contains(env!("CARGO_PKG_VERSION")),
-        "legacy alias should report version, got: {stdout}",
-    );
-}
-
 #[test]
 fn version_flag_prints_version() {
     let out = Command::new(bin()).arg("--version").output().expect("run");

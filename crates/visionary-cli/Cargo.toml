@@ -8,8 +8,6 @@ homepage = "https://github.com/xlight/deepseek-visionary"
 description = "DeepSeek Visionary CLI (native binary): vision pipeline + auto-login + stdio MCP service"
 publish = false
 
-# 旧名 visionary-server 保留为 [[bin]] 别名（见下），让 v0.8.0 的既有安装、
-# 文档与 agent 配置（command: ["visionary-server", "mcp-stdio"]）继续可用。
 [package.metadata.dist]
 dist = true
 
@@ -20,18 +18,6 @@ dist = true
 [package.metadata.binstall]
 pkg-url = "https://github.com/xlight/deepseek-visionary/releases/download/{ version }/visionary-cli-{ target }.tar.xz"
 pkg-fmt = "txz"
-
-# 双名过渡：主二进制为 visionary-cli，同时产出旧名 visionary-server 作为别名。
-# 两个 bin 都是薄入口，只调用 lib.rs 的 `run()`；不共享 main.rs——两个 target
-# 编译同一 main.rs 会让链接器产出两份 PDB 并报 LNK1318（PDB LIMIT），
-# 这是 v0.9.0 开发期实测踩到的坑。
-[[bin]]
-name = "visionary-cli"
-path = "src/bin/visionary-cli.rs"
-
-[[bin]]
-name = "visionary-server"
-path = "src/bin/visionary-server.rs"
 
 [dependencies]
 tokio.workspace = true

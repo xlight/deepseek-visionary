@@ -45,7 +45,7 @@ const Config = z.object({
     .default("")
     .volatile()
     .description(
-      "Absolute path to the visionary-cli binary. Empty resolves via DEEPSEEK_VISIONARY_BIN, then PATH (legacy name visionary-server is also accepted)."
+      "Absolute path to the visionary-cli binary. Empty resolves via DEEPSEEK_VISIONARY_BIN, then PATH."
     ),
   loginTimeoutSeconds: z
     .number()
@@ -94,22 +94,19 @@ export function volGet(value) {
 
 // --- binary resolution -------------------------------------------------------
 
-// 双名过渡（v0.9.0 起）：主名 visionary-cli，旧名 visionary-server 仍作为别名
-// 二进制产出。两者同一份代码；解析时主名优先、旧名兜底，让 v0.8.0 的既有
-// 安装（PATH 里只有 visionary-server）继续可用。
-const BIN_NAMES = ["visionary-cli", "visionary-server"];
+const BIN_NAMES = ["visionary-cli"];
 
-// npm 全局安装（@xlight-oss/visionary-server）在 Windows 上只在 PATH 生成
+// npm 全局安装（@xlight-oss/visionary-cli）在 Windows 上只在 PATH 生成
 // .cmd/.ps1 shim（node 包装脚本），真实 exe 在包内 node_modules/.bin_real/。
 // shim 层用 spawnSync + stdio:"inherit" 转发——直接 spawn shim 会丢 stdout 管道、
 // kill 链路断裂（孤儿进程）。故：解析 shim 文本定位 exe 真身，spawn 真身。
 const NPM_PKG_SHIM_RE =
-  /node_modules[\\/]@xlight-oss[\\/]visionary-(?:cli|server)[\\/]run-visionary-(?:cli|server)\.js/;
+  /node_modules[\\/]@xlight-oss[\\/]visionary-cli[\\/]run-visionary-cli\.js/;
 
 // 从 npm shim（.cmd/.ps1）文本中解析出 exe 真身路径。
-// shim 内容形如：... "%dp0%\node_modules\@xlight-oss\visionary-server\run-visionary-server.js" ...
-// 包目录 = <shim目录>\node_modules\@xlight-oss\visionary-server
-// 真身   = <包目录>\node_modules\.bin_real\visionary-server.exe
+// shim 内容形如：... "%dp0%\node_modules\@xlight-oss\visionary-cli\run-visionary-cli.js" ...
+// 包目录 = <shim目录>\node_modules\@xlight-oss\visionary-cli
+// 真身   = <包目录>\node_modules\.bin_real\visionary-cli.exe
 function resolveFromNpmShim(shimPath) {
   let text;
   try {
@@ -180,13 +177,13 @@ function resolveBinaryPath(config) {
 const binaryMissingHelp = () =>
   process.platform === "win32"
     ? [
-        "visionary-cli binary not found (legacy name visionary-server also accepted). Install it and retry:",
+        "visionary-cli binary not found. Install it and retry:",
         "  - npm: npm install -g @xlight-oss/visionary-cli  (then restart DSH)",
         "  - or download from GitHub Releases: https://github.com/xlight/deepseek-visionary/releases/latest",
         "Or point the plugin at the binary via Config.binaryPath / DEEPSEEK_VISIONARY_BIN.",
       ].join("\n")
     : [
-        "visionary-cli binary not found (legacy name visionary-server also accepted). Install it and retry:",
+        "visionary-cli binary not found. Install it and retry:",
         "  - One-liner: curl -LsSf https://github.com/xlight/deepseek-visionary/releases/latest/download/visionary-cli-installer.sh | sh",
         "  - Homebrew: brew install <tap>/visionary-cli",
         "  - npm: npm install -g @xlight-oss/visionary-cli",

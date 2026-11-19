@@ -4,7 +4,7 @@
 //!
 //! 关键约束（design.md 决策 1）：MCP stdio 模式必须显式 `mcp-stdio` 子命令启动；
 //! 所有 agent 配置都以 `command: ["visionary-cli", "mcp-stdio"]` 启动
-//! （旧名 `visionary-server` 仍作为别名二进制产出，既有配置继续可用）。
+//! （v0.9.0 起由 `visionary-server` 更名而来；旧名不再产出兼容二进制。）
 
 use crate::hif::HifAuth;
 use crate::pipeline::{self, VisionRequest};
@@ -19,8 +19,7 @@ use std::time::Duration;
 
 /// DeepSeek Visionary CLI (native binary).
 ///
-/// 主命令名为 `visionary-cli`；`visionary-server` 仍作为别名二进制同时产出
-/// （见 Cargo.toml 的两个 [[bin]]），让 v0.8.0 的既有安装与 agent 配置继续可用。
+/// 命令名为 `visionary-cli`（v0.9.0 起由 `visionary-server` 更名）。
 #[derive(Debug, Parser)]
 #[command(
     name = "visionary-cli",

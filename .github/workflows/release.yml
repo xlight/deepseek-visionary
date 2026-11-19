@@ -146,11 +146,6 @@ jobs:
       # 追加 per-target 资产：裸二进制 + MCPB 包（MCP Registry 分发）。
       # cargo-dist 0.32 的 extra-artifacts 是全局构建一次、不支持 per-target 占位符替换
       # （spike 4.1 实测），故在此 job 内按 target 追加构建。
-      #
-      # 双名过渡（v0.9.0 起）：主名 visionary-cli，同时产出旧名 visionary-server。
-      # 两者同一份二进制（Cargo.toml 的两个 [[bin]] 指向同一 main.rs），旧名产物让
-      # v0.8.0 的既有安装脚本 / Homebrew formula / agent 配置继续可用。
-      # 注意：此步骤为手工追加，`dist generate --mode ci` 重新生成会覆盖丢失，需重新追加。
       - name: Package bare binary + MCPB
         shell: bash
         run: |
@@ -166,11 +161,6 @@ jobs:
           mkdir -p dist
           cp "${SRC}" "dist/${BIN}"
           echo "bare-binary=dist/${BIN}" >> "$GITHUB_ENV"
-          # 双名过渡：再产出一份旧名，让既有安装路径继续可用
-          LEGACY="visionary-server-${TARGET}"
-          if [[ "${TARGET}" == *windows* ]]; then LEGACY="${LEGACY}.exe"; fi
-          cp "${SRC}" "dist/${LEGACY}"
-          echo "legacy-bare-binary=dist/${LEGACY}" >> "$GITHUB_ENV"
           # MCPB 包（zip = manifest.json + 二进制）；版本优先取发布 tag（去 v 前缀），
           # PR 模式（无 tag）退回 Cargo.toml workspace version。
           TAG="${{ needs.plan.outputs.tag }}"

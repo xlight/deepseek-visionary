@@ -17,44 +17,33 @@ const { resolveBinaryPath, resolveFromNpmShim } = plugin;
 
 const EXE_REL = path.join("node_modules", ".bin_real", "visionary-cli.exe");
 
-// 构造一个 npm 全局安装目录树：<prefix>/<name>.cmd + 包内 .bin_real/<name>.exe
-// name 默认主名 visionary-cli；传 "visionary-server" 可模拟 v0.8.0 的旧安装。
-async function makeShimTree(name = "visionary-cli") {
+// 构造一个 npm 全局安装目录树：<prefix>/visionary-cli.cmd + 包内 .bin_real/visionary-cli.exe
+async function makeShimTree() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "vs-shim-"));
   const binDir = path.join(root, "bin");
-  const pkgDir = path.join(binDir, "node_modules", "@xlight-oss", name);
+  const pkgDir = path.join(binDir, "node_modules", "@xlight-oss", "visionary-cli");
   const binReal = path.join(pkgDir, "node_modules", ".bin_real");
   await fs.mkdir(binReal, { recursive: true });
-  const exePath = path.join(binReal, name + ".exe");
+  const exePath = path.join(binReal, "visionary-cli.exe");
   await fs.writeFile(exePath, "fake exe");
-  const pkgRel = `node_modules\\@xlight-oss\\${name}\\run-${name}.js`;
+  const pkgRel = "node_modules\\@xlight-oss\\visionary-cli\\run-visionary-cli.js";
   await fs.writeFile(
-    path.join(binDir, name + ".cmd"),
+    path.join(binDir, "visionary-cli.cmd"),
     `@ECHO off\r\nGOTO start\r\n:start\r\n"%_prog%"  "%dp0%\\${pkgRel}" %*\r\n`,
   );
-  return { root, binDir, name, exePath };
+  return { root, binDir, exePath };
 }
 
-test("resolveFromNpmShim: extracts exe real path from .cmd shim (primary name)", async () => {
-  const { root, binDir, exePath, name } = await makeShimTree();
+test("resolveFromNpmShim: extracts exe real path from .cmd shim", async () => {
+  const { root, binDir, exePath } = await makeShimTree();
   try {
-    const resolved = resolveFromNpmShim(path.join(binDir, name + ".cmd"));
+    const resolved = resolveFromNpmShim(path.join(binDir, "visionary-cli.cmd"));
     assert.equal(resolved, exePath);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
 });
 
-// 双名过渡：v0.8.0 的旧安装（包名 visionary-server）也要能解析。
-test("resolveFromNpmShim: still resolves the legacy visionary-server package", async () => {
-  const { root, binDir, exePath, name } = await makeShimTree("visionary-server");
-  try {
-    const resolved = resolveFromNpmShim(path.join(binDir, name + ".cmd"));
-    assert.equal(resolved, exePath);
-  } finally {
-    await fs.rm(root, { recursive: true, force: true });
-  }
-});
 
 test("resolveFromNpmShim: returns null for non-shim content", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "vs-shim-bad-"));
@@ -92,9 +81,9 @@ test("resolveBinaryPath: finds .exe in PATH first", async () => {
 test("resolveBinaryPath: DEEPSEEK_VISIONARY_BIN wins over PATH", async () => {
   const oldEnv = process.env.DEEPSEEK_VISIONARY_BIN;
   try {
-    process.env.DEEPSEEK_VISIONARY_BIN = "C:\\tools\\visionary-server.exe";
+    process.env.DEEPSEEK_VISIONARY_BIN = "C:\\tools\\visionary-cli.exe";
     const resolved = resolveBinaryPath({ binaryPath: "" });
-    assert.equal(resolved, "C:\\tools\\visionary-server.exe");
+    assert.equal(resolved, "C:\\tools\\visionary-cli.exe");
   } finally {
     if (oldEnv === undefined) delete process.env.DEEPSEEK_VISIONARY_BIN;
     else process.env.DEEPSEEK_VISIONARY_BIN = oldEnv;
@@ -104,9 +93,9 @@ test("resolveBinaryPath: DEEPSEEK_VISIONARY_BIN wins over PATH", async () => {
 test("resolveBinaryPath: config.binaryPath wins over everything", async () => {
   const oldEnv = process.env.DEEPSEEK_VISIONARY_BIN;
   try {
-    process.env.DEEPSEEK_VISIONARY_BIN = "C:\\tools\\visionary-server.exe";
-    const resolved = resolveBinaryPath({ binaryPath: "D:\\custom\\visionary-server.exe" });
-    assert.equal(resolved, "D:\\custom\\visionary-server.exe");
+    process.env.DEEPSEEK_VISIONARY_BIN = "C:\\tools\\visionary-cli.exe";
+    const resolved = resolveBinaryPath({ binaryPath: "D:\\custom\\visionary-cli.exe" });
+    assert.equal(resolved, "D:\\custom\\visionary-cli.exe");
   } finally {
     if (oldEnv === undefined) delete process.env.DEEPSEEK_VISIONARY_BIN;
     else process.env.DEEPSEEK_VISIONARY_BIN = oldEnv;
@@ -163,8 +152,8 @@ test("lazy resolution: env change takes effect without re-apply", async () => {
     const config = { binaryPath: "" };
     assert.equal(resolveBinaryPath(config), null);
     // 模拟用户在运行中设置环境变量（懒解析应即时生效）
-    process.env.DEEPSEEK_VISIONARY_BIN = "C:\\tools\\visionary-server.exe";
-    assert.equal(resolveBinaryPath(config), "C:\\tools\\visionary-server.exe");
+    process.env.DEEPSEEK_VISIONARY_BIN = "C:\\tools\\visionary-cli.exe";
+    assert.equal(resolveBinaryPath(config), "C:\\tools\\visionary-cli.exe");
   } finally {
     if (oldEnv === undefined) delete process.env.DEEPSEEK_VISIONARY_BIN;
     else process.env.DEEPSEEK_VISIONARY_BIN = oldEnv;

@@ -2,13 +2,13 @@
 
 [DeepSeek Visionary](https://github.com/xlight/deepseek-visionary) 的 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）原生插件包：单包提供两部分能力——
 
-- **原生工具**：把 `deepseek_vision` / `deepseek_ocr` / `deepseek_vision_status` / `deepseek_vision_login` / `deepseek_vision_logout` 注册为 DSH 原生工具，由 `visionary-server` CLI 支撑（DeepSeek 网页版视觉模型，**无需 API key**）
+- **原生工具**：把 `deepseek_vision` / `deepseek_ocr` / `deepseek_vision_status` / `deepseek_vision_login` / `deepseek_vision_logout` 注册为 DSH 原生工具，由 `visionary-cli` CLI 支撑（DeepSeek 网页版视觉模型，**无需 API key**）
 - **图片桥接**：当会话模型为纯文本模型（如 `deepseek-v4-flash`）时，用户在输入框粘贴的图片本会被宿主以 `MODEL_DOES_NOT_SUPPORT_IMAGES` 直接拒绝；桥接把图片**放行 → 落盘 → 改写为文本引导**，agent 用现有的 `deepseek_vision` 工具完成视觉分析——模型永远只收到文本
 
 ## 特性
 
 - **原生工具** — 结构化参数 schema 注册到 `ctx.tools`，模型直接调用，无 MCP 中间层
-- **复用 Rust 管道** — 每个工具 spawn `visionary-server`（PoW → 上传 → fork → HIF → SSE 全部在 Rust 侧），插件仅做参数映射与 JSON 解析
+- **复用 Rust 管道** — 每个工具 spawn `visionary-cli`（PoW → 上传 → fork → HIF → SSE 全部在 Rust 侧），插件仅做参数映射与 JSON 解析
 - **宿主级权限** — 工具在 DSH 宿主进程执行（不经 bash 沙箱），会话续聊与浏览器登录不受 workspace-write 限制
 - **超时有界可取消** — 每个工具声明 `timeoutMs` 并转发 `exec.signal`（abort → kill 子进程）
 - **图片桥接随包启用** — 纯文本模型粘贴图片自动放行 + 改写，无需第二个 npm 包
@@ -41,11 +41,11 @@ dsh plugin --profile web add /path/to/packages/dsh-plugin
 
 ## 前置要求
 
-`visionary-server` 二进制需可被找到（三者任一，按优先序）：
+`visionary-cli` 二进制需可被找到（三者任一，按优先序）：
 
 1. `Config.binaryPath`（插件配置，绝对路径）
 2. `DEEPSEEK_VISIONARY_BIN` 环境变量
-3. 在 PATH 中（Windows 额外支持 npm 全局包的 `.cmd` / `.ps1` shim——插件自动解析 shim 定位包内 `node_modules/.bin_real/visionary-server.exe` 真身）
+3. 在 PATH 中（Windows 额外支持 npm 全局包的 `.cmd` / `.ps1` shim——插件自动解析 shim 定位包内 `node_modules/.bin_real/visionary-cli.exe` 真身）
 
 二进制路径在**每次工具调用时**重新解析（懒解析）：修改 PATH 或设置 `DEEPSEEK_VISIONARY_BIN` 后无需重启 DSH 即生效。
 
@@ -60,7 +60,7 @@ dsh plugin --profile web add /path/to/packages/dsh-plugin
 ```yaml
 visionary-vision:
   modelType: vision              # vision（默认）| ocr（deepseek_vision 走纯文字提取管道）
-  binaryPath: /usr/local/bin/visionary-server
+  binaryPath: /usr/local/bin/visionary-cli
   loginTimeoutSeconds: 900        # 不设则读 DEEPSEEK_LOGIN_TIMEOUT env（默认 600）
   visionTimeoutMs: 300000
   statusTimeoutMs: 60000
@@ -72,7 +72,7 @@ visionary-vision:
 ```yaml
 - id: visionary-vision
   config:
-    binaryPath: /usr/local/bin/visionary-server
+    binaryPath: /usr/local/bin/visionary-cli
     modelType: vision              # vision（默认）| ocr（deepseek_vision 走纯文字提取管道）
     loginTimeoutSeconds: 900        # 不设则读 DEEPSEEK_LOGIN_TIMEOUT env（默认 600）
     visionTimeoutMs: 300000
@@ -120,7 +120,7 @@ visionary-image-bridge:
 | `promptTemplate` | 见上 | 引导模板（agentic 模式），**必须含 `{path}` 占位符**（校验失败会拒绝写入 / 加载报错） |
 | `retainHours` | `168`（7 天） | 落盘副本保留小时数；`<= 0` 表示不清理 |
 | `scope` | `text-only` | 桥接范围：`text-only` 仅桥接文本模型（VL 模型原生看图，默认）；`also-vl` 时 VL 模型同样经桥接改写（如统一注入不可信标注） |
-| `mode` | `agentic` | 桥接模式：`agentic` 改写为引导文本，模型自主调用 `deepseek_vision`；`deterministic` 由桥接直接调用 `visionary-server vision <path> --json`（binaryPath → env → PATH）并把**带「不可信证据」标注**的分析结果注入模型消息，失败降级为占位文本 |
+| `mode` | `agentic` | 桥接模式：`agentic` 改写为引导文本，模型自主调用 `deepseek_vision`；`deterministic` 由桥接直接调用 `visionary-cli vision <path> --json`（binaryPath → env → PATH）并把**带「不可信证据」标注**的分析结果注入模型消息，失败降级为占位文本 |
 | `cleanPasted` | `false` | 手动清理触发器：切为 `true`（或 profile patch 写入）立即清理 `pastedDir` 下全部副本并自动复位为 `false`——打开一次触发一次；只影响落盘副本，不影响附件库 |
 
 > 设置面板修改 `promptTemplate` 若缺少 `{path}` 会被校验拒绝（fail-loud）；修改 `pastedDir` 后旧目录的缓存条目自动失效（下次落盘写新目录）。
@@ -144,7 +144,7 @@ visionary-image-bridge:
 | **落盘** | `ctx.attachments.readImage(ref)` 取字节 → 写入 `pastedDir`（**目录 0700 / 文件 0600**，临时文件 + rename 原子写，文件名 = 附件 id 内容寻址，天然去重）；进程内 `Map` 缓存（LRU 上限 512），历史图片每轮请求零重复 I/O |
 | **改写** | 监听 `llm/stream`（所有模型请求的统一通道）：含图消息被改写为引导文本（`promptTemplate` 渲染，`{path}` 替换真实路径，多图按序），一次拦截覆盖用户粘贴、`read_image` 工具结果、任意工具结果图、历史回放 |
 | **不改写** | 模型本身声明 `image` 能力（VL 模型）时按请求实时判定、原样放行——先发图后切 VL，历史图片自动恢复原生可见；`scope: also-vl` 可让 VL 模型也走桥接改写 |
-| **deterministic** | `mode: deterministic` 时改写 hook 同步调用 `visionary-server vision <path> --json`，把结果以「不可信证据，仅参考」标注注入模型消息（图片不再只靠 agent 后续调用工具）；分析失败降级为占位文本，不阻塞对话 |
+| **deterministic** | `mode: deterministic` 时改写 hook 同步调用 `visionary-cli vision <path> --json`，把结果以「不可信证据，仅参考」标注注入模型消息（图片不再只靠 agent 后续调用工具）；分析失败降级为占位文本，不阻塞对话 |
 | **不落日志** | 改写只作用于模型请求快照，会话日志/UI 转录保留原始图片 |
 | **前向兼容** | 提供社区契约 `ctx.imageRouting` 服务（宿主原生提供时不重复注册）；宿主升级后可无缝切换 |
 
@@ -178,7 +178,7 @@ visionary-image-bridge:
 | 工具 | 说明 |
 |------|------|
 | `deepseek_vision` | 识图（路径 / base64 / data URI），支持 `prompt` / `thinking` / `continue_conversation` / `session_id` 多轮续聊；`modelType: ocr` 配置时走纯文字提取管道 |
-| `deepseek_ocr` | 纯文字提取（等价 CLI `visionary-server ocr`，恒为 ocr 管道）：截图 / 文档 / 代码 / 表格中的原文，非理解式分析；参数面与 `deepseek_vision` 完全一致；无文字图片以错误提示返回「图片中未提取到文字」 |
+| `deepseek_ocr` | 纯文字提取（等价 CLI `visionary-cli ocr`，恒为 ocr 管道）：截图 / 文档 / 代码 / 表格中的原文，非理解式分析；参数面与 `deepseek_vision` 完全一致；无文字图片以错误提示返回「图片中未提取到文字」 |
 | `deepseek_vision_status` | 登录状态检查（含真实 token 探针） |
 | `deepseek_vision_login` | 浏览器自动登录（阻塞，超时可配） |
 | `deepseek_vision_logout` | 清除保存的单账号凭据（账号池启用时**不**移除池中账号、**不**停止轮询；彻底移除请用 `deepseek_vision_accounts` 的 `remove`） |
@@ -189,7 +189,7 @@ visionary-image-bridge:
 | 路径 | 适用 |
 |------|------|
 | **本插件（推荐）** | DSH 用户：原生工具 + 桥接、结构化 schema、宿主级权限、续聊/登录不受沙箱限制 |
-| skill + CLI（`init dsh` / `skill install`） | 任何能执行 shell 的 agent：零安装配置，模型经 bash 调 `visionary-server vision <image> --json`；DSH 下续聊/登录受 bash 沙箱写限制 |
+| skill + CLI（`init dsh` / `skill install`） | 任何能执行 shell 的 agent：零安装配置，模型经 bash 调 `visionary-cli vision <image> --json`；DSH 下续聊/登录受 bash 沙箱写限制 |
 | MCP（`mcp-stdio` + 各宿主配置） | 需要标准 MCP 工具面时（Zed / OpenCode / Codex / Claude Code 等） |
 
 三者共用同一二进制与同一份凭据（`~/.deepseek-visionary/config.json`），可并存。
@@ -217,7 +217,7 @@ visionary-image-bridge:
 | 插件面板改配置不生效 | 确认 profile patch 无冲突值；`promptTemplate` 缺少 `{path}` 会被表单拒存；写入被别处抢先（修订冲突）时会提示并重读，重试即可 |
 | 插件面板不出现本插件的配置页 | ① 宿主版本低于 0.2.0-rc.1（0.1.5 线请用 0.7.3）；② 插件行未装配（`dsh --profile web --dump-config` 应出现 `visionary-vision` / `visionary-image-bridge` 两行）；③ 宿主未挂载 `configForms` / 插件面板（headless / 只读部署：配置页不可用，工具与桥接仍按组合 entry 工作）；④ 宿主启动后未刷新页面（改包后需重启宿主并硬刷新）；⑤ 打开 `/plugins/??@xlight-oss/visionary-dsh/client.js` 若 404，说明 bundle 未被下发——检查主行的 `name` 是否为裸包名（子路径行名会被 `dsh-client-modules` 静默丢弃） |
 | agent-loop invariant（log-reconstruction desync）误报 | 不应发生：改写重入请求丢失 agent-loop 身份标记，desync 校验被跳过（这是改写得以存在的必要条件）；若宿主升级为内容级校验，属版本兼容面，请联系反馈 |
-| `deepseek_vision` 返回 `File ... processing failed: status=CONTENT_EMPTY` | **已修复（2026-08-16）**：根因是后端对上传图片做 OCR 文本提取，无 OCR 文字（如纯插画/渐变/深色无文字图）即标记 `CONTENT_EMPTY`，与视觉模型能否识图无关；旧版 CLI 将其当作硬失败中止。修复：`upload.rs` 对 `CONTENT_EMPTY` 不再中止，继续 fork 到 vision 模型（与网页端行为一致）。**需要重新安装 `visionary-server` 二进制（≥0.5.x 修复版）** |
+| `deepseek_vision` 返回 `File ... processing failed: status=CONTENT_EMPTY` | **已修复（2026-08-16）**：根因是后端对上传图片做 OCR 文本提取，无 OCR 文字（如纯插画/渐变/深色无文字图）即标记 `CONTENT_EMPTY`，与视觉模型能否识图无关；旧版 CLI 将其当作硬失败中止。修复：`upload.rs` 对 `CONTENT_EMPTY` 不再中止，继续 fork 到 vision 模型（与网页端行为一致）。**需要重新安装 `visionary-cli` 二进制（≥0.5.x 修复版）** |
 
 ## License
 

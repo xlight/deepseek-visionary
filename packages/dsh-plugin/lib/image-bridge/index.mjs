@@ -4,7 +4,7 @@
 // `deepseek-v4-flash`), pasted images are rejected by the host with
 // MODEL_DOES_NOT_SUPPORT_IMAGES before they ever reach the agent/tool layer.
 // This plugin bridges them so the agent analyzes them with the existing
-// `deepseek_vision` tool (visionary-server backend, no API key):
+// `deepseek_vision` tool (visionary-cli backend, no API key):
 //
 //   1. admission release — wraps `ctx.llm.resolveModelInfo` to additionally
 //      report the `image` input modality for configured bridge routes (the
@@ -33,7 +33,7 @@ import { ImagePersistence } from "./persistence.mjs";
 import { makeModelInfoPatch, makeStreamListener, matchesRoute } from "./core.mjs";
 // Same-package internal reuse (exported from the tools plugin row): the
 // deterministic-mode analysis drives the same binary + subprocess plumbing as
-// the `deepseek_vision` tool (`visionary-server vision <path> --json`).
+// the `deepseek_vision` tool (`visionary-cli vision <path> --json`).
 import { binaryMissingHelp, resolveBinaryPath, runCli, volGet } from "../index.mjs";
 
 export const name = "visionary-image-bridge";
@@ -94,7 +94,7 @@ export const Config = z.object({
       "桥接模式：agentic（默认）改写为引导文本后由模型自主调用 deepseek_vision；deterministic 由桥接直接调用分析并把带不可信标注的结果注入模型消息。",
     ),
   binaryPath: z.string().default("").volatile().description(
-    "visionary-server 二进制路径（deterministic 模式分析用）。空 = DEEPSEEK_VISIONARY_BIN → PATH。",
+    "visionary-cli 二进制路径（deterministic 模式分析用）。空 = DEEPSEEK_VISIONARY_BIN → PATH。",
   ),
   cleanPasted: z.boolean().default(false).volatile().description(
     "手动清理触发器：切为 true（或 settings.yaml 写入）即清理 pastedDir 副本并自动复位为 false（打开一次触发一次）。",
