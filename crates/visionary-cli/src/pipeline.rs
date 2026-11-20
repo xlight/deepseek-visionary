@@ -521,7 +521,7 @@ mod tests {
     #[test]
     fn no_usable_account_error_points_to_pool() {
         let msg = no_usable_account_error().to_string();
-        assert!(msg.contains("accounts list"), "unexpected: {msg}");
+        assert!(msg.contains("accounts list"));
     }
 
     #[test]

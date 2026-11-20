@@ -623,10 +623,10 @@ async fn cmd_vision(args: VisionArgs, forced: ModelType) -> Result<()> {
             };
             match result {
                 Ok(output) => {
-                    println!(
+                    crate::out::print_line(format_args!(
                         "\n---\n[session_id: {}] (use --continue-conversation to keep chatting)",
                         output.session_id
-                    );
+                    ));
                 }
                 Err(e) => fail(mode, &format!("Vision analysis failed: {e:#}")),
             }
@@ -655,10 +655,10 @@ async fn cmd_vision(args: VisionArgs, forced: ModelType) -> Result<()> {
                         );
                     } else {
                         println!("{}", output.text);
-                        println!(
+                        crate::out::print_line(format_args!(
                             "\n---\n[session_id: {}] (use --continue-conversation to keep chatting)",
                             output.session_id
-                        );
+                        ));
                     }
                 }
                 Err(e) => fail(mode, &format!("Vision analysis failed: {e:#}")),
@@ -823,7 +823,7 @@ async fn cmd_login() -> Result<()> {
 async fn cmd_logout() -> Result<()> {
     let config = crate::config::Config::load()?;
     let text = crate::login::run_logout(&config).await?;
-    println!("{text}");
+    crate::out::print_display(text);
     Ok(())
 }
 
@@ -1107,7 +1107,7 @@ async fn cmd_accounts_add(args: AccountsJsonArgs) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&view)?);
         return Ok(());
     }
-    println!("{text}");
+    crate::out::print_display(text);
     Ok(())
 }
 
@@ -1146,7 +1146,10 @@ fn cmd_accounts_remove(args: AccountsRemoveArgs) -> Result<()> {
         );
         return Ok(());
     }
-    println!("Removed account {} ({}).", target.label, target.account_id);
+    crate::out::print_line(format_args!(
+        "Removed account {} ({}).",
+        target.label, target.account_id
+    ));
     Ok(())
 }
 

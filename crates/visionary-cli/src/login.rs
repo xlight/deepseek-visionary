@@ -935,7 +935,7 @@ async fn wait_for_login(
                                 let guidance =
                                     muted_guidance(&h.label, &h.account_id, h.mute_until);
                                 // CLI：写 stderr（stdout 留给结构化输出）。
-                                eprintln!("{guidance}");
+                                crate::out::eprint_display(guidance);
                                 // MCP：把指引回传给调用方，由它即时返回。
                                 if let Some(tx) = events.as_deref_mut() {
                                     let _ = tx.send(LoginEvent::Muted {
@@ -1203,8 +1203,8 @@ mod tests {
     fn timeout_error_mentions_mute_deadline() {
         let e = login_timeout_error(Duration::from_secs(600), Some(1794738505));
         let text = e.to_string();
-        assert!(text.contains("600 seconds"), "{text}");
-        assert!(text.contains("2026-11-15 10:28 UTC"), "{text}");
+        assert!(text.contains("600 seconds"));
+        assert!(text.contains("2026-11-15 10:28 UTC"));
 
         let e2 = login_timeout_error(Duration::from_secs(90), None);
         assert!(e2.to_string().contains("90 seconds"));
@@ -1215,22 +1215,22 @@ mod tests {
     #[test]
     fn guidance_text_is_shared_by_both_channels() {
         let text = muted_guidance("a@b.c", "acc-1", Some(1794738505));
-        assert!(text.contains("a@b.c"), "{text}");
-        assert!(text.contains("acc-1"), "{text}");
-        assert!(text.contains("2026-11-15 10:28 UTC"), "{text}");
-        assert!(text.contains("MUTED"), "{text}");
+        assert!(text.contains("a@b.c"));
+        assert!(text.contains("acc-1"));
+        assert!(text.contains("2026-11-15 10:28 UTC"));
+        assert!(text.contains("MUTED"));
 
         let banner = muted_banner_html("a@b.c", "acc-1", Some(1794738505));
-        assert!(banner.contains("a@b.c"), "{banner}");
-        assert!(banner.contains("2026-11-15 10:28 UTC"), "{banner}");
+        assert!(banner.contains("a@b.c"));
+        assert!(banner.contains("2026-11-15 10:28 UTC"));
         // 横幅 SHALL 明确引导「换号登录」、分行且强调动作
-        assert!(banner.contains("换号登录"), "{banner}");
-        assert!(banner.contains("请在本窗口先登出"), "{banner}");
-        assert!(banner.contains("<br>"), "{banner}");
-        assert!(banner.contains("<strong>"), "{banner}");
+        assert!(banner.contains("换号登录"));
+        assert!(banner.contains("请在本窗口先登出"));
+        assert!(banner.contains("<br>"));
+        assert!(banner.contains("<strong>"));
         // 未知截止时间时也要给出可读兜底
         let unknown = muted_banner_html("a@b.c", "acc-1", None);
-        assert!(unknown.contains("未知截止时间"), "{unknown}");
+        assert!(unknown.contains("未知截止时间"));
     }
 
     /// 横幅 SHALL NOT 拦截页面交互：容器 `pointer-events: none`，

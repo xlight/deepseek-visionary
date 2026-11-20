@@ -18,6 +18,7 @@ mod hif;
 mod integrity;
 mod login;
 mod onboarding;
+mod out;
 mod pipeline;
 mod pow;
 mod server;
